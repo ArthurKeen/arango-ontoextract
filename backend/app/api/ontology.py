@@ -4,6 +4,11 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.db import registry_repo
 from app.db.client import get_db
+from app.models.curation import (
+    TemporalDiff,
+    TemporalSnapshot,
+)
+from app.services import temporal as temporal_svc
 
 log = logging.getLogger(__name__)
 
@@ -132,3 +137,66 @@ async def import_ontology() -> dict:
     """Import an external ontology file."""
     # TODO: implement ArangoRDF import
     return {"status": "not_implemented"}
+
+
+# ---------------------------------------------------------------------------
+# Temporal endpoints (PRD 7.3 — Week 10)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{ontology_id}/snapshot", response_model=TemporalSnapshot)
+async def get_snapshot(
+    ontology_id: str,
+    at: float = Query(..., description="Unix timestamp for the point-in-time snapshot"),
+) -> dict:
+    """Point-in-time graph state — all classes, properties, and edges active at ``at``."""
+    return temporal_svc.get_snapshot(ontology_id=ontology_id, timestamp=at)
+
+
+@router.get("/class/{class_key}/history")
+async def get_class_history(class_key: str) -> list[dict]:
+    """All versions of a class sorted by created DESC."""
+    history = temporal_svc.get_entity_history(
+        collection="ontology_classes",
+        key=class_key,
+    )
+    if not history:
+        raise HTTPException(status_code=404, detail=f"Class '{class_key}' not found")
+    return history
+
+
+@router.get("/{ontology_id}/diff", response_model=TemporalDiff)
+async def get_diff(
+    ontology_id: str,
+    t1: float = Query(..., description="Start timestamp"),
+    t2: float = Query(..., description="End timestamp"),
+) -> dict:
+    """Temporal diff — added, removed, and changed entities between t1 and t2."""
+    if t1 >= t2:
+        raise HTTPException(status_code=400, detail="t1 must be less than t2")
+    return temporal_svc.get_diff(ontology_id=ontology_id, t1=t1, t2=t2)
+
+
+@router.get("/{ontology_id}/timeline")
+async def get_timeline(ontology_id: str) -> list[dict]:
+    """Discrete change events for VCR slider tick marks."""
+    return temporal_svc.get_timeline_events(ontology_id=ontology_id)
+
+
+@router.post("/class/{class_key}/revert")
+async def revert_class(
+    class_key: str,
+    to_version: float = Query(
+        ..., description="Timestamp of the version to revert to"
+    ),
+) -> dict:
+    """Revert a class to a historical version. Creates a new current version."""
+    try:
+        result = temporal_svc.revert_to_version(
+            collection="ontology_classes",
+            key=class_key,
+            version_created_ts=to_version,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

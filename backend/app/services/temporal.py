@@ -312,3 +312,344 @@ FOR doc IN @@col
         )
     )
     return results[0] if results else None
+
+
+# ---------------------------------------------------------------------------
+# Temporal query functions (Week 10)
+# ---------------------------------------------------------------------------
+
+_VERTEX_COLLECTIONS = ["ontology_classes", "ontology_properties"]
+_EDGE_COLLECTIONS = [
+    "subclass_of",
+    "has_property",
+    "equivalent_class",
+    "extends_domain",
+    "related_to",
+]
+
+
+def get_snapshot(
+    db: StandardDatabase | None = None,
+    *,
+    ontology_id: str,
+    timestamp: float,
+) -> dict[str, Any]:
+    """Return the full graph state at ``timestamp`` for an ontology.
+
+    Queries ontology_classes, ontology_properties, and all edge collections
+    filtering by ``created <= ts < expired``.
+    """
+    if db is None:
+        db = get_db()
+
+    classes: list[dict[str, Any]] = []
+    properties: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+    vertex_query = """\
+FOR doc IN @@col
+  FILTER doc.ontology_id == @oid
+  FILTER doc.created <= @ts
+  FILTER doc.expired > @ts
+  RETURN doc"""
+
+    if db.has_collection("ontology_classes"):
+        classes = list(
+            db.aql.execute(
+                vertex_query,
+                bind_vars={"@col": "ontology_classes", "oid": ontology_id, "ts": timestamp},
+            )
+        )
+
+    if db.has_collection("ontology_properties"):
+        properties = list(
+            db.aql.execute(
+                vertex_query,
+                bind_vars={
+                    "@col": "ontology_properties",
+                    "oid": ontology_id,
+                    "ts": timestamp,
+                },
+            )
+        )
+
+    active_ids = {doc["_id"] for doc in classes + properties}
+
+    edge_query = """\
+FOR e IN @@col
+  FILTER e.created <= @ts
+  FILTER e.expired > @ts
+  RETURN e"""
+
+    for edge_col in _EDGE_COLLECTIONS:
+        if not db.has_collection(edge_col):
+            continue
+        col_edges = list(
+            db.aql.execute(edge_query, bind_vars={"@col": edge_col, "ts": timestamp})
+        )
+        for e in col_edges:
+            if e.get("_from") in active_ids or e.get("_to") in active_ids:
+                edges.append(e)
+
+    return {
+        "ontology_id": ontology_id,
+        "timestamp": timestamp,
+        "classes": classes,
+        "properties": properties,
+        "edges": edges,
+    }
+
+
+def get_entity_history(
+    db: StandardDatabase | None = None,
+    *,
+    collection: str,
+    key: str,
+) -> list[dict[str, Any]]:
+    """Return all versions of an entity sharing the same ``uri``, sorted by ``created`` DESC.
+
+    Looks up the entity's ``uri`` from the given ``_key``, then finds all
+    documents with that URI across versions.
+    """
+    if db is None:
+        db = get_db()
+
+    if not db.has_collection(collection):
+        return []
+
+    uri_query = """\
+FOR doc IN @@col
+  FILTER doc._key == @key
+  LIMIT 1
+  RETURN doc.uri"""
+
+    uri_results = list(
+        db.aql.execute(uri_query, bind_vars={"@col": collection, "key": key})
+    )
+    if not uri_results or uri_results[0] is None:
+        return []
+
+    uri = uri_results[0]
+
+    history_query = """\
+FOR doc IN @@col
+  FILTER doc.uri == @uri
+  SORT doc.created DESC
+  RETURN doc"""
+
+    return list(
+        db.aql.execute(history_query, bind_vars={"@col": collection, "uri": uri})
+    )
+
+
+def get_diff(
+    db: StandardDatabase | None = None,
+    *,
+    ontology_id: str,
+    t1: float,
+    t2: float,
+) -> dict[str, Any]:
+    """Compare two timestamps and return added/removed/changed entities.
+
+    - **added**: entities active at t2 but not at t1 (by URI)
+    - **removed**: entities active at t1 but not at t2 (by URI)
+    - **changed**: entities active at both but with different data
+    """
+    if db is None:
+        db = get_db()
+
+    added: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    changed: list[dict[str, Any]] = []
+
+    snapshot_query = """\
+FOR doc IN @@col
+  FILTER doc.ontology_id == @oid
+  FILTER doc.created <= @ts
+  FILTER doc.expired > @ts
+  RETURN doc"""
+
+    for col_name in _VERTEX_COLLECTIONS:
+        if not db.has_collection(col_name):
+            continue
+
+        at_t1 = list(
+            db.aql.execute(
+                snapshot_query,
+                bind_vars={"@col": col_name, "oid": ontology_id, "ts": t1},
+            )
+        )
+        at_t2 = list(
+            db.aql.execute(
+                snapshot_query,
+                bind_vars={"@col": col_name, "oid": ontology_id, "ts": t2},
+            )
+        )
+
+        t1_by_uri = {doc["uri"]: doc for doc in at_t1 if "uri" in doc}
+        t2_by_uri = {doc["uri"]: doc for doc in at_t2 if "uri" in doc}
+
+        for uri, doc in t2_by_uri.items():
+            if uri not in t1_by_uri:
+                added.append(doc)
+            else:
+                old_doc = t1_by_uri[uri]
+                if _has_data_changed(old_doc, doc):
+                    changed.append(
+                        {"before": old_doc, "after": doc, "collection": col_name}
+                    )
+
+        for uri, doc in t1_by_uri.items():
+            if uri not in t2_by_uri:
+                removed.append(doc)
+
+    return {
+        "ontology_id": ontology_id,
+        "t1": t1,
+        "t2": t2,
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+    }
+
+
+def _has_data_changed(old: dict[str, Any], new: dict[str, Any]) -> bool:
+    """Compare two versioned documents ignoring metadata fields."""
+    skip = {"_key", "_id", "_rev", "created", "expired", "version", "ttlExpireAt"}
+    for k in set(old.keys()) | set(new.keys()):
+        if k in skip:
+            continue
+        if old.get(k) != new.get(k):
+            return True
+    return False
+
+
+def get_timeline_events(
+    db: StandardDatabase | None = None,
+    *,
+    ontology_id: str,
+) -> list[dict[str, Any]]:
+    """Aggregate created/expired timestamps into discrete timeline events.
+
+    Returns a chronologically sorted list of events suitable for VCR slider
+    tick marks.
+    """
+    if db is None:
+        db = get_db()
+
+    events: list[dict[str, Any]] = []
+
+    event_query = """\
+FOR doc IN @@col
+  FILTER doc.ontology_id == @oid
+  SORT doc.created ASC
+  RETURN {
+    timestamp: doc.created,
+    event_type: doc.change_type,
+    entity_key: doc._key,
+    entity_label: doc.label,
+    collection: @col_name,
+    change_summary: doc.change_summary
+  }"""
+
+    for col_name in _VERTEX_COLLECTIONS:
+        if not db.has_collection(col_name):
+            continue
+        col_events = list(
+            db.aql.execute(
+                event_query,
+                bind_vars={"@col": col_name, "oid": ontology_id, "col_name": col_name},
+            )
+        )
+        events.extend(col_events)
+
+    events.sort(key=lambda e: e.get("timestamp", 0))
+    return events
+
+
+def revert_to_version(
+    db: StandardDatabase | None = None,
+    *,
+    collection: str,
+    key: str,
+    version_created_ts: float,
+    edge_collections: list[str] | None = None,
+) -> dict[str, Any]:
+    """Revert an entity to the state it had at ``version_created_ts``.
+
+    Finds the historical version whose ``created`` matches the given timestamp,
+    then creates a new current version with that historical data.
+    Does **not** delete intermediate history.
+    """
+    if db is None:
+        db = get_db()
+
+    historical_query = """\
+FOR doc IN @@col
+  FILTER doc._key == @key
+  FILTER doc.created == @ts
+  LIMIT 1
+  RETURN doc"""
+
+    results = list(
+        db.aql.execute(
+            historical_query,
+            bind_vars={"@col": collection, "key": key, "ts": version_created_ts},
+        )
+    )
+
+    if not results:
+        history = get_entity_history(db, collection=collection, key=key)
+        for doc in history:
+            if abs(doc["created"] - version_created_ts) < 0.001:
+                results = [doc]
+                break
+
+    if not results:
+        raise ValueError(
+            f"No version found for {collection}/{key} at timestamp {version_created_ts}"
+        )
+
+    historical = results[0]
+
+    revert_data = {
+        k: v
+        for k, v in historical.items()
+        if not k.startswith("_") and k not in ("created", "expired", "version", "ttlExpireAt")
+    }
+
+    return update_entity(
+        db,
+        collection=collection,
+        key=_find_current_key(db, collection=collection, uri=historical.get("uri", "")),
+        new_data=revert_data,
+        created_by="system",
+        change_type="revert",
+        change_summary=f"Reverted to version from {version_created_ts}",
+        edge_collections=edge_collections or _EDGE_COLLECTIONS,
+    )
+
+
+def _find_current_key(
+    db: StandardDatabase,
+    *,
+    collection: str,
+    uri: str,
+) -> str:
+    """Find the ``_key`` of the current (non-expired) version by URI."""
+    query = """\
+FOR doc IN @@col
+  FILTER doc.uri == @uri
+  FILTER doc.expired == @never
+  LIMIT 1
+  RETURN doc._key"""
+
+    results = list(
+        db.aql.execute(
+            query,
+            bind_vars={"@col": collection, "uri": uri, "never": NEVER_EXPIRES},
+        )
+    )
+    if not results:
+        raise ValueError(f"No current version found for uri={uri} in {collection}")
+    return results[0]

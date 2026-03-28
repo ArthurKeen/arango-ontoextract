@@ -12,6 +12,11 @@ from app.services.temporal import (
     expire_entity,
     get_at_timestamp,
     get_current,
+    get_diff,
+    get_entity_history,
+    get_snapshot,
+    get_timeline_events,
+    revert_to_version,
     update_entity,
 )
 
@@ -190,3 +195,205 @@ class TestTemporalVersioning:
         )
         assert len(results_at_t2) == 1
         assert results_at_t2[0]["label"] == "Version 2"
+
+
+@pytest.mark.integration
+class TestTemporalSnapshot:
+    """Snapshot, diff, timeline, and revert integration tests."""
+
+    def test_snapshot_returns_active_entities(self, test_db):
+        _ensure_collection(test_db, "ontology_classes")
+        _ensure_collection(test_db, "ontology_properties")
+        for e in ("subclass_of", "has_property", "equivalent_class", "extends_domain", "related_to"):
+            _ensure_collection(test_db, e, edge=True)
+
+        t_before = time.time()
+        time.sleep(0.01)
+
+        create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/snap#ClassA",
+                "label": "Snap A",
+                "ontology_id": "snap_test",
+            },
+        )
+        create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/snap#ClassB",
+                "label": "Snap B",
+                "ontology_id": "snap_test",
+            },
+        )
+        t_after = time.time()
+
+        snapshot = get_snapshot(test_db, ontology_id="snap_test", timestamp=t_after)
+        assert len(snapshot["classes"]) == 2
+
+        snapshot_before = get_snapshot(test_db, ontology_id="snap_test", timestamp=t_before)
+        assert len(snapshot_before["classes"]) == 0
+
+    def test_entity_history_returns_all_versions(self, test_db):
+        _ensure_collection(test_db, "ontology_classes")
+
+        v1 = create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/hist#ClassH",
+                "label": "V1",
+                "ontology_id": "hist_test",
+            },
+        )
+        time.sleep(0.01)
+
+        expire_entity(test_db, collection="ontology_classes", key=v1["_key"])
+        v2 = create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/hist#ClassH",
+                "label": "V2",
+                "ontology_id": "hist_test",
+            },
+        )
+        time.sleep(0.01)
+
+        expire_entity(test_db, collection="ontology_classes", key=v2["_key"])
+        create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/hist#ClassH",
+                "label": "V3",
+                "ontology_id": "hist_test",
+            },
+        )
+
+        history = get_entity_history(
+            test_db, collection="ontology_classes", key=v1["_key"]
+        )
+
+        assert len(history) == 3
+        assert history[0]["label"] == "V3"
+        assert history[2]["label"] == "V1"
+
+    def test_diff_detects_additions_and_removals(self, test_db):
+        _ensure_collection(test_db, "ontology_classes")
+
+        t0 = time.time()
+        time.sleep(0.01)
+
+        v1 = create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/diff#OnlyT1",
+                "label": "Only at t1",
+                "ontology_id": "diff_test",
+            },
+        )
+
+        t1 = time.time()
+        time.sleep(0.01)
+
+        expire_entity(test_db, collection="ontology_classes", key=v1["_key"])
+
+        create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/diff#OnlyT2",
+                "label": "Only at t2",
+                "ontology_id": "diff_test",
+            },
+        )
+
+        t2 = time.time()
+
+        diff = get_diff(test_db, ontology_id="diff_test", t1=t1, t2=t2)
+
+        added_uris = [d["uri"] for d in diff["added"]]
+        removed_uris = [d["uri"] for d in diff["removed"]]
+        assert "http://ex.org/diff#OnlyT2" in added_uris
+        assert "http://ex.org/diff#OnlyT1" in removed_uris
+
+    def test_timeline_events_chronological(self, test_db):
+        _ensure_collection(test_db, "ontology_classes")
+
+        create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/tl#First",
+                "label": "First",
+                "ontology_id": "tl_test",
+            },
+            change_type="initial",
+        )
+        time.sleep(0.01)
+        create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/tl#Second",
+                "label": "Second",
+                "ontology_id": "tl_test",
+            },
+            change_type="initial",
+        )
+
+        events = get_timeline_events(test_db, ontology_id="tl_test")
+
+        tl_events = [e for e in events if e.get("collection") == "ontology_classes"
+                      and "tl_test" in str(e)]
+        assert len(tl_events) >= 2
+        for i in range(len(tl_events) - 1):
+            assert tl_events[i]["timestamp"] <= tl_events[i + 1]["timestamp"]
+
+    def test_revert_creates_new_version_from_historical(self, test_db):
+        _ensure_collection(test_db, "ontology_classes")
+
+        v1 = create_version(
+            test_db,
+            collection="ontology_classes",
+            data={
+                "uri": "http://ex.org/revert#ClassR",
+                "label": "Original",
+                "ontology_id": "revert_test",
+                "status": "approved",
+            },
+            created_by="user_1",
+            change_type="initial",
+        )
+        v1_created = v1["created"]
+        time.sleep(0.01)
+
+        v2 = update_entity(
+            test_db,
+            collection="ontology_classes",
+            key=v1["_key"],
+            new_data={"label": "Modified"},
+            created_by="user_2",
+            change_type="edit",
+        )
+        time.sleep(0.01)
+
+        reverted = revert_to_version(
+            test_db,
+            collection="ontology_classes",
+            key=v1["_key"],
+            version_created_ts=v1_created,
+        )
+
+        assert reverted["label"] == "Original"
+        assert reverted["version"] == 3
+        assert reverted["change_type"] == "revert"
+
+        history = get_entity_history(
+            test_db, collection="ontology_classes", key=v1["_key"]
+        )
+        assert len(history) == 3

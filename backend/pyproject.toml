@@ -19,6 +19,9 @@ dependencies = [
     "python-docx>=1.1",
     "pymupdf>=1.25",
     "tiktoken>=0.9",
+    "openai>=1.60",
+    "redis>=5.2",
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +43,9 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: tests requiring a running ArangoDB instance",
+]
 
 [tool.mypy]
 python_version = "3.11"

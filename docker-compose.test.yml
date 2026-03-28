@@ -1,0 +1,32 @@
+services:
+  arangodb-test:
+    image: arangodb:3.12
+    ports:
+      - "8540:8529"
+    environment:
+      ARANGO_NO_AUTH: "1"
+    tmpfs:
+      - /var/lib/arangodb3
+      - /var/lib/arangodb3-apps
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8529/_api/version"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  default:
+    name: aoe-test-network

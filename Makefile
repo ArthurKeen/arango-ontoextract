@@ -1,4 +1,4 @@
-.PHONY: help setup infra backend frontend test lint clean
+.PHONY: help setup infra backend frontend test test-unit test-integration test-all test-infra-up test-infra-down lint format typecheck type-check clean migrate
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -35,6 +35,9 @@ infra-reset: ## Stop infrastructure and delete volumes
 backend: ## Run backend dev server
 	cd backend && .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
+migrate: ## Apply pending database migrations
+	cd backend && .venv/bin/python -m migrations.runner
+
 # ---------------------------------------------------------------------------
 # Frontend
 # ---------------------------------------------------------------------------
@@ -46,17 +49,34 @@ frontend: ## Run frontend dev server
 # Quality
 # ---------------------------------------------------------------------------
 
-test: ## Run backend tests
+test: ## Run all backend tests
 	cd backend && .venv/bin/pytest tests/ -v
 
+test-unit: ## Run backend unit tests only
+	cd backend && python -m pytest tests/unit/ -v
+
+test-integration: ## Run backend integration tests (requires Docker test services)
+	cd backend && python -m pytest tests/integration/ -v
+
+test-all: test-unit test-integration ## Run unit then integration tests
+
+test-infra-up: ## Start test ArangoDB + Redis containers
+	docker compose -f docker-compose.test.yml up -d
+
+test-infra-down: ## Stop test containers
+	docker compose -f docker-compose.test.yml down
+
 lint: ## Lint backend code
-	cd backend && .venv/bin/ruff check app/ tests/
+	cd backend && .venv/bin/ruff check . && .venv/bin/mypy app/ --ignore-missing-imports
 
 format: ## Format backend code
 	cd backend && .venv/bin/ruff format app/ tests/
 
 typecheck: ## Type-check backend
 	cd backend && .venv/bin/mypy app/
+
+type-check: ## Type-check backend + frontend
+	cd backend && .venv/bin/mypy app/ --ignore-missing-imports && cd ../frontend && npx tsc --noEmit
 
 # ---------------------------------------------------------------------------
 # Cleanup

@@ -11,6 +11,7 @@ class DocumentStatus(StrEnum):
     EMBEDDING = "embedding"
     READY = "ready"
     FAILED = "failed"
+    DELETED = "deleted"
 
 
 class DocumentCreate(BaseModel):

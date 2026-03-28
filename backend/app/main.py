@@ -1,11 +1,12 @@
-import structlog
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import curation, documents, extraction, health, ontology
+from app.api.errors import install_error_handlers
 from app.config import settings
 from app.db.client import close_db
 
@@ -45,6 +46,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+install_error_handlers(app)
 
 app.include_router(health.router)
 app.include_router(documents.router)

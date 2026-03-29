@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +39,60 @@ class OntologyPropertyResponse(BaseModel):
     property_type: str  # "datatype" | "object"
     tier: Tier
     status: EntityStatus
+
+
+# ---------------------------------------------------------------------------
+# CRUD request models (K.3–K.6b)
+# ---------------------------------------------------------------------------
+
+
+class CreateClassRequest(BaseModel):
+    """Request body for creating a new ontology class (K.3)."""
+
+    label: str
+    uri: str | None = None
+    description: str | None = None
+    parent_class_key: str | None = Field(
+        None, description="If set, a subclass_of edge is created to this parent"
+    )
+    rdf_type: str = "owl:Class"
+
+
+class CreatePropertyRequest(BaseModel):
+    """Request body for creating a new ontology property (K.4)."""
+
+    label: str
+    uri: str | None = None
+    description: str | None = None
+    domain_class_key: str = Field(..., description="Class this property belongs to")
+    range: str = Field(..., description="e.g. 'xsd:string', 'xsd:integer', or a class URI")
+    property_type: str = Field(..., description="'datatype' or 'object'")
+
+
+class CreateEdgeRequest(BaseModel):
+    """Request body for creating or updating an edge between classes (K.5)."""
+
+    edge_type: Literal["subclass_of", "related_to", "extends_domain"]
+    from_key: str
+    to_key: str
+    label: str | None = None
+
+
+class UpdateClassRequest(BaseModel):
+    """Partial update for an ontology class (K.6)."""
+
+    label: str | None = None
+    description: str | None = None
+    uri: str | None = None
+
+
+class UpdatePropertyRequest(BaseModel):
+    """Partial update for an ontology property (K.6)."""
+
+    label: str | None = None
+    description: str | None = None
+    uri: str | None = None
+    range: str | None = None
 
 
 class ExtractionClassification(StrEnum):

@@ -1,16 +1,26 @@
 import json
 import logging
+import re
 import sys
+import time
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from app.db import registry_repo
+from app.api.errors import ConflictError, NotFoundError, ValidationError
+from app.db import ontology_repo, registry_repo
 from app.db.client import get_db
 from app.models.curation import (
     TemporalDiff,
     TemporalSnapshot,
+)
+from app.models.ontology import (
+    CreateClassRequest,
+    CreateEdgeRequest,
+    CreatePropertyRequest,
+    UpdateClassRequest,
+    UpdatePropertyRequest,
 )
 from app.services import export as export_svc
 from app.services import ontology_context as ctx_svc
@@ -351,6 +361,306 @@ async def list_ontology_edges(ontology_id: str) -> dict:
             ))
             edges.extend(result)
     return {"data": edges}
+
+
+# ---------------------------------------------------------------------------
+# CRUD endpoints for ontology classes, properties, and edges (K.3–K.6b)
+# ---------------------------------------------------------------------------
+
+
+def _slugify(text: str) -> str:
+    """Convert text to an ArangoDB-safe key slug."""
+    return re.sub(r"[^a-zA-Z0-9]+", "_", text.lower()).strip("_")
+
+
+def _key_from_uri(uri: str) -> str:
+    """Extract a document key from the URI fragment (after ``#`` or last ``/``)."""
+    fragment = uri.rsplit("#", 1)[-1] if "#" in uri else uri.rsplit("/", 1)[-1]
+    return _slugify(fragment)
+
+
+def _ensure_collection(db, name: str, *, edge: bool = False) -> None:
+    if not db.has_collection(name):
+        db.create_collection(name, edge=edge)
+
+
+@router.post("/{ontology_id}/classes", status_code=201)
+async def create_class(ontology_id: str, body: CreateClassRequest) -> dict:
+    """Create a new ontology class (K.3)."""
+    db = get_db()
+    _ensure_collection(db, "ontology_classes")
+
+    slug = _slugify(body.label)
+    uri = body.uri or f"http://example.org/ontology/{ontology_id}#{slug}"
+    key = _key_from_uri(uri)
+
+    existing = list(
+        db.aql.execute(
+            "FOR c IN ontology_classes "
+            "FILTER c.ontology_id == @oid AND c.uri == @uri AND c.expired == @never "
+            "LIMIT 1 RETURN c._key",
+            bind_vars={"oid": ontology_id, "uri": uri, "never": NEVER_EXPIRES},
+        )
+    )
+    if existing:
+        raise ConflictError(f"Class with URI '{uri}' already exists")
+
+    data: dict = {
+        "_key": key,
+        "uri": uri,
+        "label": body.label,
+        "description": body.description or "",
+        "rdf_type": body.rdf_type,
+        "source_type": "manual",
+        "confidence": 1.0,
+        "status": "approved",
+    }
+
+    try:
+        cls_doc = ontology_repo.create_class(
+            db, ontology_id=ontology_id, data=data, created_by="manual"
+        )
+    except Exception as exc:
+        if "unique constraint" in str(exc).lower() or "1210" in str(exc):
+            data["_key"] = f"{key}_{int(time.time()) % 100000}"
+            cls_doc = ontology_repo.create_class(
+                db, ontology_id=ontology_id, data=data, created_by="manual"
+            )
+        else:
+            log.exception("Failed to create class")
+            raise
+
+    if body.parent_class_key:
+        parent = ontology_repo.get_class(db, key=body.parent_class_key)
+        if parent is None:
+            raise NotFoundError(f"Parent class '{body.parent_class_key}' not found")
+        if parent.get("ontology_id") != ontology_id:
+            raise ValidationError("Parent class belongs to a different ontology")
+        _ensure_collection(db, "subclass_of", edge=True)
+        ontology_repo.create_edge(
+            db,
+            edge_collection="subclass_of",
+            from_id=cls_doc["_id"],
+            to_id=parent["_id"],
+            data={
+                "ontology_id": ontology_id,
+                "label": f"{body.label} subClassOf {parent.get('label', '')}",
+            },
+        )
+
+    return cls_doc
+
+
+@router.post("/{ontology_id}/properties", status_code=201)
+async def create_property(ontology_id: str, body: CreatePropertyRequest) -> dict:
+    """Create a new ontology property with a ``has_property`` edge (K.4)."""
+    db = get_db()
+    _ensure_collection(db, "ontology_classes")
+    _ensure_collection(db, "ontology_properties")
+    _ensure_collection(db, "has_property", edge=True)
+
+    domain_cls = ontology_repo.get_class(db, key=body.domain_class_key)
+    if domain_cls is None:
+        raise NotFoundError(f"Domain class '{body.domain_class_key}' not found")
+    if domain_cls.get("ontology_id") != ontology_id:
+        raise ValidationError("Domain class belongs to a different ontology")
+
+    slug = _slugify(body.label)
+    prop_key = f"{body.domain_class_key}_{slug}"
+    uri = body.uri or f"http://example.org/ontology/{ontology_id}#{prop_key}"
+
+    data: dict = {
+        "_key": prop_key,
+        "uri": uri,
+        "label": body.label,
+        "description": body.description or "",
+        "domain_class": body.domain_class_key,
+        "range": body.range,
+        "property_type": body.property_type,
+        "source_type": "manual",
+        "confidence": 1.0,
+        "status": "approved",
+    }
+
+    try:
+        prop_doc = ontology_repo.create_property(
+            db, ontology_id=ontology_id, data=data, created_by="manual"
+        )
+    except Exception as exc:
+        if "unique constraint" in str(exc).lower() or "1210" in str(exc):
+            data["_key"] = f"{prop_key}_{int(time.time()) % 100000}"
+            prop_doc = ontology_repo.create_property(
+                db, ontology_id=ontology_id, data=data, created_by="manual"
+            )
+        else:
+            log.exception("Failed to create property")
+            raise
+
+    ontology_repo.create_edge(
+        db,
+        edge_collection="has_property",
+        from_id=domain_cls["_id"],
+        to_id=prop_doc["_id"],
+        data={"ontology_id": ontology_id},
+    )
+
+    return prop_doc
+
+
+@router.post("/{ontology_id}/edges", status_code=201)
+async def create_or_update_edge(ontology_id: str, body: CreateEdgeRequest) -> dict:
+    """Create an edge between two classes, or update if one already exists (K.5)."""
+    db = get_db()
+    _ensure_collection(db, "ontology_classes")
+
+    from_cls = ontology_repo.get_class(db, key=body.from_key)
+    if from_cls is None:
+        raise NotFoundError(f"Source class '{body.from_key}' not found")
+    if from_cls.get("ontology_id") != ontology_id:
+        raise ValidationError("Source class belongs to a different ontology")
+
+    to_cls = ontology_repo.get_class(db, key=body.to_key)
+    if to_cls is None:
+        raise NotFoundError(f"Target class '{body.to_key}' not found")
+    if to_cls.get("ontology_id") != ontology_id:
+        raise ValidationError("Target class belongs to a different ontology")
+
+    _ensure_collection(db, body.edge_type, edge=True)
+
+    existing_edges = list(
+        db.aql.execute(
+            "FOR e IN @@col "
+            "FILTER e._from == @from_id AND e._to == @to_id "
+            "AND e.expired == @never RETURN e",
+            bind_vars={
+                "@col": body.edge_type,
+                "from_id": from_cls["_id"],
+                "to_id": to_cls["_id"],
+                "never": NEVER_EXPIRES,
+            },
+        )
+    )
+    for old_edge in existing_edges:
+        temporal_svc.expire_entity(
+            db, collection=body.edge_type, key=old_edge["_key"]
+        )
+
+    edge_data: dict = {"ontology_id": ontology_id}
+    if body.label:
+        edge_data["label"] = body.label
+
+    edge_doc = ontology_repo.create_edge(
+        db,
+        edge_collection=body.edge_type,
+        from_id=from_cls["_id"],
+        to_id=to_cls["_id"],
+        data=edge_data,
+    )
+
+    return edge_doc
+
+
+@router.put("/{ontology_id}/classes/{class_key}")
+async def update_class_endpoint(
+    ontology_id: str, class_key: str, body: UpdateClassRequest
+) -> dict:
+    """Update an ontology class — expire old version, create new (K.6)."""
+    db = get_db()
+
+    cls = ontology_repo.get_class(db, key=class_key)
+    if cls is None:
+        raise NotFoundError(f"Class '{class_key}' not found")
+    if cls.get("ontology_id") != ontology_id:
+        raise ValidationError("Class belongs to a different ontology")
+
+    update_data = {
+        k: v
+        for k, v in {
+            "label": body.label,
+            "description": body.description,
+            "uri": body.uri,
+        }.items()
+        if v is not None
+    }
+    if not update_data:
+        raise ValidationError("No fields to update")
+
+    try:
+        updated = ontology_repo.update_class(
+            db,
+            key=class_key,
+            data=update_data,
+            created_by="manual",
+            change_summary=f"Updated class {class_key}: {', '.join(update_data.keys())}",
+        )
+    except ValueError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+    return updated
+
+
+@router.put("/{ontology_id}/properties/{prop_key}")
+async def update_property_endpoint(
+    ontology_id: str, prop_key: str, body: UpdatePropertyRequest
+) -> dict:
+    """Update an ontology property — expire old version, create new (K.6)."""
+    db = get_db()
+
+    prop = ontology_repo.get_property(db, key=prop_key)
+    if prop is None:
+        raise NotFoundError(f"Property '{prop_key}' not found")
+    if prop.get("ontology_id") != ontology_id:
+        raise ValidationError("Property belongs to a different ontology")
+
+    update_data = {
+        k: v
+        for k, v in {
+            "label": body.label,
+            "description": body.description,
+            "uri": body.uri,
+            "range": body.range,
+        }.items()
+        if v is not None
+    }
+    if not update_data:
+        raise ValidationError("No fields to update")
+
+    try:
+        updated = ontology_repo.update_property(
+            db,
+            key=prop_key,
+            data=update_data,
+            created_by="manual",
+            change_summary=f"Updated property {prop_key}: {', '.join(update_data.keys())}",
+        )
+    except ValueError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+    return updated
+
+
+@router.delete("/{ontology_id}/classes/{class_key}")
+async def delete_class_endpoint(ontology_id: str, class_key: str) -> dict:
+    """Soft-delete a class and all connected edges (K.6b)."""
+    db = get_db()
+
+    cls = ontology_repo.get_class(db, key=class_key)
+    if cls is None:
+        raise NotFoundError(f"Class '{class_key}' not found")
+    if cls.get("ontology_id") != ontology_id:
+        raise ValidationError("Class belongs to a different ontology")
+
+    try:
+        expired_cls = ontology_repo.expire_class_cascade(db, key=class_key)
+    except ValueError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+    return {"deleted": True, "class_key": class_key, "expired_class": expired_cls}
+
+
+# ---------------------------------------------------------------------------
+# Export / Import
+# ---------------------------------------------------------------------------
 
 
 @router.get("/{ontology_id}/export")

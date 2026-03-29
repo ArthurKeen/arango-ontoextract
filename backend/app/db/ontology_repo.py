@@ -11,7 +11,7 @@ from typing import Any
 from arango.database import StandardDatabase
 
 from app.db.client import get_db
-from app.services.temporal import NEVER_EXPIRES, create_version, update_entity
+from app.services.temporal import NEVER_EXPIRES, create_version, expire_entity, update_entity
 
 log = logging.getLogger(__name__)
 
@@ -205,6 +205,70 @@ FOR prop IN ontology_properties
             bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
         )
     )
+
+
+def update_property(
+    db: StandardDatabase | None = None,
+    *,
+    key: str,
+    data: dict[str, Any],
+    created_by: str = "system",
+    change_summary: str = "",
+) -> dict[str, Any]:
+    """Update an ontology property — expire old, create new version, re-create edges."""
+    if db is None:
+        db = get_db()
+
+    return update_entity(
+        db,
+        collection="ontology_properties",
+        key=key,
+        new_data=data,
+        created_by=created_by,
+        change_type="edit",
+        change_summary=change_summary or f"Updated property {key}",
+        edge_collections=_ONTOLOGY_EDGE_COLLECTIONS,
+    )
+
+
+def expire_class_cascade(
+    db: StandardDatabase | None = None,
+    *,
+    key: str,
+) -> dict[str, Any]:
+    """Expire a class and all connected edges (temporal soft delete).
+
+    Finds every active edge in each ontology edge collection where ``_from``
+    or ``_to`` matches the class's ``_id`` and expires them as well.
+    """
+    if db is None:
+        db = get_db()
+
+    cls = get_class(db, key=key)
+    if cls is None:
+        raise ValueError(f"No current version for ontology_classes/{key}")
+
+    class_id = cls["_id"]
+
+    expire_entity(db, collection="ontology_classes", key=key)
+
+    for edge_col in _ONTOLOGY_EDGE_COLLECTIONS:
+        if not db.has_collection(edge_col):
+            continue
+        edge_keys = list(
+            db.aql.execute(
+                "FOR e IN @@col "
+                "FILTER (e._from == @id OR e._to == @id) "
+                "AND e.expired == @never "
+                "RETURN e._key",
+                bind_vars={"@col": edge_col, "id": class_id, "never": NEVER_EXPIRES},
+            )
+        )
+        for edge_key in edge_keys:
+            expire_entity(db, collection=edge_col, key=edge_key)
+
+    log.info("class cascade-expired", extra={"key": key, "class_id": class_id})
+    return cls
 
 
 def create_edge(

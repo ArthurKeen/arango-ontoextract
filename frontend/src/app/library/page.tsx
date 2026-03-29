@@ -234,10 +234,16 @@ export default function LibraryPage() {
                   {/* Action buttons */}
                   <div className="flex gap-2 mb-3">
                     <a
-                      href={`/curation/${selectedOntology.extraction_run_id ?? selectedOntology._key}`}
+                      href={`/ontology/${selectedOntology._key}/edit`}
                       className="flex-1 text-center text-xs px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
                     >
-                      Curate Ontology
+                      Edit Graph
+                    </a>
+                    <a
+                      href={`/curation/${selectedOntology.extraction_run_id ?? selectedOntology._key}`}
+                      className="flex-1 text-center text-xs px-3 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors font-medium"
+                    >
+                      Curate
                     </a>
                     <div className="relative">
                       <button

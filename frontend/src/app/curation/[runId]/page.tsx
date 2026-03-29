@@ -11,6 +11,8 @@ import type {
   CurationDecisionType,
   EdgeType,
 } from "@/types/curation";
+import type { TemporalSnapshot } from "@/types/timeline";
+import type { TemporalDiff } from "@/types/timeline";
 import NodeDetail from "@/components/curation/NodeDetail";
 import NodeActions from "@/components/curation/NodeActions";
 import EdgeActions from "@/components/curation/EdgeActions";
@@ -18,6 +20,7 @@ import BatchActions from "@/components/curation/BatchActions";
 import ProvenancePanel from "@/components/curation/ProvenancePanel";
 import DiffView from "@/components/curation/DiffView";
 import PromotePanel from "@/components/curation/PromotePanel";
+import EntityHistory from "@/components/timeline/EntityHistory";
 
 const GraphCanvas = dynamic(
   () => import("@/components/graph/GraphCanvas"),
@@ -36,7 +39,12 @@ const VCRTimeline = dynamic(
   { ssr: false },
 );
 
-type SidePanel = "detail" | "provenance" | "diff" | "promote";
+const DiffOverlay = dynamic(
+  () => import("@/components/graph/DiffOverlay"),
+  { ssr: false },
+);
+
+type SidePanel = "detail" | "provenance" | "diff" | "promote" | "history";
 
 export default function CurationPage() {
   const params = useParams();
@@ -52,6 +60,11 @@ export default function CurationPage() {
   const [activePanel, setActivePanel] = useState<SidePanel>("detail");
   const [colorMode, setColorMode] = useState<"confidence" | "status">("confidence");
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [snapshotTimestamp, setSnapshotTimestamp] = useState<string | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [diffData, setDiffData] = useState<TemporalDiff | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
 
   const fetchGraph = useCallback(async () => {
     setLoading(true);
@@ -180,6 +193,85 @@ export default function CurationPage() {
   const ontologyId = graph?.ontology_id ?? graph?.classes[0]?.ontology_id ?? "";
   const hasData = graph != null && graph.classes.length > 0;
 
+  const handleTimestampChange = useCallback(
+    async (timestamp: string) => {
+      if (!ontologyId) return;
+      setSnapshotLoading(true);
+      try {
+        const snapshot = await api.get<TemporalSnapshot>(
+          `/api/v1/ontology/${ontologyId}/snapshot?at=${encodeURIComponent(timestamp)}`,
+        );
+        setGraph((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            classes: snapshot.classes,
+            properties: snapshot.properties,
+            edges: snapshot.edges,
+          };
+        });
+        setSnapshotTimestamp(timestamp);
+      } catch (err) {
+        setError(
+          err instanceof ApiError
+            ? err.body.message
+            : "Failed to load snapshot",
+        );
+      } finally {
+        setSnapshotLoading(false);
+      }
+    },
+    [ontologyId],
+  );
+
+  const returnToCurrent = useCallback(() => {
+    setSnapshotTimestamp(null);
+    fetchGraph();
+  }, [fetchGraph]);
+
+  const fetchDiff = useCallback(async () => {
+    if (!ontologyId) return;
+    setDiffLoading(true);
+    setDiffError(null);
+    try {
+      const diff = await api.get<TemporalDiff>(
+        `/api/v1/curation/diff/${runId}?ontology_id=${encodeURIComponent(ontologyId)}`,
+      );
+      setDiffData(diff);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setDiffError("Diff not available for this run.");
+      } else {
+        setDiffError(
+          err instanceof ApiError
+            ? err.body.message
+            : "Failed to load diff data",
+        );
+      }
+      setDiffData(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [runId, ontologyId]);
+
+  useEffect(() => {
+    if (activePanel === "diff" && ontologyId) {
+      fetchDiff();
+    }
+  }, [activePanel, ontologyId, fetchDiff]);
+
+  const handleRevert = useCallback(
+    (_classKey: string, _versionNumber: number) => {
+      fetchGraph();
+    },
+    [fetchGraph],
+  );
+
+  const activeNodeKeys = useMemo(() => {
+    if (!graph) return new Set<string>();
+    return new Set(graph.classes.map((c) => c._key));
+  }, [graph]);
+
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">
       {/* Header */}
@@ -248,6 +340,31 @@ export default function CurationPage() {
         </div>
       </header>
 
+      {/* Historical snapshot banner */}
+      {snapshotTimestamp && (
+        <div className="bg-amber-50 border-b border-amber-200" data-testid="snapshot-banner">
+          <div className="max-w-[1600px] mx-auto px-6 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-amber-800">
+              <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              Viewing historical snapshot at{" "}
+              <span className="font-mono font-medium">
+                {new Date(snapshotTimestamp).toLocaleString()}
+              </span>
+              {snapshotLoading && (
+                <span className="text-amber-500 animate-pulse ml-2">Loading...</span>
+              )}
+            </div>
+            <button
+              onClick={returnToCurrent}
+              className="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+              data-testid="return-to-current"
+            >
+              Return to current
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
       <div className="max-w-[1600px] mx-auto flex flex-col">
         <div className="flex flex-1 min-h-[calc(100vh-73px)]">
@@ -308,7 +425,7 @@ export default function CurationPage() {
             )}
 
             {!loading && !error && hasData && (
-              <div className="flex-1 bg-white m-4 rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="flex-1 bg-white m-4 rounded-xl border border-gray-200 shadow-sm overflow-hidden relative">
                 <GraphCanvas
                   classes={graph.classes}
                   properties={graph.properties}
@@ -321,6 +438,12 @@ export default function CurationPage() {
                   onSelectionChange={handleSelectionChange}
                   colorMode={colorMode}
                 />
+                {activePanel === "diff" && (
+                  <DiffOverlay
+                    diff={diffData}
+                    activeNodeKeys={activeNodeKeys}
+                  />
+                )}
               </div>
             )}
 
@@ -328,7 +451,10 @@ export default function CurationPage() {
             {timelineOpen && ontologyId && hasData && (
               <div className="mx-4 mb-4">
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                  <VCRTimeline ontologyId={ontologyId} />
+                  <VCRTimeline
+                    ontologyId={ontologyId}
+                    onTimestampChange={handleTimestampChange}
+                  />
                 </div>
               </div>
             )}
@@ -343,7 +469,7 @@ export default function CurationPage() {
                     node={selectedNode}
                     onDescriptionChange={handleDescriptionChange}
                     onShowProvenance={() => setActivePanel("provenance")}
-                    onShowHistory={() => {}}
+                    onShowHistory={() => setActivePanel("history")}
                   />
                   <div className="border-t border-gray-100 pt-4">
                     <NodeActions
@@ -386,11 +512,39 @@ export default function CurationPage() {
               )}
 
               {activePanel === "diff" && graph && (
-                <DiffView
-                  runId={runId}
-                  ontologyId={ontologyId}
+                <>
+                  <DiffView
+                    runId={runId}
+                    ontologyId={ontologyId}
+                    onClose={() => setActivePanel("detail")}
+                  />
+                  {diffLoading && (
+                    <div className="py-4 text-center text-sm text-gray-400 animate-pulse">
+                      Loading diff overlay...
+                    </div>
+                  )}
+                  {diffError && (
+                    <div className="py-3 px-3 text-sm text-amber-700 bg-amber-50 rounded-lg">
+                      {diffError}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activePanel === "history" && selectedNode && (
+                <EntityHistory
+                  classKey={selectedNode._key}
                   onClose={() => setActivePanel("detail")}
+                  onRevert={handleRevert}
                 />
+              )}
+
+              {activePanel === "history" && !selectedNode && (
+                <div className="py-12 text-center">
+                  <p className="text-gray-400 text-sm">
+                    Select a node to view its version history
+                  </p>
+                </div>
               )}
 
               {activePanel === "promote" && graph && (

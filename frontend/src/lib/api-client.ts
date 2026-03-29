@@ -5,6 +5,8 @@
  * defined in PRD Section 7.8.
  */
 
+import { getToken } from "@/lib/auth";
+
 // --- Response types -------------------------------------------------------
 
 export interface PaginatedResponse<T> {
@@ -52,11 +54,9 @@ class ApiClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("aoe_auth_token");
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
+    const token = getToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
     }
     return headers;
   }

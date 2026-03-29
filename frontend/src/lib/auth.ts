@@ -3,6 +3,10 @@
  *
  * JWT verification happens server-side; this module only decodes
  * the payload for UI display and route guards.
+ *
+ * Tokens are stored in BOTH localStorage (for client-side reads) and
+ * a cookie (for Next.js middleware auth checks). The cookie name must
+ * match what middleware.ts expects.
  */
 
 const TOKEN_KEY = "aoe_auth_token";
@@ -25,19 +29,39 @@ export interface CurrentUser {
   displayName: string;
 }
 
+function setCookie(name: string, value: string): void {
+  const secure = window.location.protocol === "https:";
+  let cookie = `${name}=${encodeURIComponent(value)}; path=/; SameSite=Lax`;
+  if (secure) cookie += "; Secure";
+  document.cookie = cookie;
+}
+
+function deleteCookie(name: string): void {
+  document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+}
+
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(
+    new RegExp(`(?:^|;\\s*)${name}=([^;]*)`)
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) ?? getCookie(TOKEN_KEY);
 }
 
 export function setToken(token: string): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(TOKEN_KEY, token);
+  setCookie(TOKEN_KEY, token);
 }
 
 export function clearToken(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(TOKEN_KEY);
+  deleteCookie(TOKEN_KEY);
 }
 
 export function parseToken(token: string): JWTPayload | null {

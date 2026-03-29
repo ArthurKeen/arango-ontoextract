@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
     admin,
+    auth,
     curation,
     documents,
     er,
@@ -22,6 +23,7 @@ from app.api import (
 from app.api.auth import JWTAuthMiddleware
 from app.api.errors import install_error_handlers
 from app.api.metrics import PrometheusMiddleware
+from app.api.rate_limit import RateLimitMiddleware
 from app.config import settings
 from app.db.client import close_db
 
@@ -67,6 +69,10 @@ install_error_handlers(app)
 app.add_middleware(JWTAuthMiddleware)
 app.add_middleware(PrometheusMiddleware)
 
+if settings.rate_limit_enabled:
+    app.add_middleware(RateLimitMiddleware)
+
+app.include_router(auth.router)
 app.include_router(health.router)
 app.include_router(documents.router)
 app.include_router(extraction.router)

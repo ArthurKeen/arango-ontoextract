@@ -18,13 +18,31 @@
     "bindVariables": {}
   },
   {
+    "_key": "current_classes",
+    "title": "Current Classes",
+    "name": "Current Classes",
+    "description": "All current (non-expired) classes for a given ontology.",
+    "content": "FOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  SORT c.label ASC\n  RETURN { key: c._key, label: c.label, uri: c.uri, confidence: c.confidence, created: c.created }",
+    "value": "FOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  SORT c.label ASC\n  RETURN { key: c._key, label: c.label, uri: c.uri, confidence: c.confidence, created: c.created }",
+    "bindVariables": { "ontology_id": "" }
+  },
+  {
     "_key": "orphan_classes",
     "title": "Orphan Classes",
     "name": "Orphan Classes",
-    "description": "Classes with no edges — no subclass_of, has_property, or related_to.",
-    "content": "FOR cls IN ontology_classes\n  FILTER cls.expired == 9223372036854775807\n  LET edge_count = LENGTH(\n    FOR v, e IN 1..1 ANY cls subclass_of, has_property, related_to\n      FILTER e.expired == 9223372036854775807\n      LIMIT 1\n      RETURN 1\n  )\n  FILTER edge_count == 0\n  RETURN {\n    _key: cls._key,\n    label: cls.label,\n    uri: cls.uri,\n    ontology_id: cls.ontology_id,\n    confidence: cls.confidence\n  }",
-    "value": "FOR cls IN ontology_classes\n  FILTER cls.expired == 9223372036854775807\n  LET edge_count = LENGTH(\n    FOR v, e IN 1..1 ANY cls subclass_of, has_property, related_to\n      FILTER e.expired == 9223372036854775807\n      LIMIT 1\n      RETURN 1\n  )\n  FILTER edge_count == 0\n  RETURN {\n    _key: cls._key,\n    label: cls.label,\n    uri: cls.uri,\n    ontology_id: cls.ontology_id,\n    confidence: cls.confidence\n  }",
-    "bindVariables": {}
+    "description": "Classes with no subclass_of edges (neither parent nor child) — isolated in the class hierarchy.",
+    "content": "LET parents = (FOR e IN subclass_of FILTER e.ontology_id == @ontology_id AND e.expired == 9223372036854775807 RETURN DISTINCT PARSE_IDENTIFIER(e._from).key)\nFOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  FILTER c._key NOT IN parents\n  LET childCount = LENGTH(FOR e IN subclass_of FILTER e._to == c._id AND e.expired == 9223372036854775807 RETURN 1)\n  FILTER childCount == 0\n  RETURN { key: c._key, label: c.label, confidence: c.confidence }",
+    "value": "LET parents = (FOR e IN subclass_of FILTER e.ontology_id == @ontology_id AND e.expired == 9223372036854775807 RETURN DISTINCT PARSE_IDENTIFIER(e._from).key)\nFOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  FILTER c._key NOT IN parents\n  LET childCount = LENGTH(FOR e IN subclass_of FILTER e._to == c._id AND e.expired == 9223372036854775807 RETURN 1)\n  FILTER childCount == 0\n  RETURN { key: c._key, label: c.label, confidence: c.confidence }",
+    "bindVariables": { "ontology_id": "" }
+  },
+  {
+    "_key": "classes_without_properties",
+    "title": "Classes Without Properties",
+    "name": "Classes Without Properties",
+    "description": "Current classes with no has_property edges — may need property definitions.",
+    "content": "FOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  LET propCount = LENGTH(FOR e IN has_property FILTER e._from == c._id AND e.expired == 9223372036854775807 RETURN 1)\n  FILTER propCount == 0\n  RETURN { key: c._key, label: c.label, confidence: c.confidence }",
+    "value": "FOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  LET propCount = LENGTH(FOR e IN has_property FILTER e._from == c._id AND e.expired == 9223372036854775807 RETURN 1)\n  FILTER propCount == 0\n  RETURN { key: c._key, label: c.label, confidence: c.confidence }",
+    "bindVariables": { "ontology_id": "" }
   },
   {
     "_key": "low_confidence_entities",
@@ -34,6 +52,15 @@
     "content": "LET low_classes = (\n  FOR cls IN ontology_classes\n    FILTER cls.expired == 9223372036854775807\n    FILTER cls.confidence != null AND cls.confidence < 0.5\n    RETURN { type: 'class', _key: cls._key, label: cls.label, confidence: cls.confidence, ontology_id: cls.ontology_id }\n)\nLET low_props = (\n  FOR prop IN ontology_properties\n    FILTER prop.expired == 9223372036854775807\n    FILTER prop.confidence != null AND prop.confidence < 0.5\n    RETURN { type: 'property', _key: prop._key, label: prop.label, confidence: prop.confidence, ontology_id: prop.ontology_id }\n)\nFOR entity IN UNION(low_classes, low_props)\n  SORT entity.confidence ASC\n  RETURN entity",
     "value": "LET low_classes = (\n  FOR cls IN ontology_classes\n    FILTER cls.expired == 9223372036854775807\n    FILTER cls.confidence != null AND cls.confidence < 0.5\n    RETURN { type: 'class', _key: cls._key, label: cls.label, confidence: cls.confidence, ontology_id: cls.ontology_id }\n)\nLET low_props = (\n  FOR prop IN ontology_properties\n    FILTER prop.expired == 9223372036854775807\n    FILTER prop.confidence != null AND prop.confidence < 0.5\n    RETURN { type: 'property', _key: prop._key, label: prop.label, confidence: prop.confidence, ontology_id: prop.ontology_id }\n)\nFOR entity IN UNION(low_classes, low_props)\n  SORT entity.confidence ASC\n  RETURN entity",
     "bindVariables": {}
+  },
+  {
+    "_key": "low_confidence_classes",
+    "title": "Low Confidence Classes",
+    "name": "Low Confidence Classes",
+    "description": "Current classes with confidence below a configurable threshold.",
+    "content": "FOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  FILTER c.confidence < @threshold\n  SORT c.confidence ASC\n  RETURN { key: c._key, label: c.label, confidence: c.confidence }",
+    "value": "FOR c IN ontology_classes\n  FILTER c.ontology_id == @ontology_id\n  FILTER c.expired == 9223372036854775807\n  FILTER c.confidence < @threshold\n  SORT c.confidence ASC\n  RETURN { key: c._key, label: c.label, confidence: c.confidence }",
+    "bindVariables": { "ontology_id": "", "threshold": 0.5 }
   },
   {
     "_key": "recently_created",

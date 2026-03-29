@@ -99,7 +99,14 @@ async def execute_run(
     """Execute the extraction pipeline for an existing run record.
 
     Designed to run as a background task after the HTTP response is sent.
+    When no event_callback is provided, defaults to publishing events
+    over WebSocket via the extraction event bus.
     """
+    if event_callback is None:
+        from app.api.ws_extraction import publish_event
+
+        event_callback = publish_event
+
     db = get_db()
     col = _get_collection(db, "extraction_runs")
     run_record = col.get(run_id)
@@ -173,6 +180,7 @@ async def execute_run(
                     ontology_id=ontology_id,
                     result=final_state["consistency_result"],
                 )
+                _create_produced_by_edge(db, ontology_id=ontology_id, run_id=run_id)
                 try:
                     from app.services.ontology_graphs import ensure_ontology_graph
                     graph_name = ensure_ontology_graph(ontology_id, db=db)
@@ -422,11 +430,11 @@ def _materialize_to_graph(
     now = time.time()
     classes = result.classes if hasattr(result, "classes") else result.get("classes", [])
 
-    for col_name in ("ontology_classes", "ontology_properties",
-                     "has_property", "subclass_of", "related_to", "extracted_from"):
+    edge_collections = ("has_property", "subclass_of", "related_to",
+                         "extracted_from", "has_chunk", "produced_by")
+    for col_name in ("ontology_classes", "ontology_properties", *edge_collections):
         if not db.has_collection(col_name):
-            edge = col_name in ("has_property", "subclass_of", "related_to", "extracted_from")
-            db.create_collection(col_name, edge=edge)
+            db.create_collection(col_name, edge=(col_name in edge_collections))
 
     cls_col = db.collection("ontology_classes")
     prop_col = db.collection("ontology_properties")
@@ -529,10 +537,56 @@ def _materialize_to_graph(
             except Exception:
                 pass
 
+    has_chunk_col = db.collection("has_chunk")
+    if db.has_collection("chunks"):
+        chunk_docs = list(db.aql.execute(
+            "FOR c IN chunks FILTER c.doc_id == @doc_id RETURN c._key",
+            bind_vars={"doc_id": document_id},
+        ))
+        for chunk_key in chunk_docs:
+            try:
+                has_chunk_col.insert({
+                    "_from": f"documents/{document_id}",
+                    "_to": f"chunks/{chunk_key}",
+                    "ontology_id": ontology_id,
+                    "run_id": run_id,
+                    "created": now,
+                    "expired": NEVER_EXPIRES,
+                }, overwrite=True)
+            except Exception:
+                pass
+
     log.info(
         "materialized extraction to graph",
         extra={"run_id": run_id, "classes": len(class_keys), "ontology_id": ontology_id},
     )
+
+
+def _create_produced_by_edge(
+    db: StandardDatabase,
+    *,
+    ontology_id: str,
+    run_id: str,
+) -> None:
+    """Create a produced_by edge from ontology_registry → extraction_runs."""
+    try:
+        for col_name in ("produced_by",):
+            if not db.has_collection(col_name):
+                db.create_collection(col_name, edge=True)
+
+        col = db.collection("produced_by")
+        col.insert({
+            "_from": f"ontology_registry/{ontology_id}",
+            "_to": f"extraction_runs/{run_id}",
+            "created": time.time(),
+            "expired": NEVER_EXPIRES,
+        }, overwrite=True)
+        log.info(
+            "created produced_by edge",
+            extra={"ontology_id": ontology_id, "run_id": run_id},
+        )
+    except Exception:
+        log.warning("produced_by edge creation failed", exc_info=True)
 
 
 def _auto_register_ontology(

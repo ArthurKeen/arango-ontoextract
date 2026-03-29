@@ -24,6 +24,13 @@ log = logging.getLogger(__name__)
 
 _EVENT_BUS: dict[str, Any] | None = None
 
+_NEXT_STEP: dict[str, str] = {
+    "strategy_selector": "extractor",
+    "extractor": "consistency_checker",
+    "consistency_checker": "er_agent",
+    "er_agent": "filter",
+}
+
 
 def set_event_bus(bus: dict[str, Any] | None) -> None:
     """Register an event bus for pipeline step notifications (WebSocket)."""
@@ -192,13 +199,23 @@ async def run_pipeline(
     )
 
     final_state: ExtractionPipelineState | None = None
+    last_node: str | None = None
     try:
+        if event_callback:
+            await event_callback(
+                run_id=run_id,
+                event_type="step_started",
+                step="strategy_selector",
+                data={},
+            )
+
         async for event in compiled.astream(initial_state, config=config):
             for node_name, node_output in event.items():
                 log.info(
                     "pipeline node completed",
                     extra={"run_id": run_id, "node": node_name},
                 )
+                last_node = node_name
                 if event_callback:
                     await event_callback(
                         run_id=run_id,
@@ -206,6 +223,14 @@ async def run_pipeline(
                         step=node_name,
                         data={"current_step": node_name},
                     )
+                    next_step = _NEXT_STEP.get(node_name)
+                    if next_step:
+                        await event_callback(
+                            run_id=run_id,
+                            event_type="step_started",
+                            step=next_step,
+                            data={},
+                        )
                 if isinstance(node_output, dict):
                     final_state = node_output
     except Exception as stream_exc:
@@ -216,6 +241,21 @@ async def run_pipeline(
         if final_state is None:
             final_state = dict(initial_state)
         final_state.setdefault("errors", []).append(str(stream_exc))
+
+        if event_callback:
+            await event_callback(
+                run_id=run_id,
+                event_type="error",
+                step=last_node or "pipeline",
+                data={"error": str(stream_exc)},
+            )
+            await event_callback(
+                run_id=run_id,
+                event_type="completed",
+                step="pipeline",
+                data={"errors": final_state.get("errors", [])},
+            )
+
         return final_state
 
     try:

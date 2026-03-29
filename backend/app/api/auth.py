@@ -1,23 +1,31 @@
-"""JWT authentication middleware — PRD Section 8.3.
+"""JWT authentication middleware and login endpoint — PRD Section 8.3.
 
 Validates Bearer tokens from the Authorization header, extracts user claims
 (user_id, org_id, roles), and provides a dev-mode mock user fallback.
+
+Also exposes ``POST /api/v1/auth/login`` — a scaffold login endpoint that
+issues HS256 JWTs.  Real IdP integration will replace this later.
 """
 
 from __future__ import annotations
 
+import datetime
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
 import jwt
-from fastapi import Request
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
 from app.config import settings
 
 log = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 _AUTH_HEADER = "Authorization"
 _BEARER_PREFIX = "Bearer "
@@ -43,7 +51,10 @@ _MOCK_USER = AuthenticatedUser(
     display_name="Dev Admin",
 )
 
-_PUBLIC_PATHS = frozenset({"/health", "/ready", "/docs", "/openapi.json", "/redoc"})
+_PUBLIC_PATHS = frozenset({
+    "/health", "/ready", "/docs", "/openapi.json", "/redoc",
+    "/api/v1/auth/login",
+})
 
 
 def decode_jwt(token: str) -> dict[str, Any]:
@@ -114,8 +125,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
 
 def _error_response(status: int, code: str, message: str) -> JSONResponse:
-    import uuid
-
     return JSONResponse(
         status_code=status,
         content={
@@ -127,3 +136,50 @@ def _error_response(status: int, code: str, message: str) -> JSONResponse:
             }
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Login endpoint (scaffold — will be replaced by real IdP integration)
+# ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login(body: LoginRequest) -> LoginResponse:
+    """Issue a JWT for valid credentials.
+
+    This is a scaffold endpoint: any non-empty email/password pair is accepted.
+    Production deployments will delegate to an external IdP.
+    """
+    if not body.email.strip() or not body.password.strip():
+        return JSONResponse(  # type: ignore[return-value]
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Email and password are required",
+                    "details": {},
+                    "request_id": f"req_{uuid.uuid4().hex[:12]}",
+                }
+            },
+        )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    claims = {
+        "sub": f"user_{uuid.uuid4().hex[:8]}",
+        "org_id": "org_default",
+        "roles": ["editor"],
+        "email": body.email.strip(),
+        "name": body.email.split("@")[0],
+        "iat": now,
+        "exp": now + datetime.timedelta(hours=24),
+    }
+    token = jwt.encode(claims, settings.app_secret_key, algorithm="HS256")
+    return LoginResponse(token=token)

@@ -27,6 +27,15 @@
     "bindVariables": {}
   },
   {
+    "_key": "proc_process_lineage",
+    "title": "Process Lineage",
+    "name": "Process Lineage",
+    "description": "Trace from a document to its chunks and extracted classes.",
+    "content": "FOR doc IN documents\n  FILTER doc._key == @doc_id\n  LET chunks = (FOR c IN chunks FILTER c.doc_id == doc._key RETURN c._key)\n  LET classes = (FOR e IN extracted_from FILTER e._to == doc._id RETURN DOCUMENT(e._from))\n  RETURN { document: doc.filename, chunk_count: LENGTH(chunks), classes: classes[*].label }",
+    "value": "FOR doc IN documents\n  FILTER doc._key == @doc_id\n  LET chunks = (FOR c IN chunks FILTER c.doc_id == doc._key RETURN c._key)\n  LET classes = (FOR e IN extracted_from FILTER e._to == doc._id RETURN DOCUMENT(e._from))\n  RETURN { document: doc.filename, chunk_count: LENGTH(chunks), classes: classes[*].label }",
+    "bindVariables": { "doc_id": "" }
+  },
+  {
     "_key": "proc_registered_ontologies",
     "title": "Registered Ontologies",
     "name": "Registered Ontologies",

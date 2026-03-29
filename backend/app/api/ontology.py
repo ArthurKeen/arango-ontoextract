@@ -19,6 +19,7 @@ from app.services.arangordf_bridge import import_from_file
 from app.services.schema_extraction import (
     SchemaExtractionConfig,
     extract_schema,
+    get_extraction_status,
 )
 
 NEVER_EXPIRES: int = sys.maxsize

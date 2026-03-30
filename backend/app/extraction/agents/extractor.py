@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -125,7 +126,7 @@ FOR chunk IN chunks
         return chunks
 
 
-def extractor_node(state: ExtractionPipelineState) -> dict:
+async def extractor_node(state: ExtractionPipelineState) -> dict:
     """LangGraph node: run N-pass extraction with self-correction."""
     start = time.time()
     run_id = state.get("run_id", "unknown")
@@ -191,7 +192,7 @@ def extractor_node(state: ExtractionPipelineState) -> dict:
                             )
                         )
 
-                    response = llm.invoke(messages)
+                    response = await llm.ainvoke(messages)
                     raw_text = (
                         response.content
                         if isinstance(response.content, str)
@@ -227,7 +228,7 @@ def extractor_node(state: ExtractionPipelineState) -> dict:
                         },
                     )
                     if "empty response" in last_error.lower() or "Expecting value" in last_error:
-                        time.sleep(2 * (retry + 1))
+                        await asyncio.sleep(2 * (retry + 1))
                     if retry == _MAX_RETRIES_PER_PASS - 1:
                         errors.append(
                             f"Pass {pass_num} batch {batch_idx}: "

@@ -20,6 +20,7 @@ from app.db.client import get_db
 from app.db.pagination import paginate
 from app.extraction.pipeline import run_pipeline
 from app.models.common import PaginatedResponse
+from app.services.confidence import compute_class_confidence
 
 log = logging.getLogger(__name__)
 
@@ -689,10 +690,111 @@ def _materialize_to_graph(
             except Exception:
                 pass
 
+    _recompute_multi_signal_confidence(
+        db,
+        ontology_id=ontology_id,
+        classes=classes,
+        class_keys=class_keys,
+        uri_to_key=uri_to_key,
+    )
+
     log.info(
         "materialized extraction to graph",
         extra={"run_id": run_id, "classes": len(class_keys), "ontology_id": ontology_id},
     )
+
+
+def _recompute_multi_signal_confidence(
+    db: StandardDatabase,
+    *,
+    ontology_id: str,
+    classes: list[Any],
+    class_keys: dict[str, str],
+    uri_to_key: dict[str, str],
+) -> None:
+    """Second pass: recompute confidence for each class using multi-signal scoring.
+
+    Runs AFTER all classes, properties, and edges have been materialized so
+    that structural connectivity is fully available.
+    """
+    cls_col = db.collection("ontology_classes")
+    has_prop_col = db.collection("has_property")
+    subclass_col = db.collection("subclass_of")
+    extracted_col = db.collection("extracted_from")
+
+    all_descriptions: list[str] = []
+    for cls in classes:
+        cls_data = cls.model_dump() if hasattr(cls, "model_dump") else dict(cls)
+        all_descriptions.append(cls_data.get("description", ""))
+
+    for cls in classes:
+        cls_data = cls.model_dump() if hasattr(cls, "model_dump") else dict(cls)
+        label = cls_data.get("label", "Unknown")
+        uri = cls_data.get("uri", "")
+        key = uri_to_key.get(uri) or class_keys.get(label)
+        if not key:
+            continue
+
+        agreement_ratio = cls_data.get("confidence", 0.5)
+        llm_confidence = cls_data.get("llm_confidence", 0.5)
+        description = cls_data.get("description", "")
+        class_id = f"ontology_classes/{key}"
+
+        has_properties = bool(list(db.aql.execute(
+            "FOR e IN @@col FILTER e._from == @cls_id AND e.ontology_id == @oid "
+            "LIMIT 1 RETURN true",
+            bind_vars={
+                "@col": has_prop_col.name,
+                "cls_id": class_id,
+                "oid": ontology_id,
+            },
+        )))
+
+        has_parent = bool(list(db.aql.execute(
+            "FOR e IN @@col FILTER e._from == @cls_id AND e.ontology_id == @oid "
+            "LIMIT 1 RETURN true",
+            bind_vars={
+                "@col": subclass_col.name,
+                "cls_id": class_id,
+                "oid": ontology_id,
+            },
+        )))
+
+        has_children = bool(list(db.aql.execute(
+            "FOR e IN @@col FILTER e._to == @cls_id AND e.ontology_id == @oid "
+            "LIMIT 1 RETURN true",
+            bind_vars={
+                "@col": subclass_col.name,
+                "cls_id": class_id,
+                "oid": ontology_id,
+            },
+        )))
+
+        provenance_count_result = list(db.aql.execute(
+            "FOR e IN @@col FILTER e._from == @cls_id "
+            "COLLECT WITH COUNT INTO cnt RETURN cnt",
+            bind_vars={
+                "@col": extracted_col.name,
+                "cls_id": class_id,
+            },
+        ))
+        provenance_count = provenance_count_result[0] if provenance_count_result else 0
+
+        new_confidence = compute_class_confidence(
+            agreement_ratio=agreement_ratio,
+            llm_confidence=llm_confidence,
+            has_properties=has_properties,
+            has_parent=has_parent,
+            has_children=has_children,
+            description=description,
+            all_descriptions=all_descriptions,
+            provenance_count=provenance_count,
+        )
+
+        try:
+            cls_col.update({"_key": key, "confidence": new_confidence})
+        except Exception as exc:
+            log.warning("confidence update failed for %s: %s", key, exc)
 
 
 def _create_produced_by_edge(

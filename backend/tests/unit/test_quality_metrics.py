@@ -36,10 +36,10 @@ class TestComputeOntologyQuality:
             0: [{"cnt": 5, "avg_conf": 0.85}],   # class stats
             1: [3],                                 # property count
             2: [4],                                 # classes with props
-            3: [],                                  # orphan query (all_classes)
-            4: [],                                  # orphan (children)
-            5: [],                                  # orphan (parents)
-            6: [],                                  # orphan (connected)
+            3: [0],                                 # orphan query
+            4: [],                                  # cycle check 1
+            5: [],                                  # cycle check 2
+            6: [2],                                 # chunk count
         })
 
         result = compute_ontology_quality(db, "onto_1")
@@ -50,6 +50,8 @@ class TestComputeOntologyQuality:
         assert result["property_count"] == 3
         assert result["completeness"] == 80.0
         assert result["classes_without_properties"] == 1
+        assert result["health_score"] is not None
+        assert 0 <= result["health_score"] <= 100
 
     def test_empty_ontology(self):
         from app.services.quality_metrics import compute_ontology_quality
@@ -65,6 +67,7 @@ class TestComputeOntologyQuality:
         assert result["completeness"] == 0.0
         assert result["orphan_count"] == 0
         assert result["has_cycles"] is False
+        assert result["health_score"] is None
 
     def test_handles_missing_collections_gracefully(self):
         from app.services.quality_metrics import compute_ontology_quality
@@ -225,3 +228,121 @@ class TestDetectCycles:
         db.has_collection.return_value = False
 
         assert _detect_cycles(db, "onto_1") is False
+
+
+class TestComputeHealthScore:
+    """Tests for compute_health_score."""
+
+    def test_perfect_ontology(self):
+        from app.services.quality_metrics import compute_health_score
+
+        score = compute_health_score(
+            completeness=1.0,
+            has_cycles=False,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=0.9,
+            total_properties=30,
+            chunk_count=5,
+        )
+        assert score >= 80
+
+    def test_poor_ontology(self):
+        from app.services.quality_metrics import compute_health_score
+
+        score = compute_health_score(
+            completeness=0.1,
+            has_cycles=True,
+            orphan_count=8,
+            total_classes=10,
+            avg_confidence=0.2,
+            total_properties=1,
+            chunk_count=0,
+        )
+        assert score < 30
+
+    def test_score_bounded_0_to_100(self):
+        from app.services.quality_metrics import compute_health_score
+
+        score_max = compute_health_score(
+            completeness=1.0,
+            has_cycles=False,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=1.0,
+            total_properties=50,
+            chunk_count=100,
+        )
+        assert 0 <= score_max <= 100
+
+        score_min = compute_health_score(
+            completeness=0.0,
+            has_cycles=True,
+            orphan_count=10,
+            total_classes=10,
+            avg_confidence=0.0,
+            total_properties=0,
+            chunk_count=0,
+        )
+        assert 0 <= score_min <= 100
+
+    def test_cycles_penalize_score(self):
+        from app.services.quality_metrics import compute_health_score
+
+        score_no_cycle = compute_health_score(
+            completeness=0.8,
+            has_cycles=False,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=0.7,
+            total_properties=15,
+            chunk_count=3,
+        )
+        score_with_cycle = compute_health_score(
+            completeness=0.8,
+            has_cycles=True,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=0.7,
+            total_properties=15,
+            chunk_count=3,
+        )
+        assert score_no_cycle > score_with_cycle
+
+    def test_orphans_penalize_score(self):
+        from app.services.quality_metrics import compute_health_score
+
+        score_connected = compute_health_score(
+            completeness=0.8,
+            has_cycles=False,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=0.7,
+            total_properties=15,
+            chunk_count=3,
+        )
+        score_orphans = compute_health_score(
+            completeness=0.8,
+            has_cycles=False,
+            orphan_count=5,
+            total_classes=10,
+            avg_confidence=0.7,
+            total_properties=15,
+            chunk_count=3,
+        )
+        assert score_connected > score_orphans
+
+    def test_completeness_as_percentage_handled(self):
+        """completeness > 1.0 is treated as percentage (e.g. 80.0 = 80%)."""
+        from app.services.quality_metrics import compute_health_score
+
+        score = compute_health_score(
+            completeness=80.0,
+            has_cycles=False,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=0.7,
+            total_properties=15,
+            chunk_count=3,
+        )
+        assert 50 <= score <= 100

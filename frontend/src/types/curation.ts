@@ -124,6 +124,7 @@ export interface OntologyRegistryEntry {
   source_document?: string;
   status: "draft" | "active" | "deprecated";
   tags?: string[];
+  health_score?: number;
 }
 
 export interface SearchResult {

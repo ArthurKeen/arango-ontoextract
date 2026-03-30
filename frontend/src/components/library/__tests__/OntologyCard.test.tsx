@@ -67,4 +67,37 @@ describe("OntologyCard", () => {
       screen.getByText("No description available."),
     ).toBeInTheDocument();
   });
+
+  it("renders health score when present", () => {
+    const withHealth = { ...mockOntology, health_score: 82 };
+    render(<OntologyCard ontology={withHealth} />);
+    expect(screen.getByTestId("health-score")).toBeInTheDocument();
+    expect(screen.getByText("82")).toBeInTheDocument();
+  });
+
+  it("does not render health score when absent", () => {
+    render(<OntologyCard ontology={mockOntology} />);
+    expect(screen.queryByTestId("health-score")).not.toBeInTheDocument();
+  });
+
+  it("renders green color for high health score", () => {
+    const highHealth = { ...mockOntology, health_score: 85 };
+    render(<OntologyCard ontology={highHealth} />);
+    const badge = screen.getByText("85");
+    expect(badge.className).toContain("text-green-700");
+  });
+
+  it("renders yellow color for medium health score", () => {
+    const medHealth = { ...mockOntology, health_score: 55 };
+    render(<OntologyCard ontology={medHealth} />);
+    const badge = screen.getByText("55");
+    expect(badge.className).toContain("text-yellow-700");
+  });
+
+  it("renders red color for low health score", () => {
+    const lowHealth = { ...mockOntology, health_score: 30 };
+    render(<OntologyCard ontology={lowHealth} />);
+    const badge = screen.getByText("30");
+    expect(badge.className).toContain("text-red-700");
+  });
 });

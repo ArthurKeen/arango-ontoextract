@@ -83,6 +83,28 @@ def compute_ontology_quality(
     orphan_count = _count_orphans(db, ontology_id)
     has_cycles = _detect_cycles(db, ontology_id)
 
+    chunk_count = 0
+    if _has(db, "has_chunk"):
+        rows = list(db.aql.execute(
+            "FOR e IN has_chunk "
+            "FILTER e.ontology_id == @oid "
+            "COLLECT WITH COUNT INTO cnt RETURN cnt",
+            bind_vars={"oid": ontology_id},
+        ))
+        chunk_count = rows[0] if rows else 0
+
+    health_score: int | None = None
+    if class_count > 0:
+        health_score = compute_health_score(
+            completeness=completeness / 100.0,
+            has_cycles=has_cycles,
+            orphan_count=orphan_count,
+            total_classes=class_count,
+            avg_confidence=avg_confidence if avg_confidence is not None else 0.5,
+            total_properties=property_count,
+            chunk_count=chunk_count,
+        )
+
     return {
         "ontology_id": ontology_id,
         "avg_confidence": round(avg_confidence, 4) if avg_confidence is not None else None,
@@ -92,6 +114,7 @@ def compute_ontology_quality(
         "orphan_count": orphan_count,
         "has_cycles": has_cycles,
         "classes_without_properties": classes_without_properties,
+        "health_score": health_score,
     }
 
 
@@ -180,6 +203,47 @@ def _detect_cycles(db: StandardDatabase, ontology_id: str) -> bool:
         bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
     ))
     return len(rows) > 0
+
+
+def compute_health_score(
+    completeness: float,
+    has_cycles: bool,
+    orphan_count: int,
+    total_classes: int,
+    avg_confidence: float,
+    total_properties: int,
+    chunk_count: int,
+) -> int:
+    """Compute a 0–100 composite ontology health score.
+
+    Dimensions (weights):
+      - Completeness (25%): ratio of classes with properties
+      - Structural integrity (20%): penalizes cycles and orphans
+      - Average confidence (25%): mean multi-signal confidence
+      - Property richness (15%): properties-per-class ratio
+      - Source coverage (15%): chunk support ratio
+
+    Returns an integer 0–100.
+    """
+    completeness_pct = min(completeness / 100.0, 1.0) if completeness > 1.0 else completeness
+
+    cycle_penalty = 0.3 if has_cycles else 0.0
+    orphan_ratio = (orphan_count / total_classes) if total_classes > 0 else 0.0
+    structural = max(0.0, 1.0 - cycle_penalty - orphan_ratio)
+
+    prop_per_class = (total_properties / total_classes) if total_classes > 0 else 0.0
+    property_richness = min(prop_per_class / 3.0, 1.0)
+
+    source_coverage = min(chunk_count / 5.0, 1.0)
+
+    raw = (
+        0.25 * completeness_pct
+        + 0.20 * structural
+        + 0.25 * avg_confidence
+        + 0.15 * property_richness
+        + 0.15 * source_coverage
+    )
+    return max(0, min(100, round(raw * 100)))
 
 
 def compute_extraction_quality(

@@ -1239,10 +1239,58 @@ The agent DAG is a small, fixed-topology graph (5–6 nodes) — unlike the onto
 
 | Category | Metrics | Source Data |
 |----------|---------|-------------|
-| **Extraction Quality** | Precision (acceptance rate), recall (vs gold standard), avg confidence | `curation_decisions`, `ontology_classes`, reference ontologies |
+| **Extraction Quality** | Precision (acceptance rate), recall (vs gold standard), multi-signal confidence | `curation_decisions`, `ontology_classes`, reference ontologies |
 | **Curation Efficiency** | Throughput (concepts/hour), time-to-first-ontology | `curation_decisions` timestamps, `documents.uploaded_at`, `extraction_runs.completed_at` |
 | **Deduplication Quality** | Merge suggestion accuracy (accepted vs rejected) | `curation_decisions` on merge candidates |
-| **Structural Quality** | Completeness (classes with properties), coherence (cycle-free hierarchy), coverage (concepts per source chunk), orphan count | `ontology_classes`, `ontology_properties`, `has_property`, `subclass_of` edges |
+| **Structural Quality** | Completeness (classes with properties), coherence (cycle-free hierarchy), coverage (concepts per source chunk), orphan ratio, property richness | `ontology_classes`, `ontology_properties`, `has_property`, `subclass_of` edges |
+| **Composite Quality** | Ontology Health Score (0–100) | Weighted blend of all structural and confidence metrics |
+
+#### 6.13.1 Multi-Signal Per-Class Confidence
+
+**Problem:** A single-signal confidence score (e.g., cross-pass agreement alone) produces identical values for all classes that clear the consistency threshold (e.g., every class shows 67%). This provides no differentiation and no actionable signal to curators.
+
+**Solution:** Each class receives a **multi-signal confidence score** that blends five independent quality signals into a single value:
+
+| Signal | Weight | What it measures | Range | Source |
+|--------|--------|-----------------|-------|--------|
+| **Cross-pass agreement** | 0.25 | How consistently the LLM extracts this class across N passes | 0.0–1.0 | `pass_count / total_passes` from consistency checker |
+| **LLM self-reported confidence** | 0.25 | The LLM's own certainty about this extraction (already requested in extraction prompts) | 0.0–1.0 | Average of per-pass `confidence` fields before consistency merging |
+| **Structural quality** | 0.20 | Does this class have properties? Does it have a parent? Is it connected in the hierarchy? | 0.0–1.0 | `has_properties: +0.4`, `has_parent: +0.3`, `has_children: +0.3` — orphans with no properties score 0.0 |
+| **Description quality** | 0.15 | Does the class have a meaningful description? Is it distinct from other classes? | 0.0–1.0 | `min(len(description) / 100, 1.0) * 0.7 + uniqueness * 0.3` where uniqueness penalizes near-duplicate descriptions |
+| **Provenance strength** | 0.15 | How many distinct source chunks support this class? More evidence = higher confidence | 0.0–1.0 | `min(supporting_chunk_count / 3, 1.0)` — 3+ chunks = full score |
+
+**Formula:** `confidence = 0.25 * agreement + 0.25 * llm_confidence + 0.20 * structural + 0.15 * description + 0.15 * provenance`
+
+**Expected outcomes:**
+- A well-extracted class appearing in all passes, with a clear description, properties, a parent, and supported by 3+ chunks: confidence ≈ 0.90–0.95
+- A class from 2/3 passes with no properties and a generic description: confidence ≈ 0.40–0.50
+- An orphan class from 1 pass with an empty description: confidence ≈ 0.15–0.25
+
+**When computed:** Multi-signal confidence is calculated during `_materialize_to_graph()` after the consistency checker produces the merged class list. It replaces the raw agreement ratio stored on the class document.
+
+#### 6.13.2 Composite Ontology Health Score
+
+**Problem:** Individual quality metrics (completeness, orphan count, cycles) require expertise to interpret. A domain expert reviewing the ontology library needs a quick "is this ontology good?" signal.
+
+**Solution:** A single **Ontology Health Score** (0–100) blending six dimensions:
+
+| Dimension | Weight | Scoring | Example |
+|-----------|--------|---------|---------|
+| **Completeness** | 0.25 | `classes_with_properties / total_classes` | 4/6 classes have props → 0.67 |
+| **Coherence** | 0.20 | `1.0` if no cycles detected, `0.0` if cycles exist | Clean hierarchy → 1.0 |
+| **Orphan ratio** | 0.15 | `1 - (orphan_count / total_classes)` | 2 orphans / 6 classes → 0.67 |
+| **Avg confidence** | 0.15 | Mean of multi-signal per-class confidence scores | Mean 0.72 → 0.72 |
+| **Coverage** | 0.10 | `min(total_classes / (chunk_count * 2), 1.0)` — classes-per-chunk ratio | 6 classes from 8 chunks → 0.375 |
+| **Property richness** | 0.15 | `min(avg_properties_per_class / 3, 1.0)` — richer classes = better ontology | Avg 3.3 props → 1.0 |
+
+**Formula:** `health_score = round((0.25 * completeness + 0.20 * coherence + 0.15 * (1 - orphan_ratio) + 0.15 * avg_confidence + 0.10 * coverage + 0.15 * property_richness) * 100)`
+
+**Traffic-light display:**
+- Green (≥ 70): Healthy ontology — well-structured, confident, complete
+- Yellow (50–69): Needs attention — missing properties, some orphans, or low confidence
+- Red (< 50): Poor quality — many orphans, incomplete, low confidence, cycles
+
+**Where displayed:** Ontology cards in the library, quality dashboard, pipeline run metrics (for the run's target ontology).
 
 **Requirements:**
 
@@ -1253,17 +1301,20 @@ The agent DAG is a small, fixed-topology graph (5–6 nodes) — unlike the onto
 | FR-13.3 | Deduplication accuracy computed from ER decisions | System tracks accepted/rejected merge suggestions. `dedup_accuracy = accepted_merges / total_merge_suggestions`. Displayed in ER dashboard and quality summary. |
 | FR-13.4 | Time-to-first-ontology measured | Computed as elapsed time from `documents.uploaded_at` to `extraction_runs.completed_at`. Per-run value displayed in pipeline metrics; aggregate average in quality dashboard. |
 | FR-13.5 | Gold-standard recall comparison | User can upload a reference OWL/TTL file; system computes `recall = |extracted ∩ reference| / |reference|` using fuzzy label matching. Results displayed alongside the ontology detail. |
-| FR-13.6 | Structural quality analysis per ontology | System computes: (a) **Completeness** — % of classes with ≥1 property, % of properties with defined domain+range; (b) **Coherence** — cycle detection in `subclass_of` hierarchy; (c) **Orphan count** — classes with no parent and not designated as root; (d) **Avg confidence** — mean confidence across all current classes. |
+| FR-13.6 | Structural quality analysis per ontology | System computes: (a) **Completeness** — % of classes with ≥1 property, % of properties with defined domain+range; (b) **Coherence** — cycle detection in `subclass_of` hierarchy; (c) **Orphan count** — classes with no parent and not designated as root; (d) **Avg confidence** — mean of multi-signal per-class confidence across all current classes. |
 | FR-13.7 | Quality dashboard page | Dedicated `/quality` route showing aggregate metrics across all ontologies with traffic-light indicators against PRD targets (green ≥ target, yellow within 10%, red below). Trend sparklines from quality history. |
 | FR-13.8 | Quality history over time | Quality metrics stored with timestamps so trends can be tracked. Leverages temporal snapshot infrastructure for historical quality snapshots. |
-| FR-13.9 | Low-confidence visual highlighting in curation graph | Nodes in the curation graph canvas are color-coded by confidence: red border < 0.5, yellow 0.5–0.7, green > 0.7. Enables curators to focus on uncertain entities first. |
+| FR-13.9 | Low-confidence visual highlighting in curation graph | Nodes in the curation graph canvas are color-coded by multi-signal confidence: red border < 0.5, yellow 0.5–0.7, green > 0.7. Enables curators to focus on uncertain entities first. |
 | FR-13.10 | Quality-oriented ArangoDB Visualizer queries | Saved queries for: "Low Confidence Classes" (below threshold), "Orphan Classes" (no hierarchy edges), "Classes Without Properties" (incomplete definitions). |
+| FR-13.11 | Multi-signal per-class confidence | Each class's `confidence` field is computed as a weighted blend of cross-pass agreement, LLM self-reported confidence, structural quality, description quality, and provenance strength (see §6.13.1). Replaces single-signal agreement ratio. |
+| FR-13.12 | Composite ontology health score | Each ontology receives a 0–100 health score blending completeness, coherence, orphan ratio, avg confidence, coverage, and property richness (see §6.13.2). Displayed on ontology cards with traffic-light color coding. |
+| FR-13.13 | Provenance strength in confidence | Per-class confidence includes a provenance strength signal based on the number of distinct source chunks supporting the class via `extracted_from` edges. |
 
 **API Endpoints:**
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/quality/{ontology_id}` | Returns all computed quality scores for an ontology |
+| `GET` | `/api/v1/quality/{ontology_id}` | Returns all computed quality scores including health score for an ontology |
 | `GET` | `/api/v1/quality/{ontology_id}/history` | Quality metrics over time (leverages temporal snapshots) |
 | `GET` | `/api/v1/quality/summary` | Aggregate quality scores across all ontologies |
 | `POST` | `/api/v1/quality/recall` | Upload a reference OWL/TTL file to compute recall against extracted ontology |

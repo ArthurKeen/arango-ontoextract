@@ -130,6 +130,11 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
         parent_uris = [v.parent_uri for v in variants if v.parent_uri]
         parent_uri = Counter(parent_uris).most_common(1)[0][0] if parent_uris else None
 
+        llm_confidences = [v.confidence for v in variants]
+        avg_llm_confidence = (
+            sum(llm_confidences) / len(llm_confidences) if llm_confidences else 0.5
+        )
+
         filtered_classes.append(
             ExtractedClass(
                 uri=best_variant.uri,
@@ -138,6 +143,7 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
                 parent_uri=parent_uri,
                 classification=best_variant.classification,
                 confidence=round(agreement_ratio, 3),
+                llm_confidence=round(avg_llm_confidence, 3),
                 properties=merged_props,
             )
         )

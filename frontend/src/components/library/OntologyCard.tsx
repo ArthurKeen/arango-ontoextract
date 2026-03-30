@@ -24,6 +24,12 @@ const STATUS_CONFIG: Record<
   deprecated: { label: "Deprecated", dot: "bg-red-400" },
 };
 
+function healthScoreColor(score: number): { bg: string; text: string; ring: string } {
+  if (score >= 70) return { bg: "bg-green-50", text: "text-green-700", ring: "ring-green-200" };
+  if (score >= 50) return { bg: "bg-yellow-50", text: "text-yellow-700", ring: "ring-yellow-200" };
+  return { bg: "bg-red-50", text: "text-red-700", ring: "ring-red-200" };
+}
+
 function formatRelativeTime(value: string | number | undefined): string {
   if (value == null) return "N/A";
   const ts = typeof value === "number" ? value * 1000 : new Date(value).getTime();
@@ -89,6 +95,34 @@ export default function OntologyCard({ ontology, onClick }: OntologyCardProps) {
             edges
           </span>
         </div>
+
+        {/* Health Score */}
+        {ontology.health_score != null && (
+          <div className="flex items-center gap-2 mb-3" data-testid="health-score">
+            <span className="text-xs text-gray-500">Health</span>
+            <span
+              className={`text-xs font-semibold px-2 py-0.5 rounded-full ring-1 ${
+                healthScoreColor(ontology.health_score).bg
+              } ${healthScoreColor(ontology.health_score).text} ${
+                healthScoreColor(ontology.health_score).ring
+              }`}
+            >
+              {ontology.health_score}
+            </span>
+            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  ontology.health_score >= 70
+                    ? "bg-green-500"
+                    : ontology.health_score >= 50
+                      ? "bg-yellow-500"
+                      : "bg-red-500"
+                }`}
+                style={{ width: `${ontology.health_score}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Tags */}
         {ontology.tags && ontology.tags.length > 0 && (

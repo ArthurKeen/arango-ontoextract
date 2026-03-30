@@ -121,6 +121,61 @@ def update_document_chunk_count(
     col.update({"_key": doc_id, "chunk_count": chunk_count})
 
 
+def update_document_metadata(
+    doc_id: str,
+    *,
+    filename: str | None = None,
+    mime_type: str | None = None,
+    file_hash: str | None = None,
+    chunk_count: int | None = None,
+    db: StandardDatabase | None = None,
+) -> dict | None:
+    """Merge-update editable metadata fields on a document."""
+    db = db or get_db()
+    col = db.collection(DOCUMENTS_COLLECTION)
+    updates: dict[str, Any] = {}
+    if filename is not None:
+        updates["filename"] = filename
+    if mime_type is not None:
+        updates["mime_type"] = mime_type
+    if file_hash is not None:
+        updates["file_hash"] = file_hash
+    if chunk_count is not None:
+        updates["chunk_count"] = chunk_count
+    if not updates:
+        return col.get(doc_id)
+    result = col.update({"_key": doc_id, **updates}, return_new=True)
+    return result["new"]
+
+
+def delete_chunks_for_document(
+    doc_id: str, *, db: StandardDatabase | None = None
+) -> int:
+    """Hard-delete all chunks belonging to a document. Returns count removed."""
+    db = db or get_db()
+    if not db.has_collection(CHUNKS_COLLECTION):
+        return 0
+    result = list(
+        db.aql.execute(
+            "FOR c IN @@col FILTER c.doc_id == @doc_id "
+            "REMOVE c IN @@col RETURN OLD._key",
+            bind_vars={"@col": CHUNKS_COLLECTION, "doc_id": doc_id},
+        )
+    )
+    return len(result)
+
+
+def hard_delete_document(doc_id: str, *, db: StandardDatabase | None = None) -> bool:
+    """Hard-delete a document record. Returns True if deleted."""
+    db = db or get_db()
+    col = db.collection(DOCUMENTS_COLLECTION)
+    try:
+        col.delete(doc_id)
+        return True
+    except Exception:
+        return False
+
+
 def delete_document(doc_id: str, *, db: StandardDatabase | None = None) -> dict | None:
     """Soft-delete: set status to ``deleted``."""
     return update_document_status(doc_id, DocumentStatus.DELETED, db=db)

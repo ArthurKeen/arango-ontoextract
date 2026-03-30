@@ -123,4 +123,37 @@ export interface OntologyRegistryEntry {
   extraction_run_id?: string;
   source_document?: string;
   status: "draft" | "active" | "deprecated";
+  tags?: string[];
+}
+
+export interface SearchResult {
+  _key: string;
+  label?: string;
+  name?: string;
+  description?: string;
+  ontology_id?: string;
+  ontology_name?: string;
+  tier?: string;
+  status?: string;
+  tags?: string[];
+  confidence?: number;
+  domain_class?: string;
+  score: number;
+  source: "registry" | "class" | "property";
+}
+
+export interface SearchResponse {
+  query: string;
+  results: {
+    registry: SearchResult[];
+    classes: SearchResult[];
+    properties: SearchResult[];
+  };
+  counts: {
+    registry: number;
+    classes: number;
+    properties: number;
+  };
+  offset: number;
+  limit: number;
 }

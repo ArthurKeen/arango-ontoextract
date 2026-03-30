@@ -90,6 +90,20 @@ export default function OntologyCard({ ontology, onClick }: OntologyCardProps) {
           </span>
         </div>
 
+        {/* Tags */}
+        {ontology.tags && ontology.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {ontology.tags.map((tag) => (
+              <span
+                key={tag}
+                className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-between text-xs text-gray-400">
           <div className="flex items-center gap-1.5">

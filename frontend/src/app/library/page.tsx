@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api, ApiError, type PaginatedResponse } from "@/lib/api-client";
-import type { OntologyRegistryEntry, OntologyClass } from "@/types/curation";
+import type {
+  OntologyRegistryEntry,
+  OntologyClass,
+  SearchResponse,
+  SearchResult,
+} from "@/types/curation";
 import OntologyCard from "@/components/library/OntologyCard";
 import ClassHierarchy from "@/components/library/ClassHierarchy";
+import QualityPanel from "@/components/library/QualityPanel";
 
 interface ClassDetail extends OntologyClass {
   properties?: {
@@ -15,6 +21,100 @@ interface ClassDetail extends OntologyClass {
     rdf_type?: string;
     confidence?: number;
   }[];
+}
+
+interface SourceDocument {
+  _key: string;
+  filename: string;
+  mime_type?: string;
+  upload_date?: string;
+  chunk_count?: number;
+}
+
+const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
+  registry: { label: "Ontology", color: "bg-blue-100 text-blue-700" },
+  class: { label: "Class", color: "bg-purple-100 text-purple-700" },
+  property: { label: "Property", color: "bg-amber-100 text-amber-700" },
+};
+
+function SearchResultsPanel({
+  results,
+  onOntologyClick,
+}: {
+  results: SearchResponse;
+  onOntologyClick: (key: string) => void;
+}) {
+  const totalCount =
+    results.counts.registry +
+    results.counts.classes +
+    results.counts.properties;
+
+  if (totalCount === 0) {
+    return (
+      <div className="text-center py-8 text-gray-400">
+        <p className="text-sm">
+          No results found for &ldquo;{results.query}&rdquo;
+        </p>
+      </div>
+    );
+  }
+
+  const allResults: SearchResult[] = [
+    ...results.results.registry,
+    ...results.results.classes,
+    ...results.results.properties,
+  ].sort((a, b) => b.score - a.score);
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <p className="text-sm text-gray-600">
+          <span className="font-semibold text-gray-800">{totalCount}</span>{" "}
+          result{totalCount !== 1 ? "s" : ""} for &ldquo;{results.query}&rdquo;
+        </p>
+      </div>
+      <div className="divide-y divide-gray-50">
+        {allResults.map((item) => {
+          const src = SOURCE_LABELS[item.source] ?? SOURCE_LABELS.class;
+          const title = item.name ?? item.label ?? item._key;
+          return (
+            <button
+              key={`${item.source}-${item._key}`}
+              onClick={() => {
+                const targetKey =
+                  item.source === "registry"
+                    ? item._key
+                    : item.ontology_id ?? item._key;
+                onOntologyClick(targetKey);
+              }}
+              className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${src.color}`}
+                >
+                  {src.label}
+                </span>
+                <span className="text-sm font-medium text-gray-900">
+                  {title}
+                </span>
+                {item.ontology_name && item.source !== "registry" && (
+                  <span className="text-xs text-gray-400 ml-auto">
+                    in {item.ontology_name}
+                  </span>
+                )}
+              </div>
+              {item.description && (
+                <p className="text-xs text-gray-500 line-clamp-1">
+                  {item.description}
+                </p>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export default function LibraryPage() {
@@ -30,6 +130,21 @@ export default function LibraryPage() {
   const [tierFilter, setTierFilter] = useState<"all" | "domain" | "local">(
     "all",
   );
+  const [sourceDocuments, setSourceDocuments] = useState<SourceDocument[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [addingDoc, setAddingDoc] = useState(false);
+  const addDocRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResponse | null>(
+    null,
+  );
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const allTags = Array.from(
+    new Set(ontologies.flatMap((o) => o.tags ?? [])),
+  ).sort();
 
   const fetchOntologies = useCallback(async () => {
     setLoading(true);
@@ -50,9 +165,95 @@ export default function LibraryPage() {
     }
   }, []);
 
+  const performSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const res = await api.get<SearchResponse>(
+        `/api/v1/ontology/search?q=${encodeURIComponent(query.trim())}`,
+      );
+      setSearchResults(res);
+    } catch {
+      setSearchResults(null);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchQuery(value);
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = setTimeout(() => performSearch(value), 300);
+    },
+    [performSearch],
+  );
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchResults(null);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+  }, []);
+
   useEffect(() => {
     fetchOntologies();
   }, [fetchOntologies]);
+
+  const loadSourceDocuments = useCallback(async (ontologyId: string) => {
+    setDocsLoading(true);
+    try {
+      const res = await api.get<{ documents: SourceDocument[] }>(
+        `/api/v1/ontology/library/${ontologyId}/documents`,
+      );
+      setSourceDocuments(res.documents ?? []);
+    } catch {
+      setSourceDocuments([]);
+    } finally {
+      setDocsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedOntologyId) {
+      loadSourceDocuments(selectedOntologyId);
+    } else {
+      setSourceDocuments([]);
+    }
+  }, [selectedOntologyId, loadSourceDocuments]);
+
+  const handleAddDocument = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !selectedOntologyId) return;
+      setAddingDoc(true);
+      try {
+        const baseUrl =
+          process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(
+          `${baseUrl}/api/v1/ontology/library/${selectedOntologyId}/add-document`,
+          { method: "POST", body: formData },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(
+            err.detail ?? err.error?.message ?? `Upload failed (${res.status})`,
+          );
+        }
+        window.location.href = "/pipeline";
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+        setAddingDoc(false);
+        if (addDocRef.current) addDocRef.current.value = "";
+      }
+    },
+    [selectedOntologyId],
+  );
 
   const handleClassSelect = useCallback(
     async (classKey: string) => {
@@ -109,10 +310,11 @@ export default function LibraryPage() {
     [selectedOntologyId],
   );
 
-  const filtered =
-    tierFilter === "all"
-      ? ontologies
-      : ontologies.filter((o) => o.tier === tierFilter);
+  const filtered = ontologies.filter((o) => {
+    if (tierFilter !== "all" && o.tier !== tierFilter) return false;
+    if (tagFilter && !(o.tags ?? []).includes(tagFilter)) return false;
+    return true;
+  });
 
   const selectedOntology = ontologies.find(
     (o) => o._key === selectedOntologyId,
@@ -140,7 +342,42 @@ export default function LibraryPage() {
       </header>
 
       <div className="max-w-[1600px] mx-auto px-6 py-6">
-        <div className="flex items-center gap-3 mb-6">
+        {/* Search bar (J.7) */}
+        <div className="mb-4 relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Search ontologies, classes, and properties..."
+            className="w-full px-4 py-2.5 pl-10 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors"
+            data-testid="library-search"
+          />
+          <svg
+            className="absolute left-3 top-3 h-4 w-4 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          {searchQuery && (
+            <button
+              onClick={clearSearch}
+              className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 text-sm"
+              aria-label="Clear search"
+            >
+              &times;
+            </button>
+          )}
+        </div>
+
+        {/* Tier + Tag filters */}
+        <div className="flex items-center gap-3 mb-6 flex-wrap">
           <span className="text-sm text-gray-500">Filter:</span>
           {(["all", "domain", "local"] as const).map((tier) => (
             <button
@@ -160,6 +397,28 @@ export default function LibraryPage() {
                   : `Local (${ontologies.filter((o) => o.tier === "local").length})`}
             </button>
           ))}
+
+          {allTags.length > 0 && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span className="text-sm text-gray-500">Tags:</span>
+              {allTags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() =>
+                    setTagFilter((prev) => (prev === tag ? null : tag))
+                  }
+                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                    tagFilter === tag
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 font-medium"
+                      : "text-gray-500 border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         {loading && (
@@ -182,7 +441,28 @@ export default function LibraryPage() {
           </div>
         )}
 
-        {!loading && !error && (
+        {/* Search results (J.7) */}
+        {searchQuery && (searchLoading || searchResults) && (
+          <div className="mb-6">
+            {searchLoading && (
+              <p className="text-sm text-gray-400 animate-pulse py-4">
+                Searching...
+              </p>
+            )}
+            {!searchLoading && searchResults && (
+              <SearchResultsPanel
+                results={searchResults}
+                onOntologyClick={(key) => {
+                  setSelectedOntologyId(key);
+                  setSelectedClass(null);
+                  clearSearch();
+                }}
+              />
+            )}
+          </div>
+        )}
+
+        {!loading && !error && !searchResults && (
           <div className="flex gap-6">
             <div className="flex-[7]">
               {filtered.length === 0 ? (
@@ -278,10 +558,67 @@ export default function LibraryPage() {
                     </div>
                   </div>
 
+                  <QualityPanel ontologyId={selectedOntology._key} />
+
+                  {/* Add Document */}
+                  <div className="mb-3">
+                    <input
+                      ref={addDocRef}
+                      type="file"
+                      accept=".pdf,.docx,.md"
+                      onChange={handleAddDocument}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => addDocRef.current?.click()}
+                      disabled={addingDoc}
+                      className="w-full text-xs px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-1.5"
+                    >
+                      {addingDoc ? (
+                        <>
+                          <span className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Adding…
+                        </>
+                      ) : (
+                        "+ Add Document"
+                      )}
+                    </button>
+                  </div>
+
                   <ClassHierarchy
                     ontologyId={selectedOntology._key}
                     onClassSelect={handleClassSelect}
                   />
+
+                  {/* Source documents (G.7) */}
+                  {docsLoading ? (
+                    <p className="text-xs text-gray-400 animate-pulse mt-3">
+                      Loading documents…
+                    </p>
+                  ) : sourceDocuments.length > 0 ? (
+                    <div className="mt-4 border-t border-gray-100 pt-3">
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                        Source Documents ({sourceDocuments.length})
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {sourceDocuments.map((doc) => (
+                          <li
+                            key={doc._key}
+                            className="text-xs px-2 py-1.5 rounded bg-gray-50 flex items-center justify-between"
+                          >
+                            <span className="text-gray-700 truncate font-medium">
+                              {doc.filename}
+                            </span>
+                            {doc.chunk_count != null && (
+                              <span className="text-gray-400 ml-2 flex-shrink-0">
+                                {doc.chunk_count} chunks
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* Class Detail Panel */}

@@ -1,15 +1,16 @@
+import asyncio
 import json
 import logging
 import re
 import sys
 import time
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api.errors import ConflictError, NotFoundError, ValidationError
-from app.db import ontology_repo, registry_repo
+from app.db import documents_repo, ontology_repo, registry_repo
 from app.db.client import get_db
 from app.models.curation import (
     TemporalDiff,
@@ -49,6 +50,7 @@ router = APIRouter(prefix="/api/v1/ontology", tags=["ontology"])
 async def list_ontology_library(
     cursor: str | None = Query(None, description="Pagination cursor from previous response"),
     limit: int = Query(25, ge=1, le=100, description="Page size"),
+    tag: str | None = Query(None, description="Filter by tag"),
 ) -> dict:
     """List all ontologies in the registry with cursor-based pagination."""
     try:
@@ -59,7 +61,11 @@ async def list_ontology_library(
         has_col = db.has_collection("ontology_registry")
         total_count = db.collection("ontology_registry").count() if has_col else 0
 
+        if tag:
+            entries = [e for e in entries if tag in (e.get("tags") or [])]
+
         for entry in entries:
+            entry.setdefault("tags", [])
             oid = entry.get("_key", "")
             entry.setdefault("edge_count", 0)
             entry.setdefault("updated_at", entry.get("created_at"))
@@ -88,6 +94,175 @@ async def list_ontology_library(
     except Exception as exc:
         log.exception("Failed to list ontology library")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class UpdateOntologyRequest(BaseModel):
+    """Request body for updating ontology metadata (J.3)."""
+
+    name: str | None = Field(None, description="Updated name")
+    description: str | None = Field(None, description="Updated description")
+    tags: list[str] | None = Field(None, description="Tag labels")
+    tier: str | None = Field(None, description="domain or local")
+    status: str | None = Field(None, description="draft, active, or deprecated")
+
+
+_VALID_STATUSES = {"draft", "active", "deprecated"}
+_VALID_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "draft": {"active", "deprecated"},
+    "active": {"deprecated"},
+    "deprecated": set(),
+}
+
+
+@router.put("/library/{ontology_id}")
+async def update_ontology_metadata(
+    ontology_id: str, body: UpdateOntologyRequest
+) -> dict:
+    """Update ontology registry metadata (J.3).
+
+    Validates status transitions:
+    - draft  -> active | deprecated
+    - active -> deprecated
+    - deprecated -> (none)
+    """
+    entry = registry_repo.get_registry_entry(ontology_id)
+    if entry is None:
+        raise NotFoundError(f"Ontology '{ontology_id}' not found")
+
+    updates: dict = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.description is not None:
+        updates["description"] = body.description
+    if body.tags is not None:
+        updates["tags"] = body.tags
+    if body.tier is not None:
+        if body.tier not in ("domain", "local"):
+            raise ValidationError(
+                f"Invalid tier '{body.tier}'",
+                details={"allowed": ["domain", "local"]},
+            )
+        updates["tier"] = body.tier
+    if body.status is not None:
+        if body.status not in _VALID_STATUSES:
+            raise ValidationError(
+                f"Invalid status '{body.status}'",
+                details={"allowed": sorted(_VALID_STATUSES)},
+            )
+        current_status = entry.get("status", "draft")
+        allowed = _VALID_STATUS_TRANSITIONS.get(current_status, set())
+        if body.status != current_status and body.status not in allowed:
+            raise ValidationError(
+                f"Cannot transition from '{current_status}' to '{body.status}'",
+                details={"current": current_status, "allowed": sorted(allowed)},
+            )
+        updates["status"] = body.status
+
+    if not updates:
+        raise ValidationError("No fields to update")
+
+    try:
+        updated = registry_repo.update_registry_entry(ontology_id, updates)
+    except ValueError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+    return updated
+
+
+@router.delete("/library/{ontology_id}")
+async def delete_ontology(
+    ontology_id: str,
+    confirm: bool = Query(False, description="Set to true to actually deprecate"),
+) -> dict:
+    """Deprecate an ontology with cascade analysis (J.4).
+
+    Without ``?confirm=true``, returns dependent ontologies.
+    With confirmation: expires all classes/properties/edges for this ontology,
+    removes the per-ontology named graph, and marks the registry as deprecated.
+    """
+    entry = registry_repo.get_registry_entry(ontology_id)
+    if entry is None:
+        raise NotFoundError(f"Ontology '{ontology_id}' not found")
+
+    db = get_db()
+
+    dependents: list[dict] = []
+    if db.has_collection("imports"):
+        dep_edges = list(
+            db.aql.execute(
+                "FOR e IN imports "
+                "FILTER e._to == @target AND e.expired == @never "
+                "RETURN DISTINCT e._from",
+                bind_vars={
+                    "target": f"ontology_registry/{ontology_id}",
+                    "never": NEVER_EXPIRES,
+                },
+            )
+        )
+        if dep_edges and db.has_collection("ontology_registry"):
+            dep_keys = [d.split("/")[-1] for d in dep_edges if "/" in d]
+            if dep_keys:
+                dependents = list(
+                    db.aql.execute(
+                        "FOR o IN ontology_registry FILTER o._key IN @keys "
+                        "RETURN {_key: o._key, name: o.name, status: o.status}",
+                        bind_vars={"keys": dep_keys},
+                    )
+                )
+
+    if not confirm:
+        return {
+            "ontology_id": ontology_id,
+            "status": "pending_confirmation",
+            "dependent_ontologies": dependents,
+            "message": "Pass ?confirm=true to proceed with deprecation.",
+        }
+
+    now_ts = time.time()
+    expired_counts: dict[str, int] = {}
+
+    for col_name in ("ontology_classes", "ontology_properties"):
+        if db.has_collection(col_name):
+            result = list(
+                db.aql.execute(
+                    f"FOR doc IN {col_name} "
+                    "FILTER doc.ontology_id == @oid AND doc.expired == @never "
+                    f"UPDATE doc WITH {{expired: @now}} IN {col_name} "
+                    "RETURN OLD._key",
+                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES, "now": now_ts},
+                )
+            )
+            expired_counts[col_name] = len(result)
+
+    for edge_col in (
+        "subclass_of", "has_property", "related_to",
+        "equivalent_class", "extracted_from", "imports",
+    ):
+        if db.has_collection(edge_col):
+            result = list(
+                db.aql.execute(
+                    f"FOR e IN {edge_col} "
+                    "FILTER e.ontology_id == @oid AND e.expired == @never "
+                    f"UPDATE e WITH {{expired: @now}} IN {edge_col} "
+                    "RETURN OLD._key",
+                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES, "now": now_ts},
+                )
+            )
+            expired_counts[edge_col] = len(result)
+
+    from app.services.ontology_graphs import delete_ontology_graph
+
+    graph_deleted = delete_ontology_graph(ontology_id, db=db)
+
+    registry_repo.update_registry_entry(ontology_id, {"status": "deprecated"})
+
+    return {
+        "ontology_id": ontology_id,
+        "status": "deprecated",
+        "expired_counts": expired_counts,
+        "graph_deleted": graph_deleted,
+        "dependent_ontologies": dependents,
+    }
 
 
 @router.get("/library/{ontology_id}")
@@ -128,6 +303,225 @@ async def get_ontology_detail(ontology_id: str) -> dict:
             "class_count": class_count,
             "property_count": property_count,
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Add document to existing ontology (G.3)
+# ---------------------------------------------------------------------------
+
+_ADD_DOC_FILE = File(..., description="PDF, DOCX, or Markdown file")
+
+
+@router.post("/library/{ontology_id}/add-document")
+async def add_document_to_ontology(
+    ontology_id: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = _ADD_DOC_FILE,
+) -> dict:
+    """Upload a document and trigger incremental extraction into an existing ontology."""
+    entry = registry_repo.get_registry_entry(ontology_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Ontology '{ontology_id}' not found")
+
+    content = await file.read()
+
+    mime = file.content_type or ""
+    _ALLOWED = {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/markdown",
+    }
+    if mime not in _ALLOWED:
+        if file.filename and file.filename.endswith(".md"):
+            mime = "text/markdown"
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {mime}")
+
+    from app.services.ingestion import compute_file_hash
+
+    file_hash = compute_file_hash(content)
+    existing = documents_repo.find_document_by_hash(file_hash)
+    if existing:
+        raise ConflictError(
+            "Duplicate document — a file with identical content already exists",
+            details={"existing_doc_id": existing["_key"], "file_hash": file_hash},
+        )
+
+    doc = documents_repo.create_document(
+        filename=file.filename or "untitled",
+        mime_type=mime,
+        file_hash=file_hash,
+    )
+
+    from app.tasks import process_document
+    from app.services import extraction as extraction_service
+
+    async def _process_then_extract(doc_id: str, raw: bytes, mt: str, oid: str) -> None:
+        await process_document(doc_id, raw, mt)
+        db = get_db()
+        doc_record = documents_repo.get_document(doc_id, db=db)
+        if doc_record and doc_record.get("status") in ("ready", "processed"):
+            await extraction_service.start_run(
+                db, document_id=doc_id, target_ontology_id=oid,
+            )
+
+    background_tasks.add_task(_process_then_extract, doc["_key"], content, mime, ontology_id)
+
+    return {
+        "doc_id": doc["_key"],
+        "filename": doc["filename"],
+        "ontology_id": ontology_id,
+        "status": "processing",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Document-ontology relationship endpoints (G.6)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/library/{ontology_id}/documents")
+async def list_ontology_documents(ontology_id: str) -> dict:
+    """List source documents linked to an ontology via ``extracted_from`` edges."""
+    entry = registry_repo.get_registry_entry(ontology_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Ontology '{ontology_id}' not found")
+
+    db = get_db()
+    documents: list[dict] = []
+    if db.has_collection("extracted_from") and db.has_collection("documents"):
+        documents = list(db.aql.execute(
+            "FOR e IN extracted_from "
+            "FILTER e.ontology_id == @oid "
+            "LET doc_key = PARSE_IDENTIFIER(e._to).key "
+            "FOR d IN documents "
+            "FILTER d._key == doc_key "
+            "COLLECT doc = d INTO group "
+            "RETURN MERGE(doc, {edge_count: LENGTH(group)})",
+            bind_vars={"oid": ontology_id},
+        ))
+
+    return {"ontology_id": ontology_id, "documents": documents}
+
+
+# ---------------------------------------------------------------------------
+# Library full-text search (J.6)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/search")
+async def search_ontology_library(
+    q: str = Query(..., min_length=1, description="Search query"),
+    limit: int = Query(20, ge=1, le=100, description="Max results per source type"),
+    offset: int = Query(0, ge=0, description="Result offset for pagination"),
+) -> dict:
+    """Full-text search across ontology registry, classes, and properties (J.6).
+
+    Uses the ``ontology_search_view`` ArangoSearch view with BM25 ranking.
+    Returns results grouped by source type with snippets and ontology context.
+    """
+    db = get_db()
+
+    existing_views = {v["name"] for v in db.views()}
+    if "ontology_search_view" not in existing_views:
+        return {
+            "query": q,
+            "results": {"registry": [], "classes": [], "properties": []},
+            "counts": {"registry": 0, "classes": 0, "properties": 0},
+        }
+
+    registry_results: list[dict] = []
+    if db.has_collection("ontology_registry"):
+        registry_results = list(
+            db.aql.execute(
+                "FOR doc IN ontology_search_view "
+                "SEARCH ANALYZER("
+                "  BOOST(PHRASE(doc.name, @q), 3) OR "
+                "  BOOST(LIKE(doc.name, CONCAT('%', @q, '%')), 2) OR "
+                "  PHRASE(doc.description, @q)"
+                ", 'text_en') "
+                "FILTER IS_SAME_COLLECTION('ontology_registry', doc) "
+                "SORT BM25(doc) DESC "
+                "LIMIT @offset, @limit "
+                "RETURN {"
+                "  _key: doc._key, name: doc.name, "
+                "  description: doc.description, "
+                "  tier: doc.tier, status: doc.status, "
+                "  tags: doc.tags, "
+                "  score: BM25(doc), source: 'registry'"
+                "}",
+                bind_vars={"q": q, "offset": offset, "limit": limit},
+            )
+        )
+
+    class_results: list[dict] = []
+    if db.has_collection("ontology_classes"):
+        class_results = list(
+            db.aql.execute(
+                "FOR doc IN ontology_search_view "
+                "SEARCH ANALYZER("
+                "  BOOST(PHRASE(doc.label, @q), 3) OR "
+                "  BOOST(LIKE(doc.label, CONCAT('%', @q, '%')), 2) OR "
+                "  PHRASE(doc.description, @q)"
+                ", 'text_en') "
+                "FILTER IS_SAME_COLLECTION('ontology_classes', doc) "
+                "FILTER doc.expired == @never "
+                "SORT BM25(doc) DESC "
+                "LIMIT @offset, @limit "
+                "LET ont = (FOR o IN ontology_registry FILTER o._key == doc.ontology_id LIMIT 1 RETURN o)[0] "
+                "RETURN {"
+                "  _key: doc._key, label: doc.label, "
+                "  description: doc.description, "
+                "  ontology_id: doc.ontology_id, "
+                "  ontology_name: ont.name, "
+                "  confidence: doc.confidence, "
+                "  score: BM25(doc), source: 'class'"
+                "}",
+                bind_vars={"q": q, "offset": offset, "limit": limit, "never": NEVER_EXPIRES},
+            )
+        )
+
+    property_results: list[dict] = []
+    if db.has_collection("ontology_properties"):
+        property_results = list(
+            db.aql.execute(
+                "FOR doc IN ontology_search_view "
+                "SEARCH ANALYZER("
+                "  BOOST(PHRASE(doc.label, @q), 3) OR "
+                "  LIKE(doc.label, CONCAT('%', @q, '%'))"
+                ", 'text_en') "
+                "FILTER IS_SAME_COLLECTION('ontology_properties', doc) "
+                "FILTER doc.expired == @never "
+                "SORT BM25(doc) DESC "
+                "LIMIT @offset, @limit "
+                "LET ont = (FOR o IN ontology_registry FILTER o._key == doc.ontology_id LIMIT 1 RETURN o)[0] "
+                "RETURN {"
+                "  _key: doc._key, label: doc.label, "
+                "  description: doc.description, "
+                "  ontology_id: doc.ontology_id, "
+                "  ontology_name: ont.name, "
+                "  domain_class: doc.domain_class, "
+                "  score: BM25(doc), source: 'property'"
+                "}",
+                bind_vars={"q": q, "offset": offset, "limit": limit, "never": NEVER_EXPIRES},
+            )
+        )
+
+    return {
+        "query": q,
+        "results": {
+            "registry": registry_results,
+            "classes": class_results,
+            "properties": property_results,
+        },
+        "counts": {
+            "registry": len(registry_results),
+            "classes": len(class_results),
+            "properties": len(property_results),
+        },
+        "offset": offset,
+        "limit": limit,
     }
 
 

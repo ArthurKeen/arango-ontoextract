@@ -609,16 +609,55 @@ All graph visualization and UI libraries used in the curation dashboard **must b
 
 | Library Category | Candidates | React Integration |
 |-----------------|-----------|-------------------|
-| Graph rendering | **React Flow** (native React) or **Cytoscape.js** via `react-cytoscapejs` wrapper | Both provide React component APIs |
+| Graph rendering | **Sigma.js** via `@react-sigma/core` (target) or **Cytoscape.js** via `react-cytoscapejs` | Both provide React component APIs |
+| Graph data model | **graphology** (typed multigraph with attributes, subgraphs, algorithms) | Used by Sigma.js natively |
+| Layout algorithms | `graphology-layout-forceatlas2` (GPU-accelerated), `graphology-layout-noverlap`, dagre, ELK | Computed on graphology graph, rendered by Sigma |
 | Timeline slider (VCR) | Custom component using `react-slider` or `@radix-ui/react-slider` | Native React |
 | Diff visualization | Built on top of the graph renderer with overlay layers | React state-driven |
-| Layout algorithms | Dagre, ELK, or Cola.js (layout engines compatible with both React Flow and Cytoscape) | Layout computed, rendered via React |
+
+**Graph Library Evolution — React Flow → Sigma.js + graphology:**
+
+The initial v0.1.0 prototype uses React Flow for graph rendering. React Flow is a DOM-based flowchart library that is adequate for small graphs but has fundamental limitations for ontology visualization at scale:
+
+| Concern | React Flow (current) | Sigma.js + graphology (target) |
+|---------|---------------------|-------------------------------|
+| Rendering engine | DOM elements (one `<div>` per node) | WebGL (GPU-accelerated canvas) |
+| Scalability | Degrades > 100 nodes | Handles 100,000+ nodes smoothly |
+| Layout quality | Basic dagre (tree-only) | ForceAtlas2, force-directed, circular, hierarchical, noverlap |
+| Semantic zoom | Not supported | Built-in: show/hide labels, cluster by type at different zoom levels |
+| Edge rendering | Simple straight/step/bezier paths | WebGL edges with bundling, curved paths, variable width/color |
+| Node styling | CSS on DOM elements (slow updates) | WebGL shaders (instant batch updates) |
+| Interaction | Standard DOM events | GPU-based hit detection, lasso selection, hover halos |
+| Graph data model | Flat arrays of nodes + edges | `graphology` typed multigraph with rich attribute model, subgraph views, algorithms |
+| React integration | Native (heavy re-renders) | `@react-sigma/core` wrapper (render once, update via graphology) |
+
+**Target architecture:** Replace the `GraphCanvas` component (currently React Flow) with a Sigma.js-backed renderer using `@react-sigma/core` and `graphology`. The graph data model should use graphology natively throughout the application, replacing the current flat `classes[]` + `edges[]` arrays. This enables efficient subgraph operations, traversal algorithms, and layout computations without converting data structures.
+
+**Full Ontology Editor Vision (TopBraid Composer-class):**
+
+The ontology editor should evolve beyond a simple graph visualization into a comprehensive OWL ontology authoring environment comparable to TopBraid Composer. The target feature set includes:
+
+| Panel | Function | Implementation |
+|-------|----------|---------------|
+| **Class Tree Browser** | Hierarchical class tree with search, drag-to-reparent, multi-select | Left sidebar, driven by `subclass_of` edge traversal |
+| **Graph Visualization** | Interactive Sigma.js/graphology canvas showing class relationships | Center viewport with ForceAtlas2 / hierarchical layouts |
+| **Property Matrix** | Tabular view of all properties across classes (domain × range) | Spreadsheet-style panel, sortable/filterable |
+| **Class Form Editor** | Structured form for editing class metadata (label, URI, description, annotations) | Right sidebar, activated on class selection |
+| **Restriction Editor** | Visual builder for OWL restrictions (cardinality, value, has-value, qualified) | Modal or right panel, generates `owl:Restriction` constructs |
+| **SHACL Shapes Panel** | View/edit SHACL shapes for validation rules | Tabbed panel with shape graph preview |
+| **Namespace Manager** | Manage ontology prefixes and namespaces | Settings dialog |
+| **Import/Export Panel** | Load/save ontologies in multiple serializations (Turtle, RDF/XML, JSON-LD, N-Triples) | File menu or toolbar actions |
+| **Diff/Merge View** | Side-by-side comparison of ontology versions with merge controls | Split view using temporal snapshots |
+| **VCR Timeline** | Temporal slider for ontology time travel | Bottom bar with playback controls |
+| **Validation Console** | Real-time OWL consistency checking and SHACL validation results | Bottom panel with error/warning list |
+
+This evolution should be planned as a separate phase after the current extraction-focused MVP stabilizes.
 
 **Requirements:**
 
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|-------------------|
-| FR-4.1 | Render staging graph as interactive React component | Nodes = classes, edges = relationships; zoom, pan, filter by type/tier; implemented as a React component using React Flow or `react-cytoscapejs` |
+| FR-4.1 | Render staging graph as interactive React component | Nodes = classes, edges = relationships; zoom, pan, filter by type/tier. **Target renderer:** Sigma.js via `@react-sigma/core` with `graphology` data model (WebGL, scales to 100K+ nodes). Current v0.1.0 prototype uses React Flow (DOM-based, adequate for small graphs). |
 | FR-4.2 | Node actions: approve, reject, rename, edit properties, merge | Each action recorded in `curation_decisions` with before/after state |
 | FR-4.3 | Edge actions: approve, reject, retype, reverse direction | Edge modifications validated against ontology constraints |
 | FR-4.4 | Batch operations | Select multiple nodes/edges for bulk approve/reject |
@@ -626,8 +665,8 @@ All graph visualization and UI libraries used in the curation dashboard **must b
 | FR-4.6 | Promote staging → production | One-click promotion of approved entities from staging to production graph |
 | FR-4.7 | Provenance display | Clicking a node shows which document chunk(s) it was extracted from, with highlighted source text |
 | FR-4.8 | Confidence scores | Each extracted entity displays LLM confidence; low-confidence entities visually highlighted |
-| FR-4.9 | All visualization libraries are React-compatible | No vanilla JS graph libraries that require manual DOM manipulation; all rendering through React component tree |
-| FR-4.10 | Standalone ontology graph viewer/editor (not tied to extraction run) | The curation dashboard is accessible in two modes: (1) **Staging mode** (`/curation/[runId]`) for reviewing extraction results, and (2) **Ontology mode** (`/ontology/[ontologyId]/edit`) for directly viewing and editing any approved ontology in the library. Ontology mode loads all current classes, properties, and edges for the ontology, supports the same graph visualization, node/edge actions, VCR timeline, and diff view. Enables ongoing ontology management beyond initial extraction. |
+| FR-4.9 | All visualization libraries are React-compatible | No vanilla JS graph libraries that require manual DOM manipulation; all rendering through React component tree. Sigma.js qualifies via `@react-sigma/core`. |
+| FR-4.10 | Standalone ontology graph viewer/editor (not tied to extraction run) | The curation dashboard is accessible in two modes: (1) **Staging mode** (`/curation/[runId]`) for reviewing extraction results, and (2) **Ontology mode** (`/ontology/[ontologyId]/edit`) for directly viewing and editing any approved ontology in the library. Ontology mode loads all current classes, properties, and edges for the ontology, supports the same graph visualization, node/edge actions, VCR timeline, and diff view. Enables ongoing ontology management beyond initial extraction. **Long-term target:** TopBraid Composer-class editing environment with class tree browser, property matrix, restriction editor, SHACL shapes panel, namespace manager, and validation console (see "Full Ontology Editor Vision" above). |
 | FR-4.11 | Direct class/property creation in the editor | In ontology mode, users can manually add new classes, properties, and edges directly in the graph editor without needing an extraction run. New entities are created with `source_type: "manual"` and go through the same temporal versioning. Useful for filling gaps LLM extraction missed. |
 | FR-4.12 | Drag-and-drop reparenting | Users can drag a class node onto another class to create or change a `subclass_of` relationship. The old edge is expired and a new edge created (temporal versioning). Visual feedback shows valid drop targets. |
 | FR-4.13 | Library-to-editor navigation | Clicking "Edit" on an ontology card in the library page opens the ontology graph editor. Clicking a class in the class hierarchy opens the editor scrolled/zoomed to that class. |

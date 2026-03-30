@@ -122,7 +122,8 @@ function OntologyNode({ data, selected }: NodeProps<OntologyNodeData>) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!bg-gray-300 !w-2 !h-2"
+        style={{ opacity: 0, width: 0, height: 0, border: "none", background: "none" }}
+        isConnectable={false}
       />
       <div className="flex items-center gap-2 mb-1">
         <span
@@ -164,7 +165,8 @@ function OntologyNode({ data, selected }: NodeProps<OntologyNodeData>) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!bg-gray-300 !w-2 !h-2"
+        style={{ opacity: 0, width: 0, height: 0, border: "none", background: "none" }}
+        isConnectable={false}
       />
     </div>
   );

@@ -121,6 +121,20 @@ export default function RunMetrics({ runId }: RunMetricsProps) {
     );
   }
 
+  const confidenceLabel =
+    metrics.avg_confidence != null
+      ? `${(metrics.avg_confidence * 100).toFixed(1)}%`
+      : "—";
+
+  const confidenceSublabel =
+    metrics.avg_confidence != null
+      ? metrics.avg_confidence > 0.7
+        ? "High confidence"
+        : metrics.avg_confidence >= 0.5
+          ? "Moderate confidence"
+          : "Low confidence"
+      : undefined;
+
   return (
     <div
       className="grid grid-cols-2 lg:grid-cols-5 gap-3 p-4"
@@ -150,6 +164,20 @@ export default function RunMetrics({ runId }: RunMetricsProps) {
         label="Agreement Rate"
         value={formatPercent(metrics.pass_agreement_rate)}
         sublabel="Cross-pass consistency"
+      />
+      <MetricCard
+        label="Avg Confidence"
+        value={confidenceLabel}
+        sublabel={confidenceSublabel}
+      />
+      <MetricCard
+        label="Completeness"
+        value={
+          metrics.completeness_pct != null
+            ? `${metrics.completeness_pct.toFixed(1)}%`
+            : "—"
+        }
+        sublabel="Classes with properties"
       />
     </div>
   );

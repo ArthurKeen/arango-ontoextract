@@ -17,6 +17,7 @@ from app.api import (
     notifications,
     ontology,
     orgs,
+    quality,
     ws_curation,
     ws_extraction,
 )
@@ -83,5 +84,6 @@ app.include_router(er.router)
 app.include_router(orgs.router)
 app.include_router(notifications.router)
 app.include_router(metrics.router)
+app.include_router(quality.router)
 app.include_router(ws_extraction.router)
 app.include_router(ws_curation.router)

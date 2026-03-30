@@ -20,14 +20,21 @@ router = APIRouter(prefix="/api/v1/extraction", tags=["extraction"])
 
 
 class StartRunRequest(BaseModel):
-    document_id: str = Field(description="ID of the document to extract from")
+    document_id: str | None = Field(
+        default=None,
+        description="ID of a single document to extract from (backward compat)",
+    )
+    document_ids: list[str] | None = Field(
+        default=None,
+        description="IDs of documents to extract from (multi-doc mode)",
+    )
     config: dict[str, Any] | None = Field(
         default=None,
         description="Optional config overrides (num_passes, consistency_threshold, etc.)",
     )
     target_ontology_id: str | None = Field(
         default=None,
-        description="Target domain ontology for Tier 2 context-aware extraction",
+        description="Existing ontology to merge results into (incremental extraction)",
     )
     base_ontology_ids: list[str] | None = Field(
         default=None,
@@ -37,7 +44,8 @@ class StartRunRequest(BaseModel):
 
 class StartRunResponse(BaseModel):
     run_id: str
-    doc_id: str
+    doc_id: str | None = None
+    doc_ids: list[str] = []
     status: str
 
 
@@ -52,12 +60,13 @@ async def start_extraction(
     body: StartRunRequest,
     background_tasks: BackgroundTasks,
 ) -> StartRunResponse:
-    """Trigger ontology extraction on a document.
+    """Trigger ontology extraction on one or more documents.
 
     Creates the run record immediately and dispatches the pipeline
     as a background task so the HTTP response returns without waiting
     for the full extraction to complete.
     """
+    doc_ids = _resolve_doc_ids(body)
     db = get_db()
 
     ontology_ids: list[str] = []
@@ -68,22 +77,40 @@ async def start_extraction(
 
     run_record = extraction_service.create_run_record(
         db,
-        document_id=body.document_id,
+        document_ids=doc_ids,
         config_overrides=body.config,
         domain_ontology_ids=ontology_ids or None,
+        target_ontology_id=body.target_ontology_id,
     )
     background_tasks.add_task(
         extraction_service.execute_run,
         run_id=run_record["_key"],
-        document_id=body.document_id,
+        document_ids=doc_ids,
         config_overrides=body.config,
         domain_ontology_ids=ontology_ids or None,
+        target_ontology_id=body.target_ontology_id,
     )
     return StartRunResponse(
         run_id=run_record["_key"],
-        doc_id=run_record["doc_id"],
+        doc_id=doc_ids[0] if len(doc_ids) == 1 else None,
+        doc_ids=doc_ids,
         status=run_record["status"],
     )
+
+
+def _resolve_doc_ids(body: StartRunRequest) -> list[str]:
+    """Normalize document_id / document_ids into a single list."""
+    ids: list[str] = []
+    if body.document_ids:
+        ids.extend(body.document_ids)
+    if body.document_id and body.document_id not in ids:
+        ids.insert(0, body.document_id)
+    if not ids:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one of document_id or document_ids is required",
+        )
+    return ids
 
 
 @router.get("/runs")
@@ -100,16 +127,25 @@ async def list_runs(
     payload = result.model_dump()
 
     for run in payload.get("data", []):
-        doc_id = run.get("doc_id")
-        if doc_id and db.has_collection("documents"):
-            try:
-                doc = db.collection("documents").get(doc_id)
-                if doc:
-                    run["document_name"] = doc.get("filename", doc_id)
-                    run["chunk_count"] = doc.get("chunk_count", 0)
-            except Exception:
-                pass
-        run.setdefault("document_name", doc_id or "Unknown")
+        run_doc_ids = run.get("doc_ids") or []
+        legacy_id = run.get("doc_id")
+        if legacy_id and legacy_id not in run_doc_ids:
+            run_doc_ids = [legacy_id] + run_doc_ids
+        if run_doc_ids and db.has_collection("documents"):
+            names: list[str] = []
+            total_chunks = 0
+            for did in run_doc_ids:
+                try:
+                    doc = db.collection("documents").get(did)
+                    if doc:
+                        names.append(doc.get("filename", did))
+                        total_chunks += doc.get("chunk_count", 0)
+                except Exception:
+                    pass
+            if names:
+                run["document_name"] = ", ".join(names)
+                run["chunk_count"] = total_chunks
+        run.setdefault("document_name", legacy_id or "Unknown")
         run.setdefault("chunk_count", 0)
 
         stats = run.get("stats", {})

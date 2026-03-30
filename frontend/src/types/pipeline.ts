@@ -63,6 +63,8 @@ export interface RunCostResponse {
   properties_extracted: number;
   pass_agreement_rate: number;
   model_breakdown?: ModelCost[];
+  avg_confidence?: number | null;
+  completeness_pct?: number | null;
 }
 
 export interface ModelCost {

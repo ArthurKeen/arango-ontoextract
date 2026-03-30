@@ -44,17 +44,27 @@ def _get_collection(db: StandardDatabase, name: str):
 def create_run_record(
     db: StandardDatabase | None = None,
     *,
-    document_id: str,
+    document_id: str | None = None,
+    document_ids: list[str] | None = None,
     config_overrides: dict[str, Any] | None = None,
     domain_ontology_ids: list[str] | None = None,
+    target_ontology_id: str | None = None,
 ) -> dict[str, Any]:
     """Create an extraction run record (synchronous).
 
     Returns the run record immediately so the HTTP response can be sent
     before the pipeline starts executing.
+
+    Accepts either ``document_id`` (single, backward compat) or
+    ``document_ids`` (multi-doc).  Both are normalized into
+    ``doc_ids: list[str]`` on the stored record.
     """
     if db is None:
         db = get_db()
+
+    doc_ids = _normalize_doc_ids(document_id=document_id, document_ids=document_ids)
+    if not doc_ids:
+        raise ValueError("At least one document ID is required")
 
     run_id = _generate_run_id()
     now = time.time()
@@ -62,9 +72,10 @@ def create_run_record(
     is_tier2 = bool(domain_ontology_ids)
     prompt_version = "tier2_standard" if is_tier2 else "tier1_standard"
 
-    run_record = {
+    run_record: dict[str, Any] = {
         "_key": run_id,
-        "doc_id": document_id,
+        "doc_id": doc_ids[0],
+        "doc_ids": doc_ids,
         "model": settings.llm_extraction_model,
         "prompt_version": prompt_version,
         "started_at": now,
@@ -81,6 +92,8 @@ def create_run_record(
 
     if domain_ontology_ids:
         run_record["domain_ontology_ids"] = domain_ontology_ids
+    if target_ontology_id:
+        run_record["target_ontology_id"] = target_ontology_id
 
     if config_overrides:
         run_record["stats"].update(config_overrides)
@@ -88,21 +101,42 @@ def create_run_record(
     col = _get_collection(db, "extraction_runs")
     col.insert(run_record)
 
-    chunks = _load_document_chunks(db, document_id)
+    total_chunks = sum(len(_load_document_chunks(db, did)) for did in doc_ids)
     log.info(
         "extraction run created",
-        extra={"run_id": run_id, "doc_id": document_id, "chunk_count": len(chunks)},
+        extra={"run_id": run_id, "doc_ids": doc_ids, "chunk_count": total_chunks},
     )
 
     return run_record
 
 
+def _normalize_doc_ids(
+    *,
+    document_id: str | None = None,
+    document_ids: list[str] | None = None,
+) -> list[str]:
+    """Merge singular/plural document ID args into a deduplicated list.
+
+    Returns an empty list (instead of raising) when called from
+    ``execute_run`` with both args ``None`` — the caller fills in from the
+    stored run record.
+    """
+    ids: list[str] = []
+    if document_ids:
+        ids.extend(document_ids)
+    if document_id and document_id not in ids:
+        ids.insert(0, document_id)
+    return ids
+
+
 async def execute_run(
     run_id: str,
-    document_id: str,
+    document_id: str | None = None,
+    document_ids: list[str] | None = None,
     config_overrides: dict[str, Any] | None = None,
     event_callback: Any | None = None,
     domain_ontology_ids: list[str] | None = None,
+    target_ontology_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute the extraction pipeline for an existing run record.
 
@@ -120,6 +154,15 @@ async def execute_run(
     run_record = col.get(run_id)
     if run_record is None:
         raise NotFoundError(f"Extraction run '{run_id}' not found")
+
+    doc_ids = _normalize_doc_ids(document_id=document_id, document_ids=document_ids)
+    if not doc_ids:
+        doc_ids = run_record.get("doc_ids") or []
+        if not doc_ids and run_record.get("doc_id"):
+            doc_ids = [run_record["doc_id"]]
+
+    if target_ontology_id is None:
+        target_ontology_id = run_record.get("target_ontology_id")
 
     if domain_ontology_ids is None:
         domain_ontology_ids = run_record.get("domain_ontology_ids")
@@ -147,13 +190,17 @@ async def execute_run(
                 extra={"run_id": run_id},
             )
 
-    chunks = _load_document_chunks(db, document_id)
+    chunks: list[dict[str, Any]] = []
+    for did in doc_ids:
+        chunks.extend(_load_document_chunks(db, did))
+
+    primary_doc_id = doc_ids[0] if doc_ids else "unknown"
 
     final_state: dict[str, Any] | None = None
     try:
         final_state = await run_pipeline(
             run_id=run_id,
-            document_id=document_id,
+            document_id=primary_doc_id,
             chunks=chunks,
             event_callback=event_callback,
             domain_context=domain_context,
@@ -202,20 +249,31 @@ async def execute_run(
 
         if final_state.get("consistency_result"):
             _store_results(db, run_id=run_id, result=final_state["consistency_result"])
-            ontology_id = _auto_register_ontology(
-                db,
-                run_id=run_id,
-                document_id=document_id,
-                result=final_state["consistency_result"],
-            )
-            if ontology_id:
-                _materialize_to_graph(
+
+            if target_ontology_id:
+                ontology_id = _update_existing_ontology(
                     db,
+                    ontology_id=target_ontology_id,
                     run_id=run_id,
-                    document_id=document_id,
-                    ontology_id=ontology_id,
                     result=final_state["consistency_result"],
                 )
+            else:
+                ontology_id = _auto_register_ontology(
+                    db,
+                    run_id=run_id,
+                    document_id=primary_doc_id,
+                    result=final_state["consistency_result"],
+                )
+
+            if ontology_id:
+                for did in doc_ids:
+                    _materialize_to_graph(
+                        db,
+                        run_id=run_id,
+                        document_id=did,
+                        ontology_id=ontology_id,
+                        result=final_state["consistency_result"],
+                    )
                 _create_produced_by_edge(db, ontology_id=ontology_id, run_id=run_id)
                 try:
                     from app.services.ontology_graphs import ensure_ontology_graph
@@ -258,16 +316,23 @@ async def start_run(
     document_id: str,
     config_overrides: dict[str, Any] | None = None,
     event_callback: Any | None = None,
+    target_ontology_id: str | None = None,
 ) -> dict[str, Any]:
     """Create and execute an extraction run synchronously (legacy helper)."""
     if db is None:
         db = get_db()
-    run_record = create_run_record(db, document_id=document_id, config_overrides=config_overrides)
-    return await execute_run(
-        run_id=run_record["_key"],
+    run_record = create_run_record(
+        db,
         document_id=document_id,
         config_overrides=config_overrides,
+        target_ontology_id=target_ontology_id,
+    )
+    return await execute_run(
+        run_id=run_record["_key"],
+        document_ids=[document_id],
+        config_overrides=config_overrides,
         event_callback=event_callback,
+        target_ontology_id=target_ontology_id,
     )
 
 
@@ -378,7 +443,14 @@ def get_run_cost(
     *,
     run_id: str,
 ) -> dict[str, Any]:
-    """Get token usage and estimated cost for a run."""
+    """Get token usage and estimated cost for a run.
+
+    Also includes quality indicators (avg_confidence, completeness_pct)
+    when the run has an associated ontology.
+    """
+    if db is None:
+        db = get_db()
+
     run = get_run(db, run_id=run_id)
     stats = run.get("stats", {})
     token_usage = stats.get("token_usage", {})
@@ -394,6 +466,29 @@ def get_run_cost(
     completed = run.get("completed_at", 0)
     duration_ms = int((completed - started) * 1000) if started and completed else 0
 
+    avg_confidence: float | None = None
+    completeness_pct: float | None = None
+    ontology_id = run.get("ontology_id")
+    if not ontology_id and db.has_collection("ontology_registry"):
+        matches = list(db.aql.execute(
+            "FOR o IN ontology_registry "
+            "FILTER o.extraction_run_id == @rid "
+            "LIMIT 1 RETURN o._key",
+            bind_vars={"rid": run_id},
+        ))
+        if matches:
+            ontology_id = matches[0]
+
+    if ontology_id:
+        try:
+            from app.services.quality_metrics import compute_ontology_quality
+
+            oq = compute_ontology_quality(db, ontology_id)
+            avg_confidence = oq.get("avg_confidence")
+            completeness_pct = oq.get("completeness")
+        except Exception:
+            log.debug("quality metrics unavailable for run %s", run_id, exc_info=True)
+
     return {
         "run_id": run_id,
         "model": model,
@@ -407,6 +502,8 @@ def get_run_cost(
         "pass_agreement_rate": stats.get("pass_agreement_rate", 0.0),
         "token_usage": token_usage,
         "cost_per_1k_tokens": cost_per_1k,
+        "avg_confidence": avg_confidence,
+        "completeness_pct": completeness_pct,
     }
 
 
@@ -623,6 +720,48 @@ def _create_produced_by_edge(
         )
     except Exception:
         log.warning("produced_by edge creation failed", exc_info=True)
+
+
+def _update_existing_ontology(
+    db: StandardDatabase,
+    *,
+    ontology_id: str,
+    run_id: str,
+    result: Any,
+) -> str | None:
+    """Update an existing ontology registry entry for incremental extraction.
+
+    Increments class/property counts and updates the timestamp.
+    Returns the ontology_id on success, None on failure.
+    """
+    try:
+        from app.db import registry_repo
+
+        entry = registry_repo.get_registry_entry(ontology_id)
+        if entry is None:
+            log.warning("target ontology %s not found, falling back to new registration", ontology_id)
+            return None
+
+        classes = result.classes if hasattr(result, "classes") else result.get("classes", [])
+        new_class_count = len(classes)
+        new_prop_count = sum(
+            len(c.properties if hasattr(c, "properties") else c.get("properties", []))
+            for c in classes
+        )
+
+        registry_repo.update_registry_entry(ontology_id, {
+            "class_count": entry.get("class_count", 0) + new_class_count,
+            "property_count": entry.get("property_count", 0) + new_prop_count,
+            "extraction_run_id": run_id,
+        })
+        log.info(
+            "updated existing ontology for incremental extraction",
+            extra={"ontology_id": ontology_id, "run_id": run_id, "new_classes": new_class_count},
+        )
+        return ontology_id
+    except Exception:
+        log.warning("failed to update existing ontology %s", ontology_id, exc_info=True)
+        return None
 
 
 def _auto_register_ontology(

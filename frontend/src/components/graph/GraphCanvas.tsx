@@ -29,13 +29,13 @@ import type {
 // --- Confidence-based color helpers ---
 
 function confidenceColor(confidence: number): string {
-  if (confidence >= 0.8) return "border-green-400 bg-green-50";
+  if (confidence > 0.7) return "border-green-400 bg-green-50";
   if (confidence >= 0.5) return "border-yellow-400 bg-yellow-50";
   return "border-red-400 bg-red-50";
 }
 
 function confidenceDotColor(confidence: number): string {
-  if (confidence >= 0.8) return "bg-green-500";
+  if (confidence > 0.7) return "bg-green-500";
   if (confidence >= 0.5) return "bg-yellow-500";
   return "bg-red-500";
 }
@@ -156,7 +156,7 @@ function OntologyNode({ data, selected }: NodeProps<OntologyNodeData>) {
         </span>
         <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full ${confidence >= 0.8 ? "bg-green-500" : confidence >= 0.5 ? "bg-yellow-500" : "bg-red-500"}`}
+            className={`h-full rounded-full ${confidence > 0.7 ? "bg-green-500" : confidence >= 0.5 ? "bg-yellow-500" : "bg-red-500"}`}
             style={{ width: `${confidence * 100}%` }}
           />
         </div>
@@ -481,7 +481,7 @@ export default function GraphCanvas({
               return classificationMiniMapColor(nd.classification);
             }
             const conf = nd?.confidence ?? 0.5;
-            if (conf >= 0.8) return "#22c55e";
+            if (conf > 0.7) return "#22c55e";
             if (conf >= 0.5) return "#eab308";
             return "#ef4444";
           }}

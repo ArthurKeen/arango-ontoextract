@@ -18,6 +18,13 @@ interface DocumentEntry {
   chunk_count: number;
 }
 
+interface OntologyOption {
+  _key: string;
+  name: string;
+  class_count: number;
+  tier: string;
+}
+
 type UploadState = "idle" | "uploading" | "extracting" | "success" | "error";
 
 export default function UploadPage() {
@@ -30,6 +37,8 @@ export default function UploadPage() {
   const [documents, setDocuments] = useState<DocumentEntry[]>([]);
   const [docsLoaded, setDocsLoaded] = useState(false);
   const [extractingDocs, setExtractingDocs] = useState<Set<string>>(new Set());
+  const [ontologyOptions, setOntologyOptions] = useState<OntologyOption[]>([]);
+  const [targetOntologyId, setTargetOntologyId] = useState<string>("");
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -41,17 +50,36 @@ export default function UploadPage() {
     }
   }, []);
 
+  const loadOntologies = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: OntologyOption[] }>(
+        "/api/v1/ontology/library?limit=100",
+      );
+      setOntologyOptions(res.data ?? []);
+    } catch {
+      /* non-critical */
+    }
+  }, []);
+
   useEffect(() => {
     loadDocuments();
-  }, [loadDocuments]);
+    loadOntologies();
+  }, [loadDocuments, loadOntologies]);
 
-  const triggerExtraction = async (docId: string): Promise<string | null> => {
+  const triggerExtraction = async (
+    docId: string,
+    ontologyId?: string,
+  ): Promise<string | null> => {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+      const payload: Record<string, unknown> = { document_id: docId };
+      if (ontologyId) {
+        payload.target_ontology_id = ontologyId;
+      }
       const res = await fetch(`${baseUrl}/api/v1/extraction/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document_id: docId }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -63,7 +91,10 @@ export default function UploadPage() {
 
   const extractDocument = async (docId: string) => {
     setExtractingDocs((prev) => new Set(prev).add(docId));
-    const runId = await triggerExtraction(docId);
+    const runId = await triggerExtraction(
+      docId,
+      targetOntologyId || undefined,
+    );
     setExtractingDocs((prev) => {
       const next = new Set(prev);
       next.delete(docId);
@@ -103,7 +134,10 @@ export default function UploadPage() {
       loadDocuments();
 
       setUploadState("extracting");
-      const runId = await triggerExtraction(data.doc_id);
+      const runId = await triggerExtraction(
+        data.doc_id,
+        targetOntologyId || undefined,
+      );
       setExtractionRunId(runId);
       setUploadState("success");
     } catch (err) {
@@ -136,6 +170,34 @@ export default function UploadPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-6 py-10 space-y-8">
+        {/* Target ontology selector */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <label
+            htmlFor="target-ontology"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Target Ontology
+          </label>
+          <select
+            id="target-ontology"
+            value={targetOntologyId}
+            onChange={(e) => setTargetOntologyId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Create New Ontology</option>
+            {ontologyOptions.map((o) => (
+              <option key={o._key} value={o._key}>
+                {o.name} ({o.class_count} classes)
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-xs text-gray-400">
+            {targetOntologyId
+              ? "Extraction results will be merged into the selected ontology."
+              : "A new ontology will be created from the extraction results."}
+          </p>
+        </div>
+
         {/* Drop zone */}
         <div
           onDragOver={(e) => {

@@ -16,7 +16,7 @@ from app.models.ontology import ExtractionResult
 
 log = logging.getLogger(__name__)
 
-_MAX_RETRIES_PER_PASS = 3
+_MAX_RETRIES_PER_PASS = 5
 
 
 def _get_llm(model_name: str) -> Any:
@@ -181,7 +181,7 @@ def extractor_node(state: ExtractionPipelineState) -> dict:
             for retry in range(_MAX_RETRIES_PER_PASS):
                 try:
                     messages = [SystemMessage(content=system_msg), HumanMessage(content=user_msg)]
-                    if last_error:
+                    if last_error and "Expecting value" not in last_error:
                         messages.append(
                             HumanMessage(
                                 content=(
@@ -197,6 +197,9 @@ def extractor_node(state: ExtractionPipelineState) -> dict:
                         if isinstance(response.content, str)
                         else str(response.content)
                     )
+
+                    if not raw_text or not raw_text.strip():
+                        raise ValueError("LLM returned empty response")
 
                     if hasattr(response, "usage_metadata") and response.usage_metadata:
                         usage = response.usage_metadata
@@ -223,6 +226,8 @@ def extractor_node(state: ExtractionPipelineState) -> dict:
                             "error": last_error,
                         },
                     )
+                    if "empty response" in last_error.lower() or "Expecting value" in last_error:
+                        time.sleep(2 * (retry + 1))
                     if retry == _MAX_RETRIES_PER_PASS - 1:
                         errors.append(
                             f"Pass {pass_num} batch {batch_idx}: "

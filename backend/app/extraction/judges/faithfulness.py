@@ -115,7 +115,7 @@ async def judge_faithfulness(
             HumanMessage(content=user_prompt),
         ]
 
-        response = llm.invoke(messages)
+        response = await llm.ainvoke(messages)
         raw_text = (
             response.content
             if isinstance(response.content, str)

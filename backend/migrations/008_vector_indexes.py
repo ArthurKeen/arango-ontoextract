@@ -1,10 +1,11 @@
-"""008 — Vector index on ``chunks.embedding`` for similarity search.
+"""008 — Placeholder for vector index on ``chunks.embedding``.
 
-Used for RAG context retrieval and entity resolution vector blocking.
-Dimension defaults to 1536 (OpenAI ``text-embedding-3-small``).
+The vector index (type: vector, Faiss IVF) requires training data to exist
+in the collection before it can be created.  Index creation is therefore
+handled at the end of the ingestion pipeline (see ``app/tasks.py``) rather
+than at migration time.
 
-Creates an inverted index with HNSW vector support via the raw ArangoDB API,
-since python-arango's high-level methods don't expose vector params yet.
+This migration only cleans up any previously-created broken inverted index.
 """
 
 from __future__ import annotations
@@ -12,56 +13,21 @@ from __future__ import annotations
 import logging
 
 from arango.database import StandardDatabase
-from arango.request import Request
 
 log = logging.getLogger(__name__)
 
-INDEX_NAME = "idx_chunks_embedding_hnsw"
-EMBEDDING_DIMENSION = 1536
+_OLD_INDEX_NAME = "idx_chunks_embedding_hnsw"
 
 
 def up(db: StandardDatabase) -> None:
-    col = db.collection("chunks")
+    if not db.has_collection("chunks"):
+        return
 
+    col = db.collection("chunks")
     for idx in col.indexes():
-        if idx.get("name") == INDEX_NAME:
-            log.debug("vector index %s already exists", INDEX_NAME)
+        if idx.get("name") == _OLD_INDEX_NAME:
+            col.delete_index(idx["id"])
+            log.info("dropped broken inverted index %s from chunks", _OLD_INDEX_NAME)
             return
 
-    body = {
-        "type": "inverted",
-        "name": INDEX_NAME,
-        "fields": [
-            {
-                "name": "embedding",
-                "aql": False,
-            },
-        ],
-        "params": {
-            "vector": {
-                "type": "hnsw",
-                "dimension": EMBEDDING_DIMENSION,
-                "similarity": "cosine",
-            },
-        },
-    }
-
-    try:
-        req = Request(
-            method="post",
-            endpoint="/_api/index",
-            params={"collection": "chunks"},
-            data=body,
-        )
-        resp = db._conn.send_request(req)
-        if resp.status_code in (200, 201):
-            log.info("created vector index %s on chunks.embedding", INDEX_NAME)
-        else:
-            log.warning(
-                "vector index returned %d — RAG will use full-scan fallback",
-                resp.status_code,
-            )
-    except Exception as exc:
-        log.warning(
-            "vector index not created — RAG will use full-scan fallback: %s", exc,
-        )
+    log.debug("no broken index to clean up")

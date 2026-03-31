@@ -29,7 +29,7 @@ _TIKTOKEN_MODEL = "cl100k_base"
 
 
 def _get_client() -> AsyncOpenAI:
-    kwargs: dict = {"api_key": settings.openai_api_key}
+    kwargs: dict = {"api_key": settings.openai_api_key, "timeout": 20.0}
     if settings.openai_base_url:
         kwargs["base_url"] = settings.openai_base_url
     return AsyncOpenAI(**kwargs)

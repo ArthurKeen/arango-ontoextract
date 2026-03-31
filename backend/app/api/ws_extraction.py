@@ -1,7 +1,8 @@
 """WebSocket endpoint for extraction pipeline progress per PRD Section 7.8.
 
 Events: step_started, step_completed, step_failed, pipeline_paused, completed.
-Uses in-memory event bus (asyncio.Queue). Redis Pub/Sub is Phase 6.
+Uses in-memory event bus (asyncio.Queue) with event history replay for late
+joiners. Redis Pub/Sub is Phase 6.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 _run_subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
+_run_event_history: dict[str, list[dict[str, Any]]] = {}
 
 
 def _get_subscribers(run_id: str) -> list[asyncio.Queue[dict[str, Any]]]:
@@ -33,15 +35,18 @@ async def publish_event(
 ) -> None:
     """Publish an event to all WebSocket subscribers for a run.
 
-    Called by the extraction pipeline node callbacks.
+    Also stores in event history so late-connecting clients can replay.
     """
     event = {
+        "type": event_type,
         "event": event_type,
         "step": step,
         "data": data or {},
         "timestamp": time.time(),
         "run_id": run_id,
     }
+
+    _run_event_history.setdefault(run_id, []).append(event)
 
     subscribers = _get_subscribers(run_id)
     for queue in subscribers:
@@ -55,15 +60,16 @@ async def publish_event(
 
 
 def cleanup_run(run_id: str) -> None:
-    """Remove all subscribers for a completed run."""
+    """Remove all subscribers and event history for a completed run."""
     _run_subscribers.pop(run_id, None)
+    _run_event_history.pop(run_id, None)
 
 
 @router.websocket("/ws/extraction/{run_id}")
 async def ws_extraction(websocket: WebSocket, run_id: str) -> None:
     """WebSocket endpoint for real-time extraction pipeline updates.
 
-    Clients connect and receive events as the pipeline progresses.
+    Replays any missed events on connect, then streams live updates.
     """
     await websocket.accept()
     log.info("WebSocket connected", extra={"run_id": run_id})
@@ -74,11 +80,17 @@ async def ws_extraction(websocket: WebSocket, run_id: str) -> None:
 
     try:
         await websocket.send_json({
+            "type": "connected",
             "event": "connected",
             "step": "websocket",
             "data": {"run_id": run_id},
             "timestamp": time.time(),
         })
+
+        # Replay missed events
+        history = _run_event_history.get(run_id, [])
+        for past_event in history:
+            await websocket.send_json(past_event)
 
         while True:
             try:
@@ -89,6 +101,7 @@ async def ws_extraction(websocket: WebSocket, run_id: str) -> None:
                     break
             except TimeoutError:
                 await websocket.send_json({
+                    "type": "heartbeat",
                     "event": "heartbeat",
                     "step": "websocket",
                     "data": {},

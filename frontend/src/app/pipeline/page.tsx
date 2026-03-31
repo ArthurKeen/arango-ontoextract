@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api-client";
 import RunList from "@/components/pipeline/RunList";
@@ -21,7 +22,24 @@ const AgentDAG = dynamic(() => import("@/components/pipeline/AgentDAG"), {
 type DetailTab = "metrics" | "errors" | "timeline";
 
 export default function PipelineMonitor() {
+  return (
+    <Suspense>
+      <PipelineMonitorInner />
+    </Suspense>
+  );
+}
+
+function PipelineMonitorInner() {
+  const searchParams = useSearchParams();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+
+  // Sync from URL search params (runs after hydration, avoiding SSR mismatch)
+  useEffect(() => {
+    const runIdParam = searchParams.get("runId");
+    if (runIdParam !== selectedRunId) {
+      setSelectedRunId(runIdParam);
+    }
+  }, [searchParams]);
   const [activeTab, setActiveTab] = useState<DetailTab>("metrics");
   const { steps, isConnected, error: wsError } = useExtractionSocket(selectedRunId);
   const [sidebarOpen, setSidebarOpen] = useState(true);

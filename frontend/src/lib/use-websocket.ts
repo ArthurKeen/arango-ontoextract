@@ -34,9 +34,8 @@ function buildInitialSteps(): Map<string, StepStatus> {
 
 function resolveWsUrl(runId: string): string {
   if (typeof window === "undefined") return "";
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const apiBase =
-    process.env.NEXT_PUBLIC_API_URL ?? `${protocol}//${window.location.host}`;
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
   const wsBase = apiBase.replace(/^http/, "ws");
   return `${wsBase}/ws/extraction/${runId}`;
 }
@@ -125,7 +124,7 @@ async function fetchStepsFromRest(
   }
 }
 
-const MAX_WS_RETRIES = 2;
+const MAX_WS_RETRIES = 5;
 
 export function useExtractionSocket(
   runId: string | null,
@@ -139,6 +138,8 @@ export function useExtractionSocket(
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const restFetchedRef = useRef(false);
+  /** Set to true once WS has replayed events; prevents REST from overwriting */
+  const wsHasDeliveredRef = useRef(false);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -148,6 +149,10 @@ export function useExtractionSocket(
   }, []);
 
   const applyEvent = useCallback((evt: WebSocketEvent) => {
+    // Mark that WS has delivered real step data — REST should not overwrite
+    if (evt.type === "step_started" || evt.type === "step_completed" || evt.type === "step_failed") {
+      wsHasDeliveredRef.current = true;
+    }
     setSteps((prev) => {
       const next = new Map(prev);
       const rawStep = evt.step;
@@ -205,7 +210,7 @@ export function useExtractionSocket(
     };
   }, []);
 
-  // REST API fallback: poll step data when WS isn't available
+  // REST API fallback: poll step data only when WS isn't connected
   useEffect(() => {
     if (!runId) return;
     restFetchedRef.current = false;
@@ -213,6 +218,10 @@ export function useExtractionSocket(
 
     async function poll() {
       if (!mountedRef.current) return;
+      // Skip polling if WebSocket is connected or has delivered events
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      if (wsHasDeliveredRef.current) return;
+
       const restSteps = await fetchStepsFromRest(runId!);
       if (!restSteps || !mountedRef.current) return;
 
@@ -293,6 +302,7 @@ export function useExtractionSocket(
 
     setSteps(buildInitialSteps());
     retriesRef.current = 0;
+    wsHasDeliveredRef.current = false;
     connect();
 
     return () => {

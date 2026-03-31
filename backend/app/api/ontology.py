@@ -172,13 +172,14 @@ async def update_ontology_metadata(
 @router.delete("/library/{ontology_id}")
 async def delete_ontology(
     ontology_id: str,
-    confirm: bool = Query(False, description="Set to true to actually deprecate"),
+    confirm: bool = Query(False, description="Set to true to actually delete"),
 ) -> dict:
-    """Deprecate an ontology with cascade analysis (J.4).
+    """Delete an ontology with cascade analysis (J.4).
 
-    Without ``?confirm=true``, returns dependent ontologies.
-    With confirmation: expires all classes/properties/edges for this ontology,
-    removes the per-ontology named graph, and marks the registry as deprecated.
+    Without ``?confirm=true``, returns dependent ontologies (dry-run).
+    With confirmation: hard-deletes all classes/properties/edges for this
+    ontology, removes the per-ontology named graph, and removes the registry
+    entry.
     """
     entry = registry_repo.get_registry_entry(ontology_id)
     if entry is None:
@@ -218,21 +219,20 @@ async def delete_ontology(
             "message": "Pass ?confirm=true to proceed with deprecation.",
         }
 
-    now_ts = time.time()
-    expired_counts: dict[str, int] = {}
+    removed_counts: dict[str, int] = {}
 
     for col_name in ("ontology_classes", "ontology_properties"):
         if db.has_collection(col_name):
             result = list(
                 db.aql.execute(
                     f"FOR doc IN {col_name} "
-                    "FILTER doc.ontology_id == @oid AND doc.expired == @never "
-                    f"UPDATE doc WITH {{expired: @now}} IN {col_name} "
+                    "FILTER doc.ontology_id == @oid "
+                    f"REMOVE doc IN {col_name} "
                     "RETURN OLD._key",
-                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES, "now": now_ts},
+                    bind_vars={"oid": ontology_id},
                 )
             )
-            expired_counts[col_name] = len(result)
+            removed_counts[col_name] = len(result)
 
     for edge_col in (
         "subclass_of", "has_property", "related_to",
@@ -242,24 +242,24 @@ async def delete_ontology(
             result = list(
                 db.aql.execute(
                     f"FOR e IN {edge_col} "
-                    "FILTER e.ontology_id == @oid AND e.expired == @never "
-                    f"UPDATE e WITH {{expired: @now}} IN {edge_col} "
+                    "FILTER e.ontology_id == @oid "
+                    f"REMOVE e IN {edge_col} "
                     "RETURN OLD._key",
-                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES, "now": now_ts},
+                    bind_vars={"oid": ontology_id},
                 )
             )
-            expired_counts[edge_col] = len(result)
+            removed_counts[edge_col] = len(result)
 
     from app.services.ontology_graphs import delete_ontology_graph
 
     graph_deleted = delete_ontology_graph(ontology_id, db=db)
 
-    registry_repo.update_registry_entry(ontology_id, {"status": "deprecated"})
+    registry_repo.delete_registry_entry(ontology_id)
 
     return {
         "ontology_id": ontology_id,
-        "status": "deprecated",
-        "expired_counts": expired_counts,
+        "status": "deleted",
+        "removed_counts": removed_counts,
         "graph_deleted": graph_deleted,
         "dependent_ontologies": dependents,
     }

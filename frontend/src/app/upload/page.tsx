@@ -101,7 +101,7 @@ export default function UploadPage() {
       return next;
     });
     if (runId) {
-      window.location.href = `/pipeline`;
+      window.location.href = `/pipeline?runId=${runId}`;
     }
   };
 
@@ -306,7 +306,7 @@ export default function UploadPage() {
             </div>
             <div className="mt-3 flex gap-3">
               <a
-                href="/pipeline"
+                href={extractionRunId ? `/pipeline?runId=${extractionRunId}` : "/pipeline"}
                 className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 View Extraction Pipeline →

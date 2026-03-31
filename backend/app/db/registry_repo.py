@@ -103,3 +103,18 @@ def deprecate_registry_entry(ontology_id: str) -> dict[str, Any]:
     Returns the updated document.
     """
     return update_registry_entry(ontology_id, {"status": "deprecated"})
+
+
+def delete_registry_entry(ontology_id: str) -> bool:
+    """Hard-delete an ontology registry entry.
+
+    Returns True if the entry was deleted, False if it didn't exist.
+    """
+    _ensure_collection()
+    db = get_db()
+    col = db.collection(_COLLECTION)
+    existing = col.get(ontology_id)
+    if existing is None:
+        return False
+    col.delete(ontology_id)
+    return True

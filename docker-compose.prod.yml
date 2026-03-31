@@ -67,6 +67,7 @@ services:
   arangodb:
     image: arangodb:3.12
     restart: unless-stopped
+    command: ["arangod", "--server.endpoint", "tcp://0.0.0.0:8529", "--vector-index"]
     environment:
       ARANGO_ROOT_PASSWORD: ${ARANGO_PASSWORD:-changeme}
     volumes:

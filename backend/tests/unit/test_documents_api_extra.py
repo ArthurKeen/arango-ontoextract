@@ -201,19 +201,30 @@ class TestDocumentRoutes:
             patch("app.api.documents.documents_repo.get_document", return_value={"_key": "d1"}),
             patch(
                 "app.api.documents.documents_repo.delete_document",
-                return_value={"_key": "d1", "status": "deleted"},
+                return_value={
+                    "doc_id": "d1",
+                    "status": "pending_confirmation",
+                    "affected_ontologies": [{"_key": "onto1"}],
+                    "message": "Pass ?confirm=true to proceed with deletion.",
+                },
             ) as mock_delete,
         ):
             result = await delete_document("d1", confirm=False)
-        assert result["status"] == "deleted"
-        mock_delete.assert_called_once_with("d1")
+        assert result["status"] == "pending_confirmation"
+        assert result["affected_ontologies"] == [{"_key": "onto1"}]
+        mock_delete.assert_called_once_with("d1", confirm=False)
 
     @pytest.mark.asyncio
-    async def test_delete_document_falls_back_to_minimal_deleted_payload(self):
+    async def test_delete_document_confirm_delegates_with_confirm_flag(self):
         with (
             patch("app.api.documents.documents_repo.get_document", return_value={"_key": "d1"}),
-            patch("app.api.documents.documents_repo.delete_document", return_value=None),
+            patch(
+                "app.api.documents.documents_repo.delete_document",
+                return_value={"doc_id": "d1", "status": "deleted", "chunks_removed": 3},
+            ) as mock_delete,
         ):
             result = await delete_document("d1", confirm=True)
         assert result["status"] == "deleted"
         assert result["doc_id"] == "d1"
+        assert result["chunks_removed"] == 3
+        mock_delete.assert_called_once_with("d1", confirm=True)

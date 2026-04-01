@@ -6,6 +6,7 @@ All AQL is encapsulated here — no raw queries in routes or services.
 from __future__ import annotations
 
 import logging
+from time import time
 from typing import Any, cast
 
 from arango.database import StandardDatabase
@@ -16,6 +17,7 @@ from app.db.utils import doc_get, run_aql
 from app.db.utils import now_iso as _now_iso
 from app.models.common import PaginatedResponse
 from app.models.documents import DocumentStatus
+from app.services.temporal import NEVER_EXPIRES
 
 log = logging.getLogger(__name__)
 
@@ -174,9 +176,92 @@ def hard_delete_document(doc_id: str, *, db: StandardDatabase | None = None) -> 
         return False
 
 
-def delete_document(doc_id: str, *, db: StandardDatabase | None = None) -> dict | None:
-    """Soft-delete: set status to ``deleted``."""
-    return update_document_status(doc_id, DocumentStatus.DELETED, db=db)
+def get_document_affected_ontologies(
+    doc_id: str, *, db: StandardDatabase | None = None
+) -> list[dict]:
+    """Return ontologies with active provenance edges from a document."""
+    db = db or get_db()
+    if not db.has_collection("extracted_from"):
+        return []
+
+    ontology_ids = list(
+        run_aql(
+            db,
+            "FOR e IN extracted_from "
+            "FILTER e._to == @doc_id AND e.expired == @never "
+            "COLLECT ontology_id = e.ontology_id "
+            "FILTER ontology_id != null "
+            "RETURN ontology_id",
+            bind_vars={"doc_id": f"documents/{doc_id}", "never": NEVER_EXPIRES},
+        )
+    )
+
+    if not ontology_ids or not db.has_collection("ontology_registry"):
+        return []
+
+    return list(
+        run_aql(
+            db,
+            "FOR o IN ontology_registry FILTER o._key IN @ids "
+            "RETURN {_key: o._key, name: o.name, status: o.status}",
+            bind_vars={"ids": ontology_ids},
+        )
+    )
+
+
+def expire_document_provenance_edges(
+    doc_id: str, *, db: StandardDatabase | None = None
+) -> int:
+    """Expire active ``extracted_from`` edges pointing at a document."""
+    db = db or get_db()
+    if not db.has_collection("extracted_from"):
+        return 0
+
+    expired = list(
+        run_aql(
+            db,
+            "FOR e IN extracted_from "
+            "FILTER e._to == @doc_id AND e.expired == @never "
+            "UPDATE e WITH {expired: @now} IN extracted_from "
+            "RETURN NEW._key",
+            bind_vars={
+                "doc_id": f"documents/{doc_id}",
+                "never": NEVER_EXPIRES,
+                "now": time(),
+            },
+        )
+    )
+    return len(expired)
+
+
+def delete_document(
+    doc_id: str,
+    *,
+    confirm: bool = False,
+    db: StandardDatabase | None = None,
+) -> dict:
+    """Delete a document with cascade analysis and provenance expiration."""
+    db = db or get_db()
+    affected_ontologies = get_document_affected_ontologies(doc_id, db=db)
+
+    if not confirm:
+        return {
+            "doc_id": doc_id,
+            "status": "pending_confirmation",
+            "affected_ontologies": affected_ontologies,
+            "message": "Pass ?confirm=true to proceed with deletion.",
+        }
+
+    expire_document_provenance_edges(doc_id, db=db)
+    chunks_removed = delete_chunks_for_document(doc_id, db=db)
+    hard_delete_document(doc_id, db=db)
+
+    return {
+        "doc_id": doc_id,
+        "status": "deleted",
+        "chunks_removed": chunks_removed,
+        "affected_ontologies": affected_ontologies,
+    }
 
 
 def find_document_by_hash(

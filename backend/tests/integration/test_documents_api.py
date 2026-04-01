@@ -163,14 +163,35 @@ class TestGetChunks:
 
 class TestDeleteDocument:
     @patch("app.api.documents.documents_repo")
-    def test_soft_delete(self, mock_repo: MagicMock, test_client):
+    def test_delete_preview_requires_confirmation(self, mock_repo: MagicMock, test_client):
         mock_repo.get_document.return_value = _make_mock_doc()
-        mock_repo.delete_document.return_value = _make_mock_doc(status="deleted")
+        mock_repo.delete_document.return_value = {
+            "doc_id": "doc1",
+            "status": "pending_confirmation",
+            "affected_ontologies": [{"_key": "onto1"}],
+            "message": "Pass ?confirm=true to proceed with deletion.",
+        }
 
         response = test_client.delete("/api/v1/documents/doc1")
         assert response.status_code == 200
+        assert response.json()["status"] == "pending_confirmation"
+        mock_repo.delete_document.assert_called_once_with("doc1", confirm=False)
+
+    @patch("app.api.documents.documents_repo")
+    def test_delete_confirm_executes_delete(self, mock_repo: MagicMock, test_client):
+        mock_repo.get_document.return_value = _make_mock_doc()
+        mock_repo.delete_document.return_value = {
+            "doc_id": "doc1",
+            "status": "deleted",
+            "chunks_removed": 5,
+            "affected_ontologies": [{"_key": "onto1"}],
+        }
+
+        response = test_client.delete("/api/v1/documents/doc1?confirm=true")
+        assert response.status_code == 200
         assert response.json()["status"] == "deleted"
-        mock_repo.delete_document.assert_called_once_with("doc1")
+        assert response.json()["chunks_removed"] == 5
+        mock_repo.delete_document.assert_called_once_with("doc1", confirm=True)
 
     @patch("app.api.documents.documents_repo")
     def test_delete_not_found(self, mock_repo: MagicMock, test_client):

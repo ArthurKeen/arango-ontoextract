@@ -210,8 +210,6 @@ async def delete_document(
     doc_id: str,
     confirm: bool = Query(default=False, description="Set to true to actually delete"),
 ) -> dict:
-    """Soft-delete a document."""
+    """Delete a document with cascade analysis and confirmation."""
     get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
-    _ = confirm  # retained for backward-compatible query params
-    deleted = documents_repo.delete_document(doc_id)
-    return deleted or {"doc_id": doc_id, "status": "deleted"}
+    return documents_repo.delete_document(doc_id, confirm=confirm)

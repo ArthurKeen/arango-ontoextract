@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import PurePosixPath
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import httpx
 from arango.database import StandardDatabase
@@ -328,7 +329,7 @@ def import_from_url(
     if db is None:
         db = get_db()
 
-    filename = PurePosixPath(url.split("?")[0].split("#")[0]).name
+    filename = PurePosixPath(urlparse(url).path).name
     if not filename:
         filename = "ontology.ttl"
 

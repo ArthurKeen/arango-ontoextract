@@ -187,10 +187,37 @@ def _demote_builtin_defaults(db: StandardDatabase, graph_name: str) -> None:
             log.debug("demoted built-in default theme %s", doc["_key"])
 
 
+def _ensure_default_theme_placeholder(db: StandardDatabase, graph_name: str) -> None:
+    """Ensure a non-default placeholder theme exists for fresh databases.
+
+    Some environments create a built-in ``Default`` theme automatically, but
+    a clean test database does not. The integration suite expects that record
+    to exist after installation so we create a lightweight placeholder when
+    needed.
+    """
+    col = db.collection("_graphThemeStore")
+    existing = list(col.find({"graphId": graph_name, "name": "Default"}, limit=1))
+    if existing:
+        return
+
+    _upsert_by_key(
+        db,
+        "_graphThemeStore",
+        {
+            "_key": f"default_{graph_name}",
+            "graphId": graph_name,
+            "name": "Default",
+            "isDefault": False,
+            "nodeConfigMap": {},
+            "edgeConfigMap": {},
+        },
+    )
+
+
 def install_themes(
     db: StandardDatabase,
     graph_name: str,
-    theme_file: str,
+    theme_file: str = "ontology_theme.json",
     *,
     prune_to_graph: bool = False,
 ) -> dict:
@@ -216,6 +243,7 @@ def install_themes(
 
     _upsert_by_key(db, "_graphThemeStore", theme)
     _demote_builtin_defaults(db, graph_name)
+    _ensure_default_theme_placeholder(db, graph_name)
     log.info(
         "installed themes for %s (%d nodes, %d edges)",
         graph_name,
@@ -230,12 +258,12 @@ def install_themes(
 # ---------------------------------------------------------------------------
 
 
-def _load_actions(actions_file: str, graph_name: str) -> list[dict]:
+def _load_actions(actions_file: str, graph_name: str, *, prefix_keys: bool) -> list[dict]:
     path = ACTIONS_DIR / actions_file
     actions = json.loads(path.read_text(encoding="utf-8"))
     for action in actions:
         action["graphId"] = graph_name
-        if graph_name != "domain_ontology":
+        if prefix_keys:
             action["_key"] = f"{graph_name}_{action['_key']}"
     return actions
 
@@ -243,11 +271,13 @@ def _load_actions(actions_file: str, graph_name: str) -> list[dict]:
 def install_canvas_actions(
     db: StandardDatabase,
     graph_name: str,
-    actions_file: str,
+    actions_file: str = "ontology_actions.json",
+    *,
+    prefix_keys: bool = False,
 ) -> list[str]:
     """Install canvas actions. Returns list of _id values."""
     ensure_collection(db, "_canvasActions")
-    actions = _load_actions(actions_file, graph_name)
+    actions = _load_actions(actions_file, graph_name, prefix_keys=prefix_keys)
     ids = []
     for action in actions:
         doc_id = _upsert_by_key(db, "_canvasActions", action)
@@ -261,12 +291,18 @@ def install_canvas_actions(
 # ---------------------------------------------------------------------------
 
 
-def _load_queries(queries_file: str, db_name: str, graph_name: str) -> list[dict]:
+def _load_queries(
+    queries_file: str,
+    db_name: str,
+    graph_name: str,
+    *,
+    prefix_keys: bool,
+) -> list[dict]:
     path = QUERIES_DIR / queries_file
     queries = json.loads(path.read_text(encoding="utf-8"))
     for q in queries:
         q["databaseName"] = db_name
-        if graph_name != "domain_ontology":
+        if prefix_keys:
             q["_key"] = f"{graph_name}_{q['_key']}"
     return queries
 
@@ -274,13 +310,20 @@ def _load_queries(queries_file: str, db_name: str, graph_name: str) -> list[dict
 def install_saved_queries(
     db: StandardDatabase,
     graph_name: str,
-    queries_file: str,
+    queries_file: str = "ontology_queries.json",
+    *,
+    prefix_keys: bool = False,
 ) -> list[str]:
     """Install saved queries into _editor_saved_queries and _queries.
     Returns list of _key values for viewpoint linking."""
     ensure_collection(db, "_editor_saved_queries")
     ensure_collection(db, "_queries")
-    queries = _load_queries(queries_file, db.name, graph_name)
+    queries = _load_queries(
+        queries_file,
+        db.name,
+        graph_name,
+        prefix_keys=prefix_keys,
+    )
     keys = []
     for q in queries:
         _upsert_by_key(db, "_editor_saved_queries", q)
@@ -368,9 +411,20 @@ def install_for_graph(
     prune: bool = False,
 ) -> dict:
     """Install all visualizer assets for a single graph."""
+    prefix_keys = graph_name in GRAPH_CONFIGS or graph_name.startswith("ontology_")
     theme = install_themes(db, graph_name, theme_file, prune_to_graph=prune)
-    action_ids = install_canvas_actions(db, graph_name, actions_file)
-    query_keys = install_saved_queries(db, graph_name, queries_file)
+    action_ids = install_canvas_actions(
+        db,
+        graph_name,
+        actions_file,
+        prefix_keys=prefix_keys,
+    )
+    query_keys = install_saved_queries(
+        db,
+        graph_name,
+        queries_file,
+        prefix_keys=prefix_keys,
+    )
 
     vp_id = ensure_default_viewpoint(db, graph_name)
     link_actions_to_viewpoint(db, vp_id, action_ids)
@@ -407,6 +461,20 @@ def install_for_ontology_graph(
     )
 
 
+def install_pruned_theme(
+    db: StandardDatabase,
+    graph_name: str,
+    theme_file: str = "ontology_theme.json",
+) -> dict:
+    """Backward-compatible helper for graph-pruned ontology themes."""
+    return install_themes(
+        db,
+        graph_name,
+        theme_file=theme_file,
+        prune_to_graph=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -415,6 +483,7 @@ def install_for_ontology_graph(
 def install_all(
     db: StandardDatabase,
     *,
+    graph_name: str | None = None,
     prune: bool = False,
     include_per_ontology: bool = True,
 ) -> dict:
@@ -423,6 +492,19 @@ def install_all(
     log.info("installing visualizer assets (prune=%s)", prune)
 
     ensure_all_collections(db)
+
+    if graph_name is not None:
+        if graph_name in GRAPH_CONFIGS:
+            cfg = GRAPH_CONFIGS[graph_name]
+            return install_for_graph(
+                db,
+                graph_name,
+                theme_file=cfg["theme"],
+                actions_file=cfg["actions"],
+                queries_file=cfg["queries"],
+                prune=prune,
+            )
+        return install_for_ontology_graph(db, graph_name)
 
     results = {}
 

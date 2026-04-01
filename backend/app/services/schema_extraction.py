@@ -20,6 +20,7 @@ from typing import Any, cast
 from pydantic import BaseModel, Field
 
 from app.db.client import get_db
+from app.services.arangordf_bridge import import_from_file
 
 log = logging.getLogger(__name__)
 
@@ -191,8 +192,6 @@ def extract_schema(config: SchemaExtractionConfig) -> dict[str, Any]:
             ttl_content = owl_export_fn(snapshot)
         else:
             ttl_content = _stub_extract_schema(config)
-
-        from app.services.arangordf_bridge import import_from_file
 
         db = get_db()
         import_result = import_from_file(

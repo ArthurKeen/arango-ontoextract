@@ -14,6 +14,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import settings
+from app.db.client import get_db
 from app.db.utils import run_aql
 from app.extraction.prompts import get_template
 from app.extraction.state import ExtractionPipelineState, StepLog, TokenUsage
@@ -101,8 +102,6 @@ def _retrieve_relevant_chunks(
     Falls back to returning the input chunks if vector search is unavailable.
     """
     try:
-        from app.db.client import get_db
-
         db = get_db()
         if not db.has_collection("chunks"):
             return chunks

@@ -27,9 +27,9 @@ from app.services.ingestion import (
 log = logging.getLogger(__name__)
 
 _MIME_PARSERS: dict[str, Any] = {
-    "application/pdf": parse_pdf,
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": parse_docx,
-    "text/markdown": parse_markdown,
+    "application/pdf": "parse_pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "parse_docx",
+    "text/markdown": "parse_markdown",
 }
 
 
@@ -157,10 +157,11 @@ async def _parse(file_bytes: bytes, mime_type: str) -> ParsedDocument:
         text = file_bytes.decode("utf-8", errors="replace")
         return parse_markdown(text)
 
-    parser = _MIME_PARSERS.get(mime_type)
-    if parser is None:
+    parser_name = _MIME_PARSERS.get(mime_type)
+    if parser_name is None:
         raise ValueError(f"Unsupported MIME type: {mime_type}")
 
+    parser = globals()[parser_name]
     return await asyncio.to_thread(parser, file_bytes)
 
 

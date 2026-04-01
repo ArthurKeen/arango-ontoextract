@@ -111,8 +111,9 @@ def _ensure_vector_index() -> None:
         if idx.get("name") == _VECTOR_INDEX_NAME:
             return  # already exists
 
-    from arango.request import Request
     import math
+
+    from arango.request import Request
 
     chunk_count = col.count()
     n_lists = max(1, int(math.sqrt(chunk_count) * 15))

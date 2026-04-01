@@ -27,7 +27,7 @@ async def quality_summary() -> dict:
         return compute_quality_summary(db)
     except Exception as exc:
         log.exception("Failed to compute quality summary")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @router.get("/{ontology_id}")
@@ -43,4 +43,4 @@ async def quality_for_ontology(ontology_id: str) -> dict:
         }
     except Exception as exc:
         log.exception("Failed to compute quality for ontology %s", ontology_id)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc

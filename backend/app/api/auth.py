@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import jwt
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
@@ -87,6 +87,31 @@ def get_user_from_request(request: Request) -> AuthenticatedUser | None:
     return getattr(request.state, _USER_CONTEXT_KEY, None)
 
 
+async def authenticate_websocket(websocket: WebSocket) -> AuthenticatedUser | None:
+    """Authenticate a WebSocket connection via query param ``token``.
+
+    Returns the authenticated user on success, or ``None`` if the token is
+    missing/invalid.  In dev mode, falls back to the mock admin user.
+    """
+    token = websocket.query_params.get("token")
+    if token:
+        try:
+            claims = decode_jwt(token)
+            return user_from_claims(claims)
+        except jwt.ExpiredSignatureError:
+            log.warning("WebSocket auth: expired token")
+            return None
+        except jwt.InvalidTokenError as exc:
+            log.warning("WebSocket auth: invalid token", extra={"error": str(exc)})
+            return None
+
+    if not settings.is_production:
+        log.debug("WebSocket dev mode: using mock user")
+        return _MOCK_USER
+
+    return None
+
+
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     """Extracts and validates JWT from Authorization header.
 
@@ -117,7 +142,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 return _error_response(401, "UNAUTHORIZED", f"Invalid token: {exc}")
         elif not settings.is_production:
             request.state.__dict__[_USER_CONTEXT_KEY] = _MOCK_USER
-            log.debug("dev mode: using mock user", extra={"user_id": _MOCK_USER.user_id})
+            log.warning(
+                "dev mode: authentication bypassed — set APP_ENV=production to enforce auth",
+                extra={"user_id": _MOCK_USER.user_id},
+            )
         else:
             return _error_response(401, "UNAUTHORIZED", "Missing Authorization header")
 
@@ -171,7 +199,7 @@ async def login(body: LoginRequest) -> LoginResponse:
             },
         )
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     claims = {
         "sub": f"user_{uuid.uuid4().hex[:8]}",
         "org_id": "org_default",

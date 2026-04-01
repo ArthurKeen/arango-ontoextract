@@ -126,11 +126,11 @@ def compute_class_confidence(
     Parameters
     ----------
     agreement_ratio:
-        Fraction of extraction passes in which this class appeared (0–1).
+        Fraction of extraction passes in which this class appeared (0-1).
     faithfulness:
-        LLM-judge faithfulness score (0–1).
+        LLM-judge faithfulness score (0-1).
     semantic_validity:
-        Semantic validator score (0–1).
+        Semantic validator score (0-1).
     datatype_property_count:
         Number of owl:DatatypeProperty instances on this class.
     object_property_count:
@@ -148,7 +148,7 @@ def compute_class_confidence(
     provenance_count:
         Number of distinct source documents/chunks that produced this class.
     property_agreement:
-        Cross-pass Jaccard similarity for this class's property URIs (0–1).
+        Cross-pass Jaccard similarity for this class's property URIs (0-1).
     llm_confidence:
         **Deprecated** — mapped to *faithfulness* for backward compatibility.
         When provided and *faithfulness* is at its default, this value is used
@@ -164,9 +164,13 @@ def compute_class_confidence(
     # Backward-compatibility shims
     if llm_confidence is not None and faithfulness == 0.5:
         faithfulness = llm_confidence
-    if has_properties is not None and datatype_property_count == 0 and object_property_count == 0:
-        if has_properties:
-            datatype_property_count = 1
+    if (
+        has_properties is not None
+        and datatype_property_count == 0
+        and object_property_count == 0
+        and has_properties
+    ):
+        datatype_property_count = 1
 
     if all_descriptions is None:
         all_descriptions = []

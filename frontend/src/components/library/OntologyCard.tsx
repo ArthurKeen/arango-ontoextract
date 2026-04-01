@@ -147,7 +147,7 @@ export default function OntologyCard({ ontology, onClick }: OntologyCardProps) {
             <span>{status.label}</span>
           </div>
           <span>Updated {formatRelativeTime(
-            (ontology as Record<string, unknown>).updated_at as string
+            (ontology as unknown as Record<string, unknown>).updated_at as string
             ?? ontology.last_updated
             ?? ontology.created_at
           )}</span>

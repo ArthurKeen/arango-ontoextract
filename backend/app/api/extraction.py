@@ -6,8 +6,6 @@ import logging
 import sys
 from typing import Any
 
-import asyncio
-
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -158,7 +156,7 @@ async def list_runs(
         run_doc_ids = run.get("doc_ids") or []
         legacy_id = run.get("doc_id")
         if legacy_id and legacy_id not in run_doc_ids:
-            run_doc_ids = [legacy_id] + run_doc_ids
+            run_doc_ids = [legacy_id, *run_doc_ids]
         if run_doc_ids and db.has_collection("documents"):
             names: list[str] = []
             total_chunks = 0
@@ -169,7 +167,7 @@ async def list_runs(
                         names.append(doc.get("filename", did))
                         total_chunks += doc.get("chunk_count", 0)
                 except Exception:
-                    pass
+                    log.debug("Could not fetch document %s for run enrichment", did)
             if names:
                 run["document_name"] = ", ".join(names)
                 run["chunk_count"] = total_chunks
@@ -212,7 +210,7 @@ async def list_runs(
                     ))
                     run["properties_extracted"] = prop_count[0] if prop_count else 0
             except Exception:
-                pass
+                log.debug("Could not fetch entity counts for run enrichment")
 
     return payload
 

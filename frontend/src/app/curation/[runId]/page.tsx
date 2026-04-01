@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { api, ApiError } from "@/lib/api-client";
 import type {
@@ -355,12 +356,12 @@ export default function CurationPage() {
             >
               Library
             </a>
-            <a
+            <Link
               href="/"
               className="text-sm text-gray-500 hover:text-gray-700"
             >
               Home
-            </a>
+            </Link>
           </div>
         </div>
       </header>

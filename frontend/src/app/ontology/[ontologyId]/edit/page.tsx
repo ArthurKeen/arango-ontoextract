@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { api, ApiError, type PaginatedResponse } from "@/lib/api-client";
+import { api, ApiError, getApiBaseUrl, type PaginatedResponse } from "@/lib/api-client";
 import type {
   OntologyClass,
   OntologyProperty,
@@ -186,9 +186,7 @@ export default function OntologyEditorPage() {
 
   const ontologyName = ontologyMeta?.name ?? ontologyId;
   const ontologyDescription = ontologyMeta?.description ?? "";
-  const baseUrl = typeof window !== "undefined"
-    ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-    : "http://localhost:8000";
+  const baseUrl = getApiBaseUrl();
 
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">

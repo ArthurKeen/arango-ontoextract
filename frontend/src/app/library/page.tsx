@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { api, ApiError, type PaginatedResponse } from "@/lib/api-client";
+import Link from "next/link";
+import { api, ApiError, getApiBaseUrl, type PaginatedResponse } from "@/lib/api-client";
 import type {
   OntologyRegistryEntry,
   OntologyClass,
@@ -231,7 +232,7 @@ export default function LibraryPage() {
       setAddingDoc(true);
       try {
         const baseUrl =
-          process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+          getApiBaseUrl();
         const formData = new FormData();
         formData.append("file", file);
         const res = await fetch(
@@ -332,12 +333,12 @@ export default function LibraryPage() {
               Browse registered ontologies and explore class hierarchies.
             </p>
           </div>
-          <a
+          <Link
             href="/"
             className="text-sm text-gray-500 hover:text-gray-700"
           >
             Home
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -537,7 +538,7 @@ export default function LibraryPage() {
                         <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
                           {(["turtle", "jsonld", "csv"] as const).map((fmt) => {
                             const baseUrl =
-                              process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+                              getApiBaseUrl();
                             const label = fmt === "turtle" ? "OWL / Turtle" : fmt === "jsonld" ? "JSON-LD" : "CSV";
                             return (
                               <a

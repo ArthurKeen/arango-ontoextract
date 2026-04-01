@@ -28,7 +28,7 @@ async def quality_judge_node(state: ExtractionPipelineState) -> dict[str, Any]:
     """
     start = time.time()
     run_id = state.get("run_id", "unknown")
-    errors = list(state.get("errors", []))
+    list(state.get("errors", []))
 
     consistency_result = state.get("consistency_result")
     chunks = state.get("document_chunks", [])

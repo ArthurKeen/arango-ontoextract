@@ -8,10 +8,14 @@ Provides injectable dependencies for route handlers:
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 from fastapi import Depends, Request
 
 from app.api.auth import AuthenticatedUser, get_user_from_request
-from app.api.errors import ForbiddenError, UnauthorizedError
+from app.api.errors import ForbiddenError, NotFoundError, UnauthorizedError
+
+_T = TypeVar("_T")
 
 ROLES = ("admin", "ontology_engineer", "domain_expert", "viewer")
 
@@ -57,3 +61,13 @@ def require_role(*allowed_roles: str):
         return user
 
     return _guard
+
+
+def get_or_404(result: _T | None, entity: str, entity_id: str) -> _T:
+    """Return *result* if not ``None``, otherwise raise :class:`NotFoundError`."""
+    if result is None:
+        raise NotFoundError(
+            f"{entity} '{entity_id}' not found",
+            details={f"{entity.lower()}_id": entity_id},
+        )
+    return result

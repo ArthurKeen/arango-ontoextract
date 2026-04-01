@@ -214,7 +214,7 @@ def compute_health_score(
     total_properties: int,
     chunk_count: int,
 ) -> int:
-    """Compute a 0–100 composite ontology health score.
+    """Compute a 0-100 composite ontology health score.
 
     Dimensions (weights):
       - Completeness (25%): ratio of classes with properties
@@ -223,7 +223,7 @@ def compute_health_score(
       - Property richness (15%): properties-per-class ratio
       - Source coverage (15%): chunk support ratio
 
-    Returns an integer 0–100.
+    Returns an integer 0-100.
     """
     completeness_pct = min(completeness / 100.0, 1.0) if completeness > 1.0 else completeness
 

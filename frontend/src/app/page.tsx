@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api-client";
+import { api, ApiError, getApiBaseUrl } from "@/lib/api-client";
 
 interface HealthStatus {
   status: string;
@@ -21,8 +21,7 @@ export default function Home() {
   const [statsError, setStatsError] = useState(false);
 
   useEffect(() => {
-    const backendRoot =
-      process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    const backendRoot = getApiBaseUrl();
 
     fetch(`${backendRoot}/ready`)
       .then((r) => r.json())

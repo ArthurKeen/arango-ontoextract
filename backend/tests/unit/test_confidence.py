@@ -137,9 +137,13 @@ class TestComputeClassConfidence:
             has_parent=True,
             has_children=True,
             has_lateral_edges=True,
-            description="A well-documented ontology class covering network infrastructure components in great detail",
+            description=(
+                "A well-documented ontology class covering network"
+                " infrastructure components in great detail"
+            ),
             all_descriptions=[
-                "A well-documented ontology class covering network infrastructure components in great detail",
+                "A well-documented ontology class covering network"
+                " infrastructure components in great detail",
                 "Another unique class",
             ],
             provenance_count=5,
@@ -174,8 +178,14 @@ class TestComputeClassConfidence:
             has_parent=True,
             has_children=False,
             has_lateral_edges=True,
-            description="An important class representing customer entities with full provenance",
-            all_descriptions=["An important class representing customer entities with full provenance"],
+            description=(
+                "An important class representing customer entities"
+                " with full provenance"
+            ),
+            all_descriptions=[
+                "An important class representing customer entities"
+                " with full provenance",
+            ],
             provenance_count=3,
             property_agreement=0.9,
         )

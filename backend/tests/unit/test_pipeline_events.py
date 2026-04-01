@@ -8,7 +8,8 @@ publish_event when no callback is supplied.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -69,11 +70,11 @@ class TestPipelineStepEvents:
         event_types = [c.kwargs["event_type"] for c in callback.call_args_list]
         event_steps = [c.kwargs["step"] for c in callback.call_args_list]
 
-        assert ("step_started", "strategy_selector") == (event_types[0], event_steps[0])
-        assert ("step_completed", "strategy_selector") == (event_types[1], event_steps[1])
-        assert ("step_started", "extractor") == (event_types[2], event_steps[2])
-        assert ("step_completed", "extractor") == (event_types[3], event_steps[3])
-        assert ("step_started", "consistency_checker") == (event_types[4], event_steps[4])
+        assert (event_types[0], event_steps[0]) == ("step_started", "strategy_selector")
+        assert (event_types[1], event_steps[1]) == ("step_completed", "strategy_selector")
+        assert (event_types[2], event_steps[2]) == ("step_started", "extractor")
+        assert (event_types[3], event_steps[3]) == ("step_completed", "extractor")
+        assert (event_types[4], event_steps[4]) == ("step_started", "consistency_checker")
 
     @pytest.mark.asyncio
     async def test_last_node_does_not_emit_next_started(self):
@@ -166,7 +167,7 @@ class TestPipelineErrorEvents:
 
         async def immediate_fail():
             raise ValueError("bad config")
-            yield  # noqa: unreachable — makes this an async generator
+            yield  # makes this an async generator
 
         mock_compiled = MagicMock()
         mock_compiled.astream = lambda *a, **kw: immediate_fail()
@@ -187,7 +188,7 @@ class TestPipelineErrorEvents:
         """Pipeline handles event_callback=None gracefully (no AttributeError)."""
         async def failing_stream():
             raise RuntimeError("boom")
-            yield  # noqa: unreachable
+            yield  # makes this an async generator
 
         mock_compiled = MagicMock()
         mock_compiled.astream = lambda *a, **kw: failing_stream()
@@ -288,10 +289,10 @@ class TestPublishEventBroadcast:
 
     @pytest.mark.asyncio
     async def test_publishes_to_subscribed_queues(self):
-        from app.api.ws_extraction import _run_subscribers, publish_event
+        from app.api.ws_extraction import _broadcaster, publish_event
 
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=10)
-        _run_subscribers.setdefault("run_x", []).append(queue)
+        _broadcaster._subscribers.setdefault("run_x", []).append(queue)
 
         try:
             await publish_event(
@@ -308,7 +309,7 @@ class TestPublishEventBroadcast:
             assert event["run_id"] == "run_x"
             assert "timestamp" in event
         finally:
-            _run_subscribers.pop("run_x", None)
+            _broadcaster._subscribers.pop("run_x", None)
 
     @pytest.mark.asyncio
     async def test_no_error_when_no_subscribers(self):
@@ -325,11 +326,11 @@ class TestPublishEventBroadcast:
     @pytest.mark.asyncio
     async def test_drops_event_on_full_queue(self):
         """When a subscriber queue is full, the event is dropped without raising."""
-        from app.api.ws_extraction import _run_subscribers, publish_event
+        from app.api.ws_extraction import _broadcaster, publish_event
 
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1)
         queue.put_nowait({"dummy": True})
-        _run_subscribers.setdefault("run_full", []).append(queue)
+        _broadcaster._subscribers.setdefault("run_full", []).append(queue)
 
         try:
             await publish_event(
@@ -340,4 +341,4 @@ class TestPublishEventBroadcast:
             )
             assert queue.qsize() == 1
         finally:
-            _run_subscribers.pop("run_full", None)
+            _broadcaster._subscribers.pop("run_full", None)

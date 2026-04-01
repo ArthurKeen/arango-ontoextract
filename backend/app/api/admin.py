@@ -32,7 +32,7 @@ ONTOLOGY_COLLECTIONS = [
     "quality_history",
 ]
 
-ALL_COLLECTIONS = ONTOLOGY_COLLECTIONS + ["documents", "chunks"]
+ALL_COLLECTIONS = [*ONTOLOGY_COLLECTIONS, "documents", "chunks"]
 
 
 def _remove_ontology_graphs(db) -> list[str]:

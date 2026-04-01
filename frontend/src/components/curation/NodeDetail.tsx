@@ -148,7 +148,7 @@ export default function NodeDetail({
               : "—"}
           </span>
         </div>
-        {node.expired != null && node.expired !== 9223372036854775807 && (
+        {node.expired != null && String(node.expired) !== "9223372036854775807" && (
           <div className="flex justify-between text-xs">
             <span className="text-gray-500">Expired</span>
             <span className="text-gray-700">

@@ -1,7 +1,6 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-
-import logging
 
 import structlog
 from fastapi import FastAPI
@@ -66,10 +65,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
 install_error_handlers(app)

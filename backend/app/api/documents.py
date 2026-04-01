@@ -14,7 +14,8 @@ import time
 
 from fastapi import APIRouter, Query, UploadFile
 
-from app.api.errors import ConflictError, NotFoundError, ValidationError
+from app.api.dependencies import get_or_404
+from app.api.errors import ConflictError, ValidationError
 from app.db import documents_repo
 from app.db.client import get_db
 from app.models.common import PaginatedResponse
@@ -32,6 +33,19 @@ _ALLOWED_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/markdown",
 }
+
+
+def _validate_mime(file: UploadFile) -> str:
+    """Return the validated MIME type, raising ValidationError if unsupported."""
+    mime = file.content_type or ""
+    if mime not in _ALLOWED_MIME_TYPES:
+        if file.filename and file.filename.endswith(".md"):
+            return "text/markdown"
+        raise ValidationError(
+            f"Unsupported file type: {mime}",
+            details={"allowed": sorted(_ALLOWED_MIME_TYPES)},
+        )
+    return mime
 
 
 def _to_doc_response(doc: dict) -> dict:
@@ -57,18 +71,7 @@ async def upload_document(
 ) -> dict:
     """Upload a document and start async processing pipeline."""
     content = await file.read()
-
-    mime = file.content_type or ""
-    if mime not in _ALLOWED_MIME_TYPES:
-        if file.filename and file.filename.endswith(".md"):
-            mime = "text/markdown"
-        elif mime not in _ALLOWED_MIME_TYPES:
-            from app.api.errors import ValidationError
-
-            raise ValidationError(
-                f"Unsupported file type: {mime}",
-                details={"allowed": sorted(_ALLOWED_MIME_TYPES)},
-            )
+    mime = _validate_mime(file)
 
     file_hash = compute_file_hash(content)
     existing = documents_repo.find_document_by_hash(file_hash)
@@ -119,12 +122,7 @@ async def list_documents(
 @router.get("/{doc_id}")
 async def get_document(doc_id: str) -> dict:
     """Get document metadata and processing status."""
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
+    doc = get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
     return _to_doc_response(doc)
 
 
@@ -135,12 +133,7 @@ async def get_chunks(
     cursor: str | None = Query(default=None),
 ) -> PaginatedResponse[dict]:
     """List chunks for a document (paginated)."""
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
+    get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
     return documents_repo.get_chunks_for_document(doc_id, limit=limit, cursor=cursor)
 
 
@@ -155,23 +148,10 @@ async def update_document(
     Deletes existing chunks, re-chunks from the new file, and updates
     document metadata (filename, mime_type, file_hash, chunk_count).
     """
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
+    doc = get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
 
     content = await file.read()
-    mime = file.content_type or ""
-    if mime not in _ALLOWED_MIME_TYPES:
-        if file.filename and file.filename.endswith(".md"):
-            mime = "text/markdown"
-        elif mime not in _ALLOWED_MIME_TYPES:
-            raise ValidationError(
-                f"Unsupported file type: {mime}",
-                details={"allowed": sorted(_ALLOWED_MIME_TYPES)},
-            )
+    mime = _validate_mime(file)
 
     file_hash = compute_file_hash(content)
 
@@ -206,9 +186,7 @@ async def update_document(
 @router.get("/{doc_id}/ontologies")
 async def get_document_ontologies(doc_id: str) -> dict:
     """List ontologies extracted from a document (via ``extracted_from`` edges)."""
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(f"Document '{doc_id}' not found", details={"doc_id": doc_id})
+    get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
 
     db = get_db()
     ontologies: list[dict] = []
@@ -242,12 +220,7 @@ async def delete_document(
     without making changes.  With confirmation, removes the document,
     its chunks, and expires ``extracted_from`` edges.
     """
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
+    get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
 
     db = get_db()
     affected_ontologies: list[dict] = []

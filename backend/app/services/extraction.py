@@ -6,6 +6,7 @@ and tracks token usage and cost.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 import time
@@ -224,7 +225,10 @@ async def execute_run(
         pass_agreement_rate = _compute_agreement_rate(pass_results) if pass_results else 0.0
         if pass_agreement_rate == 0.0:
             for sl in final_state.get("step_logs", []):
-                sl_dict = sl if isinstance(sl, dict) else (sl.model_dump() if hasattr(sl, "model_dump") else dict(sl))
+                sl_dict = (
+                    sl if isinstance(sl, dict)
+                    else (sl.model_dump() if hasattr(sl, "model_dump") else dict(sl))
+                )
                 if sl_dict.get("step") == "consistency_checker":
                     rates = sl_dict.get("metadata", {}).get("agreement_rates", {})
                     if rates:
@@ -585,7 +589,7 @@ def _materialize_to_graph(
     has_prop_col = db.collection("has_property")
     extracted_col = db.collection("extracted_from")
     subclass_col = db.collection("subclass_of")
-    related_col = db.collection("related_to")
+    db.collection("related_to")
 
     class_keys: dict[str, str] = {}
     uri_to_key: dict[str, str] = {}
@@ -633,7 +637,11 @@ def _materialize_to_graph(
                 "range": prop.get("range", "xsd:string"),
                 "ontology_id": ontology_id,
                 "confidence": prop.get("confidence", 0.0),
-                "rdf_type": "owl:ObjectProperty" if prop.get("range", "").startswith("http") else "owl:DatatypeProperty",
+                "rdf_type": (
+                    "owl:ObjectProperty"
+                    if prop.get("range", "").startswith("http")
+                    else "owl:DatatypeProperty"
+                ),
                 "created": now,
                 "expired": NEVER_EXPIRES,
             }
@@ -642,7 +650,7 @@ def _materialize_to_graph(
             except Exception as exc:
                 log.warning("property insert failed for %s: %s", prop_key, exc)
 
-            try:
+            with contextlib.suppress(Exception):
                 has_prop_col.insert({
                     "_from": f"ontology_classes/{key}",
                     "_to": f"ontology_properties/{prop_key}",
@@ -650,10 +658,8 @@ def _materialize_to_graph(
                     "created": now,
                     "expired": NEVER_EXPIRES,
                 })
-            except Exception:
-                pass
 
-        try:
+        with contextlib.suppress(Exception):
             extracted_col.insert({
                 "_from": f"ontology_classes/{key}",
                 "_to": f"documents/{document_id}",
@@ -662,8 +668,6 @@ def _materialize_to_graph(
                 "created": now,
                 "expired": NEVER_EXPIRES,
             })
-        except Exception:
-            pass
 
     for child_key, parent_uri in class_parent_uris:
         parent_key = uri_to_key.get(parent_uri)
@@ -671,7 +675,7 @@ def _materialize_to_graph(
             parent_frag = parent_uri.split("#")[-1].split("/")[-1]
             parent_key = class_keys.get(parent_frag) or class_keys.get(parent_uri)
         if parent_key:
-            try:
+            with contextlib.suppress(Exception):
                 subclass_col.insert({
                     "_from": f"ontology_classes/{child_key}",
                     "_to": f"ontology_classes/{parent_key}",
@@ -679,8 +683,6 @@ def _materialize_to_graph(
                     "created": now,
                     "expired": NEVER_EXPIRES,
                 })
-            except Exception:
-                pass
 
     has_chunk_col = db.collection("has_chunk")
     if db.has_collection("chunks"):
@@ -689,7 +691,7 @@ def _materialize_to_graph(
             bind_vars={"doc_id": document_id},
         ))
         for chunk_key in chunk_docs:
-            try:
+            with contextlib.suppress(Exception):
                 has_chunk_col.insert({
                     "_from": f"documents/{document_id}",
                     "_to": f"chunks/{chunk_key}",
@@ -698,8 +700,6 @@ def _materialize_to_graph(
                     "created": now,
                     "expired": NEVER_EXPIRES,
                 }, overwrite=True)
-            except Exception:
-                pass
 
     _recompute_multi_signal_confidence(
         db,
@@ -752,7 +752,7 @@ def _recompute_multi_signal_confidence(
         property_agreement_scores = {}
 
     cls_col = db.collection("ontology_classes")
-    prop_col = db.collection("ontology_properties")
+    db.collection("ontology_properties")
     has_prop_col = db.collection("has_property")
     subclass_col = db.collection("subclass_of")
     extracted_col = db.collection("extracted_from")
@@ -919,7 +919,10 @@ def _update_existing_ontology(
 
         entry = registry_repo.get_registry_entry(ontology_id)
         if entry is None:
-            log.warning("target ontology %s not found, falling back to new registration", ontology_id)
+            log.warning(
+                "target ontology %s not found, falling back to new registration",
+                ontology_id,
+            )
             return None
 
         classes = result.classes if hasattr(result, "classes") else result.get("classes", [])
@@ -956,7 +959,7 @@ def _auto_register_ontology(
     Returns the ontology_id (_key) on success, None on failure.
     """
     try:
-        from app.db import registry_repo, documents_repo
+        from app.db import documents_repo, registry_repo
 
         doc = documents_repo.get_document(document_id)
         filename = doc.get("filename", "unknown") if doc else "unknown"
@@ -981,7 +984,12 @@ def _auto_register_ontology(
         ontology_id = entry.get("_key", run_id)
         log.info(
             "auto-registered ontology",
-            extra={"run_id": run_id, "ontology_name": name, "classes": class_count, "ontology_id": ontology_id},
+            extra={
+                "run_id": run_id,
+                "ontology_name": name,
+                "classes": class_count,
+                "ontology_id": ontology_id,
+            },
         )
         return ontology_id
     except Exception:

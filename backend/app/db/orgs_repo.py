@@ -7,23 +7,19 @@ org_id filtering is mandatory on all tenant-scoped queries.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from arango.database import StandardDatabase
 
 from app.db.client import get_db
 from app.db.pagination import paginate
+from app.db.utils import now_iso as _now_iso
 from app.models.common import PaginatedResponse
 
 log = logging.getLogger(__name__)
 
 ORGANIZATIONS_COLLECTION = "organizations"
 USERS_COLLECTION = "users"
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 # ---------- Organizations ----------

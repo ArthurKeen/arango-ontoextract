@@ -332,8 +332,12 @@ async def extractor_node(state: ExtractionPipelineState) -> dict:
     for pass_result, pass_errors, pass_tokens in pass_outputs:
         pass_results.append(pass_result)
         errors.extend(pass_errors)
-        total_tokens["prompt_tokens"] = total_tokens.get("prompt_tokens", 0) + pass_tokens["prompt_tokens"]
-        total_tokens["completion_tokens"] = total_tokens.get("completion_tokens", 0) + pass_tokens["completion_tokens"]
+        total_tokens["prompt_tokens"] = (
+            total_tokens.get("prompt_tokens", 0) + pass_tokens["prompt_tokens"]
+        )
+        total_tokens["completion_tokens"] = (
+            total_tokens.get("completion_tokens", 0) + pass_tokens["completion_tokens"]
+        )
 
     total_tokens["total_tokens"] = (
         total_tokens.get("prompt_tokens", 0) + total_tokens.get("completion_tokens", 0)

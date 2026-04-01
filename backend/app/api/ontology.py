@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import re
@@ -83,7 +82,7 @@ async def list_ontology_library(
                         edge_count += result[0] if result else 0
                 entry["edge_count"] = edge_count
             except Exception:
-                pass
+                log.debug("Could not compute edge count for ontology entry")
 
         return {
             "data": entries,
@@ -93,7 +92,7 @@ async def list_ontology_library(
         }
     except Exception as exc:
         log.exception("Failed to list ontology library")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 class UpdateOntologyRequest(BaseModel):
@@ -379,12 +378,12 @@ async def add_document_to_ontology(
     content = await file.read()
 
     mime = file.content_type or ""
-    _ALLOWED = {
+    allowed = {
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "text/markdown",
     }
-    if mime not in _ALLOWED:
+    if mime not in allowed:
         if file.filename and file.filename.endswith(".md"):
             mime = "text/markdown"
         else:
@@ -409,8 +408,8 @@ async def add_document_to_ontology(
         file_hash=file_hash,
     )
 
-    from app.tasks import process_document
     from app.services import extraction as extraction_service
+    from app.tasks import process_document
 
     async def _process_then_extract(doc_id: str, raw: bytes, mt: str, oid: str) -> None:
         await process_document(doc_id, raw, mt)
@@ -527,7 +526,8 @@ async def search_ontology_library(
                 "FILTER doc.expired == @never "
                 "SORT BM25(doc) DESC "
                 "LIMIT @offset, @limit "
-                "LET ont = (FOR o IN ontology_registry FILTER o._key == doc.ontology_id LIMIT 1 RETURN o)[0] "
+                "LET ont = (FOR o IN ontology_registry "
+                "FILTER o._key == doc.ontology_id LIMIT 1 RETURN o)[0] "
                 "RETURN {"
                 "  _key: doc._key, label: doc.label, "
                 "  description: doc.description, "
@@ -553,7 +553,8 @@ async def search_ontology_library(
                 "FILTER doc.expired == @never "
                 "SORT BM25(doc) DESC "
                 "LIMIT @offset, @limit "
-                "LET ont = (FOR o IN ontology_registry FILTER o._key == doc.ontology_id LIMIT 1 RETURN o)[0] "
+                "LET ont = (FOR o IN ontology_registry "
+                "FILTER o._key == doc.ontology_id LIMIT 1 RETURN o)[0] "
                 "RETURN {"
                 "  _key: doc._key, label: doc.label, "
                 "  description: doc.description, "
@@ -612,7 +613,7 @@ async def set_org_ontologies(org_id: str, body: OrgOntologySelectionRequest) -> 
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         log.exception("Failed to set org ontologies")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @router.get("/orgs/{org_id}/ontologies")
@@ -633,7 +634,10 @@ async def list_ontology_graphs() -> dict:
     from app.services.ontology_graphs import list_ontology_graphs as _list_graphs
     per_ontology = _list_graphs()
     system_graphs = [
-        {"graph_name": "domain_ontology", "description": "Shared domain ontology (all classes across all ontologies)"},
+        {
+            "graph_name": "domain_ontology",
+            "description": "Shared domain ontology (all classes across all ontologies)",
+        },
         {"graph_name": "aoe_process", "description": "Extraction pipeline lineage"},
     ]
     return {"system_graphs": system_graphs, "ontology_graphs": per_ontology}
@@ -710,7 +714,9 @@ async def list_domain_classes(
     limit: int = Query(100, ge=1, le=500, description="Max classes to return"),
     label: str | None = Query(None, description="Partial match on class label (case-insensitive)"),
     tier: str | None = Query(None, description="Filter by tier: domain or local"),
-    confidence: float | None = Query(None, ge=0.0, le=1.0, description="Minimum confidence threshold"),
+    confidence: float | None = Query(
+        None, ge=0.0, le=1.0, description="Minimum confidence threshold",
+    ),
     ontology_id: str | None = Query(None, description="Filter by ontology ID"),
 ) -> dict:
     """List domain ontology classes with optional filters.
@@ -918,7 +924,10 @@ async def get_staging(run_id: str) -> dict:
         ))
 
     edges: list[dict] = []
-    for edge_col in ("subclass_of", "has_property", "related_to", "equivalent_class", "extracted_from"):
+    for edge_col in (
+        "subclass_of", "has_property", "related_to",
+        "equivalent_class", "extracted_from",
+    ):
         if db.has_collection(edge_col):
             result = list(db.aql.execute(
                 f"FOR e IN {edge_col} FILTER e.ontology_id == @oid "
@@ -941,7 +950,12 @@ async def get_staging(run_id: str) -> dict:
 
 
 @router.post("/staging/{run_id}/promote")
-async def promote_staging(run_id: str, ontology_id: str | None = Query(None, description="Target ontology ID for promoted entities")) -> dict:
+async def promote_staging(
+    run_id: str,
+    ontology_id: str | None = Query(
+        None, description="Target ontology ID for promoted entities",
+    ),
+) -> dict:
     """Promote approved staging entities to the production graph.
 
     Delegates to the promotion service (same logic as ``POST /curation/promote/{run_id}``).
@@ -954,7 +968,7 @@ async def promote_staging(run_id: str, ontology_id: str | None = Query(None, des
         return report
     except Exception as exc:
         log.exception("Staging promotion failed for run %s", run_id)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -1034,7 +1048,7 @@ async def list_ontology_edges(ontology_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# CRUD endpoints for ontology classes, properties, and edges (K.3–K.6b)
+# CRUD endpoints for ontology classes, properties, and edges (K.3-K.6b)
 # ---------------------------------------------------------------------------
 
 
@@ -1367,7 +1381,7 @@ async def export_ontology_endpoint(
             )
     except Exception as exc:
         log.exception("Export failed for ontology %s", ontology_id)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 _IMPORT_FILE = File(..., description="OWL/TTL/RDF-XML/JSON-LD file")
@@ -1398,7 +1412,7 @@ async def import_ontology_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         log.exception("Import failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -1416,7 +1430,7 @@ async def trigger_schema_extraction(config: SchemaExtractionConfig) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         log.exception("Schema extraction failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @router.get("/schema/extract/{run_id}")

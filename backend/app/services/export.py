@@ -15,6 +15,7 @@ from typing import Any
 
 from rdflib import OWL, RDF, RDFS, XSD, Graph, Literal, Namespace, URIRef
 
+from app.config import settings
 from app.db.client import get_db
 from app.db.ontology_repo import list_classes, list_properties
 from app.db.registry_repo import get_registry_entry
@@ -54,7 +55,7 @@ def _build_rdf_graph(ontology_id: str) -> Graph:
     db = get_db()
 
     registry = get_registry_entry(ontology_id)
-    ontology_uri = "http://example.org/ontology/" + ontology_id
+    ontology_uri = settings.default_ontology_uri.rstrip("#") + "/" + ontology_id
     ontology_label = ontology_id
     if registry:
         ontology_uri = registry.get("uri", ontology_uri)

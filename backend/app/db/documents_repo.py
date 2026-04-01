@@ -6,13 +6,13 @@ All AQL is encapsulated here — no raw queries in routes or services.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from arango.database import StandardDatabase
 
 from app.db.client import get_db
 from app.db.pagination import paginate
+from app.db.utils import now_iso as _now_iso
 from app.models.common import PaginatedResponse
 from app.models.documents import DocumentStatus
 
@@ -20,10 +20,6 @@ log = logging.getLogger(__name__)
 
 DOCUMENTS_COLLECTION = "documents"
 CHUNKS_COLLECTION = "chunks"
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def create_document(

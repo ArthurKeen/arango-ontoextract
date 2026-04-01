@@ -157,19 +157,34 @@ class TestUpdateExistingOntology:
 class TestResolveDocIds:
     """Tests for API-level _resolve_doc_ids."""
 
-    def test_single_doc_field(self):
+    @patch("app.api.extraction.get_db")
+    def test_single_doc_field(self, mock_get_db):
+        mock_db = MagicMock()
+        mock_db.has_collection.return_value = False
+        mock_get_db.return_value = mock_db
+
         from app.api.extraction import StartRunRequest, _resolve_doc_ids
 
         req = StartRunRequest(document_id="abc")
         assert _resolve_doc_ids(req) == ["abc"]
 
-    def test_multi_doc_field(self):
+    @patch("app.api.extraction.get_db")
+    def test_multi_doc_field(self, mock_get_db):
+        mock_db = MagicMock()
+        mock_db.has_collection.return_value = False
+        mock_get_db.return_value = mock_db
+
         from app.api.extraction import StartRunRequest, _resolve_doc_ids
 
         req = StartRunRequest(document_ids=["a", "b"])
         assert _resolve_doc_ids(req) == ["a", "b"]
 
-    def test_both_fields_merged(self):
+    @patch("app.api.extraction.get_db")
+    def test_both_fields_merged(self, mock_get_db):
+        mock_db = MagicMock()
+        mock_db.has_collection.return_value = False
+        mock_get_db.return_value = mock_db
+
         from app.api.extraction import StartRunRequest, _resolve_doc_ids
 
         req = StartRunRequest(document_id="x", document_ids=["y", "z"])

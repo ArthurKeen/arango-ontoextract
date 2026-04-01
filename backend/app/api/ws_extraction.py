@@ -7,23 +7,17 @@ joiners. Redis Pub/Sub is Phase 6.
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import time
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket
 
-log = logging.getLogger(__name__)
+from app.api.ws_broadcast import WebSocketBroadcaster
 
 router = APIRouter()
 
-_run_subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
-_run_event_history: dict[str, list[dict[str, Any]]] = {}
+_broadcaster = WebSocketBroadcaster(keep_history=True)
 
-
-def _get_subscribers(run_id: str) -> list[asyncio.Queue[dict[str, Any]]]:
-    return _run_subscribers.setdefault(run_id, [])
+_TERMINAL_EVENTS = frozenset({"completed", "failed"})
 
 
 async def publish_event(
@@ -33,36 +27,20 @@ async def publish_event(
     step: str,
     data: dict[str, Any] | None = None,
 ) -> None:
-    """Publish an event to all WebSocket subscribers for a run.
-
-    Also stores in event history so late-connecting clients can replay.
-    """
-    event = {
-        "type": event_type,
-        "event": event_type,
-        "step": step,
-        "data": data or {},
-        "timestamp": time.time(),
-        "run_id": run_id,
-    }
-
-    _run_event_history.setdefault(run_id, []).append(event)
-
-    subscribers = _get_subscribers(run_id)
-    for queue in subscribers:
-        try:
-            queue.put_nowait(event)
-        except asyncio.QueueFull:
-            log.warning(
-                "WebSocket queue full, dropping event",
-                extra={"run_id": run_id, "event": event_type},
-            )
+    """Publish an event to all WebSocket subscribers for a run."""
+    await _broadcaster.publish(
+        key=run_id,
+        event_type=event_type,
+        data=data,
+        type=event_type,
+        step=step,
+        run_id=run_id,
+    )
 
 
 def cleanup_run(run_id: str) -> None:
     """Remove all subscribers and event history for a completed run."""
-    _run_subscribers.pop(run_id, None)
-    _run_event_history.pop(run_id, None)
+    _broadcaster.cleanup(run_id)
 
 
 @router.websocket("/ws/extraction/{run_id}")
@@ -71,49 +49,9 @@ async def ws_extraction(websocket: WebSocket, run_id: str) -> None:
 
     Replays any missed events on connect, then streams live updates.
     """
-    await websocket.accept()
-    log.info("WebSocket connected", extra={"run_id": run_id})
-
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
-    subscribers = _get_subscribers(run_id)
-    subscribers.append(queue)
-
-    try:
-        await websocket.send_json({
-            "type": "connected",
-            "event": "connected",
-            "step": "websocket",
-            "data": {"run_id": run_id},
-            "timestamp": time.time(),
-        })
-
-        # Replay missed events
-        history = _run_event_history.get(run_id, [])
-        for past_event in history:
-            await websocket.send_json(past_event)
-
-        while True:
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                await websocket.send_json(event)
-
-                if event.get("event") in ("completed", "failed"):
-                    break
-            except TimeoutError:
-                await websocket.send_json({
-                    "type": "heartbeat",
-                    "event": "heartbeat",
-                    "step": "websocket",
-                    "data": {},
-                    "timestamp": time.time(),
-                })
-
-    except WebSocketDisconnect:
-        log.info("WebSocket disconnected", extra={"run_id": run_id})
-    except Exception:
-        log.exception("WebSocket error", extra={"run_id": run_id})
-    finally:
-        if queue in subscribers:
-            subscribers.remove(queue)
-        if not subscribers:
-            cleanup_run(run_id)
+    await _broadcaster.serve(
+        websocket,
+        run_id,
+        connected_data={"run_id": run_id},
+        terminal_events=_TERMINAL_EVENTS,
+    )

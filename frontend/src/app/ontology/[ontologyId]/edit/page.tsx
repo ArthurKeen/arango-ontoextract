@@ -165,33 +165,10 @@ export default function OntologyEditorPage() {
   const hasData = graph != null && graph.classes.length > 0;
 
   const handleTimestampChange = useCallback(
-    async (timestamp: number) => {
-      setSnapshotLoading(true);
-      try {
-        const snapshot = await api.get<TemporalSnapshot>(
-          `/api/v1/ontology/${ontologyId}/snapshot?at=${timestamp}`,
-        );
-        setGraph((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            classes: snapshot.classes,
-            properties: snapshot.properties,
-            edges: snapshot.edges,
-          };
-        });
-        setSnapshotTimestamp(timestamp);
-      } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? err.body.message
-            : "Failed to load snapshot",
-        );
-      } finally {
-        setSnapshotLoading(false);
-      }
+    (timestamp: number) => {
+      setSnapshotTimestamp(timestamp);
     },
-    [ontologyId],
+    [],
   );
 
   const returnToCurrent = useCallback(() => {

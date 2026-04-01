@@ -1481,6 +1481,62 @@ Revert creates a new release that restores the ontology to a previous state. It 
 | `POST` | `/api/v1/ontology/{id}/undeprecate` | Restore a deprecated ontology |
 | `GET` | `/api/v1/ontology/{id}/export?version={semver}` | Export a specific release version |
 
+### 6.8b OWL/RDFS Foundation Layer (Metamodel)
+
+**Description:** Every extracted ontology implicitly relies on the OWL 2 / RDFS / RDF metamodel vocabulary (`owl:Class`, `rdfs:subClassOf`, `rdfs:domain`, `rdfs:range`, `owl:ObjectProperty`, etc.), but AOE currently stores only the extracted domain concepts without the foundational definitions that give them formal meaning. This section specifies the addition of the OWL/RDFS foundation layer as first-class entities in the graph.
+
+**Why?**
+- Formal completeness: an `owl:Class` entity labeled "Customer" has no formal grounding without the definition of `owl:Class` itself in the graph
+- Properties lack formal `rdfs:domain` and `rdfs:range` declarations — they store domain/range as string fields but not as graph edges
+- Exported OWL files reference foundation vocabulary but the graph doesn't contain it
+- Enables formal OWL reasoning and SHACL validation against the metamodel
+
+**Foundation Entities to Seed:**
+
+| Category | Entities |
+|----------|---------|
+| **OWL Classes** | `owl:Class`, `owl:Thing`, `owl:Nothing`, `owl:Restriction`, `owl:ObjectProperty`, `owl:DatatypeProperty`, `owl:AnnotationProperty`, `owl:TransitiveProperty`, `owl:SymmetricProperty`, `owl:FunctionalProperty`, `owl:InverseFunctionalProperty`, `owl:Ontology` |
+| **RDFS Classes** | `rdfs:Class`, `rdfs:Resource`, `rdfs:Literal`, `rdfs:Datatype`, `rdfs:Container` |
+| **RDF Classes** | `rdf:Property`, `rdf:Statement`, `rdf:List` |
+| **SKOS Classes** | `skos:Concept`, `skos:ConceptScheme`, `skos:Collection` |
+| **OWL Properties** | `owl:equivalentClass`, `owl:disjointWith`, `owl:inverseOf`, `owl:complementOf`, `owl:unionOf`, `owl:intersectionOf` |
+| **RDFS Properties** | `rdfs:subClassOf`, `rdfs:subPropertyOf`, `rdfs:domain`, `rdfs:range`, `rdfs:label`, `rdfs:comment`, `rdfs:seeAlso`, `rdfs:isDefinedBy` |
+| **RDF Properties** | `rdf:type`, `rdf:value`, `rdf:first`, `rdf:rest` |
+| **XSD Datatypes** | `xsd:string`, `xsd:integer`, `xsd:decimal`, `xsd:boolean`, `xsd:date`, `xsd:dateTime`, `xsd:float`, `xsd:double`, `xsd:anyURI` |
+
+**Temporal Metadata for Foundation Entities:**
+- `created`: Unix timestamp of the W3C OWL 2 Recommendation date (2012-12-11 = `1355184000`)
+- `expired`: `NEVER_EXPIRES` (9223372036854775807)
+- `source_type`: `"foundation"` (distinguishes from `"extraction"`, `"import"`, `"manual"`)
+- `confidence`: `1.0` (definitional — not extracted)
+- `ontology_id`: `"owl_rdfs_foundation"` (shared across all ontologies)
+
+**Graph Edges Created During Materialization:**
+When domain ontology classes and properties are materialized, the following edges to the foundation layer are created:
+- `rdf:type` edge from each extracted class to `owl:Class`
+- `rdf:type` edge from each extracted object property to `owl:ObjectProperty`
+- `rdf:type` edge from each extracted datatype property to `owl:DatatypeProperty`
+- `rdfs:domain` edge from each property to its domain class
+- `rdfs:range` edge from each property to its range class (for object properties) or XSD datatype (for datatype properties)
+
+**Metric Isolation:**
+Quality metrics (confidence, completeness, connectivity, health score, OntoQA metrics) MUST exclude foundation entities. All metric queries filter by `source_type != "foundation"` or by the specific `ontology_id` of the extracted ontology. Foundation entities exist as structural scaffolding, not as extraction output.
+
+**UI Toggle:**
+The graph editor and curation dashboard include a toggle: **"Show OWL Foundation"** (default: off). When enabled, foundation classes appear as distinctly styled nodes (e.g., gray, smaller, different shape) with `rdf:type`, `rdfs:domain`, `rdfs:range` edges visible. This helps ontology engineers verify formal correctness without cluttering the default domain-focused view.
+
+**Requirements:**
+
+| ID | Requirement | Acceptance Criteria |
+|----|-------------|-------------------|
+| FR-8b.1 | OWL/RDFS foundation entities seeded in database | Migration creates foundation classes and properties with `source_type: "foundation"`, `ontology_id: "owl_rdfs_foundation"`, `created: 1355184000` (OWL 2 release date), `confidence: 1.0`. Idempotent — safe to re-run. |
+| FR-8b.2 | `rdf:type` edges created during materialization | Each extracted class gets an edge to `owl:Class`; each property to `owl:ObjectProperty` or `owl:DatatypeProperty`. |
+| FR-8b.3 | `rdfs:domain` and `rdfs:range` edges created | Each property gets formal domain/range edges linking to the appropriate class and datatype/class. |
+| FR-8b.4 | Quality metrics exclude foundation entities | All metric computations filter by `ontology_id` or `source_type != "foundation"`. Health score, confidence, completeness, connectivity unaffected by foundation layer. |
+| FR-8b.5 | UI toggle for foundation visibility | "Show OWL Foundation" toggle in graph editor toolbar and curation page. Default off. Foundation nodes rendered with distinct visual style (gray, smaller). |
+| FR-8b.6 | VCR timeline excludes foundation events | Foundation entities have static `created` timestamp (OWL 2 release date) and should not appear as timeline events in the VCR slider. |
+| FR-8b.7 | Export includes foundation references | OWL/Turtle export includes `@prefix owl:`, `@prefix rdfs:`, `@prefix rdf:` declarations and formal `rdf:type`, `rdfs:domain`, `rdfs:range` triples. |
+
 ### 6.9 Schema Extraction from ArangoDB Databases
 
 **Description:** Extract ontologies from existing ArangoDB database schemas using `arango-schema-mapper`. This provides a "reverse engineering" path — organizations that already have data in ArangoDB can generate ontologies from their live database structure rather than from documents.

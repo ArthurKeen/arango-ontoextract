@@ -800,7 +800,26 @@ All PRD §6 features are tracked in the implementation plan:
 | S: Schema Extraction | 1 week | 6 | **P2** | Reverse engineering | PENDING |
 | D: Test Coverage & CI | 1 week | 7 | **P2** | Quality gate | PENDING |
 | E: Production Polish | 1 week | 7 | **P2** | v1.0.0 readiness | PENDING |
+| OWL: Foundation Layer (Metamodel) | 1 week | 7 | **P1** | Formal OWL completeness | PENDING |
 | V: Sigma.js Migration | 2–3 weeks | 11 | **P1** (post-v1.0) | Scalability | PENDING |
-| **Total remaining** | **~7–8 weeks** | **~63 tasks** | | |
+| **Total remaining** | **~8–9 weeks** | **~70 tasks** | | |
 
 See `docs/REMAINING_WORK_PLAN.md` for detailed task breakdowns per stream.
+
+---
+
+### Sprint OWL: OWL/RDFS Foundation Layer (1 week)
+
+**Goal:** Seed the OWL/RDFS metamodel vocabulary as first-class entities, create formal `rdf:type`/`rdfs:domain`/`rdfs:range` edges during materialization, and add UI toggle for foundation visibility.
+
+**PRD Reference:** §6.8b
+
+| # | Task | Files | Description |
+|---|------|-------|-------------|
+| OWL.1 | Foundation seed migration | `backend/migrations/016_owl_foundation.py` (new) | Idempotent migration creates ~50 foundation entities (`owl:Class`, `rdfs:subClassOf`, XSD datatypes, etc.) in `ontology_classes` and `ontology_properties` with `source_type: "foundation"`, `ontology_id: "owl_rdfs_foundation"`, `created: 1355184000` (OWL 2 W3C Rec date), `confidence: 1.0`. |
+| OWL.2 | `rdf:type` edges in materialization | `backend/app/services/extraction.py` | After inserting each class, create `rdf:type` edge to `ontology_classes/owl_Class`. After each property, `rdf:type` edge to `owl_ObjectProperty` or `owl_DatatypeProperty`. |
+| OWL.3 | `rdfs:domain`/`rdfs:range` edges | `backend/app/services/extraction.py` | For each property, create `rdfs:domain` edge from property to domain class, `rdfs:range` edge from property to range class or XSD datatype entity. |
+| OWL.4 | Metric exclusion filter | `backend/app/services/quality_metrics.py` | All metric queries add `FILTER doc.source_type != "foundation"` or filter by specific `ontology_id`. Verify health score, confidence, completeness, connectivity, OntoQA metrics all exclude foundation. |
+| OWL.5 | UI toggle: "Show OWL Foundation" | `frontend/src/components/graph/GraphCanvas.tsx`, editor page, curation page | Toggle button in toolbar. When off (default), filter out nodes/edges where `source_type == "foundation"`. When on, render foundation nodes with gray style, smaller size. |
+| OWL.6 | VCR timeline exclusion | `backend/app/services/temporal.py` | `get_timeline_events` excludes entities with `source_type == "foundation"`. |
+| OWL.7 | Export includes foundation prefixes | `backend/app/services/export.py`, `owl_serializer.py` | OWL/Turtle export adds `@prefix owl:`, `rdfs:`, `rdf:`, `xsd:` declarations and includes `rdf:type`, `rdfs:domain`, `rdfs:range` triples for each extracted class/property. |

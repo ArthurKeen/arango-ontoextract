@@ -482,7 +482,7 @@ def get_run_cost(
 
     avg_confidence: float | None = None
     completeness_pct: float | None = None
-    ontology_id = run.get("ontology_id")
+    ontology_id = run.get("ontology_id") or run.get("target_ontology_id")
     if not ontology_id and db.has_collection("ontology_registry"):
         matches = list(run_aql(db,
             "FOR o IN ontology_registry "
@@ -492,6 +492,17 @@ def get_run_cost(
         ))
         if matches:
             ontology_id = matches[0]
+    if not ontology_id and db.has_collection("ontology_registry"):
+        doc_ids = run.get("doc_ids") or ([run["doc_id"]] if run.get("doc_id") else [])
+        if doc_ids:
+            matches = list(run_aql(db,
+                "FOR o IN ontology_registry "
+                "FILTER o.source_document_id IN @dids OR o.source_document IN @dids "
+                "LIMIT 1 RETURN o._key",
+                bind_vars={"dids": doc_ids},
+            ))
+            if matches:
+                ontology_id = matches[0]
 
     if ontology_id:
         try:
@@ -563,6 +574,52 @@ def _store_results(
 
 
 NEVER_EXPIRES: int = sys.maxsize
+
+_XSD_TYPES = {
+    "xsd:string", "xsd:integer", "xsd:int", "xsd:decimal", "xsd:float",
+    "xsd:double", "xsd:boolean", "xsd:date", "xsd:dateTime", "xsd:time",
+    "xsd:anyURI", "xsd:long", "xsd:short", "xsd:byte", "xsd:nonNegativeInteger",
+    "xsd:positiveInteger", "xsd:duration", "xsd:gYear", "xsd:gMonth",
+    "xsd:base64Binary", "xsd:hexBinary", "xsd:normalizedString", "xsd:token",
+}
+
+
+def _is_object_property(
+    range_val: str,
+    property_type: str,
+    uri_to_key: dict[str, str],
+    class_keys: dict[str, str],
+) -> bool:
+    """Determine if a property is an object property (relationship between classes)."""
+    if property_type == "object":
+        return True
+    if property_type == "datatype":
+        return False
+    if range_val.startswith("http"):
+        return True
+    if range_val.lower() in _XSD_TYPES or range_val.lower().startswith("xsd:"):
+        return False
+    if "#" in range_val:
+        frag = range_val.split("#")[-1]
+        if frag in class_keys or range_val in uri_to_key:
+            return True
+        return True
+    frag = range_val.split("/")[-1]
+    if frag in class_keys or range_val in class_keys:
+        return True
+    return False
+
+
+def _infer_property_type(
+    range_val: str,
+    property_type: str,
+    uri_to_key: dict[str, str],
+    class_keys: dict[str, str],
+) -> str:
+    """Return 'owl:ObjectProperty' or 'owl:DatatypeProperty'."""
+    if _is_object_property(range_val, property_type, uri_to_key, class_keys):
+        return "owl:ObjectProperty"
+    return "owl:DatatypeProperty"
 
 
 def _materialize_to_graph(
@@ -638,10 +695,11 @@ def _materialize_to_graph(
                 "range": prop.get("range", "xsd:string"),
                 "ontology_id": ontology_id,
                 "confidence": prop.get("confidence", 0.0),
-                "rdf_type": (
-                    "owl:ObjectProperty"
-                    if prop.get("range", "").startswith("http")
-                    else "owl:DatatypeProperty"
+                "rdf_type": _infer_property_type(
+                    prop.get("range", ""),
+                    prop.get("property_type", ""),
+                    uri_to_key,
+                    class_keys,
                 ),
                 "created": now,
                 "expired": NEVER_EXPIRES,
@@ -662,9 +720,14 @@ def _materialize_to_graph(
 
             prop_range = prop.get("range", "")
             prop_type = prop.get("property_type", "")
-            if prop_type == "object" or prop_range.startswith("http"):
+            is_object = _is_object_property(prop_range, prop_type, uri_to_key, class_keys)
+            if is_object:
                 range_frag = prop_range.split("#")[-1].split("/")[-1]
-                range_class_key = uri_to_key.get(prop_range) or class_keys.get(range_frag)
+                range_class_key = (
+                    uri_to_key.get(prop_range)
+                    or class_keys.get(range_frag)
+                    or class_keys.get(prop_range)
+                )
                 if range_class_key and range_class_key != key:
                     with contextlib.suppress(Exception):
                         related_col.insert({

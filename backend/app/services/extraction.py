@@ -652,6 +652,7 @@ def _materialize_to_graph(
     class_keys: dict[str, str] = {}
     uri_to_key: dict[str, str] = {}
     class_parent_uris: list[tuple[str, str]] = []
+    deferred_relationships: list[tuple[str, str, str, str]] = []
 
     for cls in classes:
         cls_data = cls.model_dump() if hasattr(cls, "model_dump") else dict(cls)
@@ -720,25 +721,8 @@ def _materialize_to_graph(
 
             prop_range = prop.get("range", "")
             prop_type = prop.get("property_type", "")
-            is_object = _is_object_property(prop_range, prop_type, uri_to_key, class_keys)
-            if is_object:
-                range_frag = prop_range.split("#")[-1].split("/")[-1]
-                range_class_key = (
-                    uri_to_key.get(prop_range)
-                    or class_keys.get(range_frag)
-                    or class_keys.get(prop_range)
-                )
-                if range_class_key and range_class_key != key:
-                    with contextlib.suppress(Exception):
-                        related_col.insert({
-                            "_from": f"ontology_classes/{key}",
-                            "_to": f"ontology_classes/{range_class_key}",
-                            "label": prop_label,
-                            "property_key": prop_key,
-                            "ontology_id": ontology_id,
-                            "created": now,
-                            "expired": NEVER_EXPIRES,
-                        })
+            if _is_object_property(prop_range, prop_type, uri_to_key, class_keys):
+                deferred_relationships.append((key, prop_label, prop_key, prop_range))
 
         with contextlib.suppress(Exception):
             extracted_col.insert({
@@ -766,6 +750,25 @@ def _materialize_to_graph(
                 })
         elif parent_key == child_key:
             log.warning("skipping self-referential subclass_of: %s", child_key)
+
+    for domain_key, prop_label, prop_key, prop_range in deferred_relationships:
+        range_frag = prop_range.split("#")[-1].split("/")[-1]
+        range_class_key = (
+            uri_to_key.get(prop_range)
+            or class_keys.get(range_frag)
+            or class_keys.get(prop_range)
+        )
+        if range_class_key and range_class_key != domain_key:
+            with contextlib.suppress(Exception):
+                related_col.insert({
+                    "_from": f"ontology_classes/{domain_key}",
+                    "_to": f"ontology_classes/{range_class_key}",
+                    "label": prop_label,
+                    "property_key": prop_key,
+                    "ontology_id": ontology_id,
+                    "created": now,
+                    "expired": NEVER_EXPIRES,
+                })
 
     has_chunk_col = db.collection("has_chunk")
     if db.has_collection("chunks"):

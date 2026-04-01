@@ -832,7 +832,7 @@ AOE uses the library's blocking strategies to narrow the search space before exp
 
 | Strategy | Library Class | AOE Usage |
 |----------|--------------|-----------|
-| **Vector ANN** | `VectorBlockingStrategy` + `ANNAdapter` | Primary: cosine similarity on class label/description embeddings via ArangoDB Faiss IVF vector index (`type: "vector"`, `metric: "cosine"`, `nLists`/`nProbe` tuned dynamically based on collection size) |
+| **Vector ANN** | `VectorBlockingStrategy` + `ANNAdapter` | Primary: cosine similarity on class label/description embeddings via ArangoDB FAISS-based vector index (`type: "vector"`, `metric: "cosine"`). ArangoDB's vector index is powered by FAISS and supports factory strings: `IVF,Flat` (default), `IVF_HNSW,Flat` (HNSW coarse quantizer), `IVF,PQ` (product quantization). The base must be IVF. Parameters: `nLists`/`nProbe` tuned dynamically based on collection size. Index requires training data (created post-ingestion). |
 | **BM25 (ArangoSearch)** | `BM25BlockingStrategy` | Secondary: text-based candidate retrieval on class labels and descriptions |
 | **BM25 + Levenshtein hybrid** | `HybridBlockingStrategy` | Catches near-miss label variants (e.g., "CustomerAccount" vs "Customer_Account") |
 | **Graph traversal** | `GraphTraversalBlockingStrategy` | Ontology-specific: finds classes sharing properties, parents, or domain/range patterns |
@@ -901,7 +901,7 @@ The library's MCP server (`arango-er-mcp`) runs as a separate process alongside 
 |----|-------------|-------------------|
 | FR-7.1 | Multi-strategy blocking via `arango-entity-resolution` | At least vector + BM25 blocking configured; `MultiStrategyOrchestrator` combines candidates |
 | FR-7.2 | Weighted field similarity scoring | `WeightedFieldSimilarity` configured for ontology fields (label, description, uri) with Jaro-Winkler + Levenshtein + Jaccard |
-| FR-7.3 | Vector cosine similarity on class embeddings | `ANNAdapter` with ArangoDB Faiss IVF vector index (`type: "vector"`, cosine metric); threshold configurable (default ≥ 0.85). Note: ArangoDB uses Faiss IVF internally (not HNSW); index requires training data and is created post-ingestion. |
+| FR-7.3 | Vector cosine similarity on class embeddings | `ANNAdapter` with ArangoDB FAISS-based vector index (`type: "vector"`, cosine metric); threshold configurable (default ≥ 0.85). ArangoDB vector indexes are FAISS-powered with IVF base (supports `IVF,Flat`, `IVF_HNSW,Flat`, `IVF,PQ` factory strings). Index requires training data — created after embeddings are ingested. |
 | FR-7.4 | Topological similarity scoring (AOE-specific) | Graph neighborhood comparison (shared properties, shared parents) as additional scoring dimension |
 | FR-7.5 | Combined score with configurable weights | `final_score = w1 * label_sim + w2 * desc_sim + w3 * vector_sim + w4 * topo_sim`; weights tunable per domain |
 | FR-7.6 | WCC clustering on similarity edges | `WCCClusteringService` groups duplicate candidates; auto backend selection |
@@ -2091,7 +2091,7 @@ A feature is not complete until:
 | Component | Reuse | Adaptation Needed |
 |-----------|-------|-------------------|
 | `ConfigurableERPipeline` + `ERPipelineConfig` | Config-driven pipeline orchestration with pluggable strategies | Configure for ontology field names (`label`, `description`, `uri`, `rdf_type`) |
-| `VectorBlockingStrategy` + `ANNAdapter` | ANN cosine vector blocking (ArangoDB Faiss IVF) | Point at ontology class embedding field; configure similarity threshold. ArangoDB vector index uses Faiss IVF (not HNSW) — requires `nLists`, `nProbe`, `trainingIterations` parameters and training data at index creation time. |
+| `VectorBlockingStrategy` + `ANNAdapter` | ANN cosine vector blocking (ArangoDB FAISS) | Point at ontology class embedding field; configure similarity threshold. ArangoDB vector index is FAISS-powered with IVF base — requires `nLists`, `nProbe`, `trainingIterations` parameters and training data at index creation time. Supports factory strings for HNSW coarse quantizer (`IVF_HNSW`) and product quantization (`PQ`). |
 | `BM25BlockingStrategy` / `HybridBlockingStrategy` | ArangoSearch text-based candidate retrieval | Configure ArangoSearch view on `ontology_classes` collection |
 | `GraphTraversalBlockingStrategy` | Graph-based blocking (shared edges/neighbors) | Configure for ontology edge collections (`subclass_of`, `has_property`) |
 | `LSHBlockingStrategy` | Locality-sensitive hashing for scalable blocking | Configure hash tables for ontology embedding dimensionality |

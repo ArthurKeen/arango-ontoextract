@@ -755,7 +755,7 @@ def _materialize_to_graph(
         if not parent_key:
             parent_frag = parent_uri.split("#")[-1].split("/")[-1]
             parent_key = class_keys.get(parent_frag) or class_keys.get(parent_uri)
-        if parent_key:
+        if parent_key and parent_key != child_key:
             with contextlib.suppress(Exception):
                 subclass_col.insert({
                     "_from": f"ontology_classes/{child_key}",
@@ -764,6 +764,8 @@ def _materialize_to_graph(
                     "created": now,
                     "expired": NEVER_EXPIRES,
                 })
+        elif parent_key == child_key:
+            log.warning("skipping self-referential subclass_of: %s", child_key)
 
     has_chunk_col = db.collection("has_chunk")
     if db.has_collection("chunks"):

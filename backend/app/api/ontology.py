@@ -314,7 +314,10 @@ async def get_ontology_detail(ontology_id: str) -> dict:
     """Get ontology detail including stats (class count, property count)."""
     entry = registry_repo.get_registry_entry(ontology_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"Ontology '{ontology_id}' not found")
+        raise NotFoundError(
+            f"Ontology '{ontology_id}' not found",
+            details={"ontology_id": ontology_id},
+        )
 
     class_count = 0
     property_count = 0
@@ -324,8 +327,9 @@ async def get_ontology_detail(ontology_id: str) -> dict:
             result = list(
                 db.aql.execute(
                     "FOR c IN ontology_classes FILTER c.ontology_id == @oid "
+                    "AND c.expired == @never "
                     "COLLECT WITH COUNT INTO cnt RETURN cnt",
-                    bind_vars={"oid": ontology_id},
+                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
                 )
             )
             class_count = result[0] if result else 0
@@ -333,8 +337,9 @@ async def get_ontology_detail(ontology_id: str) -> dict:
             result = list(
                 db.aql.execute(
                     "FOR p IN ontology_properties FILTER p.ontology_id == @oid "
+                    "AND p.expired == @never "
                     "COLLECT WITH COUNT INTO cnt RETURN cnt",
-                    bind_vars={"oid": ontology_id},
+                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
                 )
             )
             property_count = result[0] if result else 0
@@ -366,7 +371,10 @@ async def add_document_to_ontology(
     """Upload a document and trigger incremental extraction into an existing ontology."""
     entry = registry_repo.get_registry_entry(ontology_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"Ontology '{ontology_id}' not found")
+        raise NotFoundError(
+            f"Ontology '{ontology_id}' not found",
+            details={"ontology_id": ontology_id},
+        )
 
     content = await file.read()
 
@@ -380,7 +388,10 @@ async def add_document_to_ontology(
         if file.filename and file.filename.endswith(".md"):
             mime = "text/markdown"
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {mime}")
+            raise ValidationError(
+                f"Unsupported file type: {mime}",
+                details={"allowed": sorted(_ALLOWED)},
+            )
 
     from app.services.ingestion import compute_file_hash
 
@@ -430,20 +441,23 @@ async def list_ontology_documents(ontology_id: str) -> dict:
     """List source documents linked to an ontology via ``extracted_from`` edges."""
     entry = registry_repo.get_registry_entry(ontology_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"Ontology '{ontology_id}' not found")
+        raise NotFoundError(
+            f"Ontology '{ontology_id}' not found",
+            details={"ontology_id": ontology_id},
+        )
 
     db = get_db()
     documents: list[dict] = []
     if db.has_collection("extracted_from") and db.has_collection("documents"):
         documents = list(db.aql.execute(
             "FOR e IN extracted_from "
-            "FILTER e.ontology_id == @oid "
+            "FILTER e.ontology_id == @oid AND e.expired == @never "
             "LET doc_key = PARSE_IDENTIFIER(e._to).key "
             "FOR d IN documents "
             "FILTER d._key == doc_key "
             "COLLECT doc = d INTO group "
             "RETURN MERGE(doc, {edge_count: LENGTH(group)})",
-            bind_vars={"oid": ontology_id},
+            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
         ))
 
     return {"ontology_id": ontology_id, "documents": documents}
@@ -909,7 +923,7 @@ async def get_staging(run_id: str) -> dict:
             result = list(db.aql.execute(
                 f"FOR e IN {edge_col} FILTER e.ontology_id == @oid "
                 "AND e.expired == @never "
-                "RETURN MERGE(e, {type: @et})",
+                "RETURN MERGE(e, {edge_type: @et})",
                 bind_vars={
                     "oid": ontology_id, "et": edge_col,
                     "never": NEVER_EXPIRES,

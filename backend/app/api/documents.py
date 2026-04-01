@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+import time
 
 from fastapi import APIRouter, Query, UploadFile
 
@@ -226,7 +228,7 @@ async def get_document_ontologies(doc_id: str) -> dict:
     return {"doc_id": doc_id, "ontologies": ontologies}
 
 
-NEVER_EXPIRES: int = 9223372036854775807
+NEVER_EXPIRES: int = sys.maxsize
 
 
 @router.delete("/{doc_id}")
@@ -283,8 +285,8 @@ async def delete_document(
         db.aql.execute(
             "FOR e IN extracted_from "
             "FILTER e._to == @doc_id AND e.expired == @never "
-            "UPDATE e WITH {expired: DATE_NOW() / 1000} IN extracted_from",
-            bind_vars={"doc_id": doc_full_id, "never": NEVER_EXPIRES},
+            "UPDATE e WITH {expired: @now} IN extracted_from",
+            bind_vars={"doc_id": doc_full_id, "never": NEVER_EXPIRES, "now": time.time()},
         )
 
     chunks_removed = documents_repo.delete_chunks_for_document(doc_id)

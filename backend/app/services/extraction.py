@@ -320,6 +320,7 @@ async def start_run(
     config_overrides: dict[str, Any] | None = None,
     event_callback: Any | None = None,
     target_ontology_id: str | None = None,
+    domain_ontology_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create and execute an extraction run synchronously (legacy helper)."""
     if db is None:
@@ -329,6 +330,7 @@ async def start_run(
         document_id=document_id,
         config_overrides=config_overrides,
         target_ontology_id=target_ontology_id,
+        domain_ontology_ids=domain_ontology_ids,
     )
     return await execute_run(
         run_id=run_record["_key"],
@@ -336,6 +338,7 @@ async def start_run(
         config_overrides=config_overrides,
         event_callback=event_callback,
         target_ontology_id=target_ontology_id,
+        domain_ontology_ids=domain_ontology_ids,
     )
 
 
@@ -434,10 +437,13 @@ async def retry_run(
     if run["status"] not in ("failed", "completed_with_errors"):
         raise ValueError(f"Can only retry failed runs, current status: {run['status']}")
 
+    doc_ids = run.get("doc_ids") or [run["doc_id"]]
     return await start_run(
         db,
-        document_id=run["doc_id"],
+        document_id=doc_ids[0],
         event_callback=event_callback,
+        target_ontology_id=run.get("target_ontology_id"),
+        domain_ontology_ids=run.get("domain_ontology_ids"),
     )
 
 
@@ -654,6 +660,7 @@ def _materialize_to_graph(
                 "run_id": run_id,
                 "ontology_id": ontology_id,
                 "created": now,
+                "expired": NEVER_EXPIRES,
             })
         except Exception:
             pass

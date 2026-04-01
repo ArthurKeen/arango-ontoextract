@@ -22,7 +22,7 @@ function buildTree(
   const hasParent = new Set<string>();
 
   for (const edge of edges) {
-    const edgeType = (edge as Record<string, unknown>).edge_type ?? edge.type;
+    const edgeType = (edge as unknown as Record<string, unknown>).edge_type ?? edge.type;
     if (edgeType !== "subclass_of") continue;
     const childKey = edge._from.split("/").pop() ?? edge._from;
     const parentKey = edge._to.split("/").pop() ?? edge._to;

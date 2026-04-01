@@ -15,11 +15,12 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
 from app.db.client import get_db
+from app.services.arangordf_bridge import import_from_file
 
 log = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ def _stub_extract_schema(config: SchemaExtractionConfig) -> str:
     g.add((ont_uri, RDF.type, OWL.Ontology))
     g.add((ont_uri, RDFS.label, Literal(f"Schema of {config.target_db}")))
 
-    collections = target_db.collections()
+    collections = cast("list[dict[str, Any]]", target_db.collections())
     for col_info in collections:
         if col_info["system"]:
             continue
@@ -191,8 +192,6 @@ def extract_schema(config: SchemaExtractionConfig) -> dict[str, Any]:
             ttl_content = owl_export_fn(snapshot)
         else:
             ttl_content = _stub_extract_schema(config)
-
-        from app.services.arangordf_bridge import import_from_file
 
         db = get_db()
         import_result = import_from_file(

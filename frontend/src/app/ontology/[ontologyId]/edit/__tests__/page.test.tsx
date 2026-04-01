@@ -122,7 +122,6 @@ const mockRegistry: OntologyRegistryEntry = {
 };
 
 // Must import after mocks
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const PageModule = require("../page");
 const OntologyEditorPage = PageModule.default;
 

@@ -231,5 +231,32 @@ class TestConsistencyChecker:
         assert len(result["step_logs"]) == 1
         assert result["step_logs"][0]["step"] == "consistency_checker"
 
+    def test_duplicate_classes_within_single_pass_do_not_exceed_confidence_cap(self):
+        org = _make_class("http://ex.org#Org", "Organization")
+
+        state: ExtractionPipelineState = {
+            "run_id": "test",
+            "document_id": "doc",
+            "document_chunks": [],
+            "extraction_passes": [
+                _make_result([org, org, org], pass_number=1),
+                _make_result([org], pass_number=2),
+                _make_result([org], pass_number=3),
+            ],
+            "strategy_config": {"consistency_threshold": 2},
+            "errors": [],
+            "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "step_logs": [],
+            "current_step": "extractor",
+            "metadata": {},
+        }
+
+        result = consistency_checker_node(state)
+        cr = result["consistency_result"]
+
+        assert cr is not None
+        assert len(cr.classes) == 1
+        assert cr.classes[0].confidence == 1.0
+
 
 import pytest  # noqa: E402 — used by approx above

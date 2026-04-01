@@ -1,4 +1,4 @@
-"""Unit tests for ontology CRUD API endpoints (K.3–K.6b).
+"""Unit tests for ontology CRUD API endpoints (K.3-K.6b).
 
 All database operations are mocked via monkeypatching of ontology_repo.
 """

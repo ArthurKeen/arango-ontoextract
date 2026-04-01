@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api-client";
+import Link from "next/link";
+import { api, getApiBaseUrl } from "@/lib/api-client";
 
 interface UploadResult {
   doc_id: string;
@@ -71,7 +72,7 @@ export default function UploadPage() {
     ontologyId?: string,
   ): Promise<string | null> => {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const payload: Record<string, unknown> = { document_id: docId };
       if (ontologyId) {
         payload.target_ontology_id = ontologyId;
@@ -109,7 +110,7 @@ export default function UploadPage() {
     docId: string,
     maxWaitMs = 120_000,
   ): Promise<void> => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    const baseUrl = getApiBaseUrl();
     const start = Date.now();
     const pollInterval = 1500;
 
@@ -146,7 +147,7 @@ export default function UploadPage() {
 
     try {
       const baseUrl =
-        process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+        getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/v1/documents/upload`, {
         method: "POST",
         body: formData,
@@ -196,9 +197,9 @@ export default function UploadPage() {
     <main className="min-h-screen bg-gray-50 text-gray-900">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center gap-4">
-          <a href="/" className="text-gray-400 hover:text-gray-600 text-sm">
+          <Link href="/" className="text-gray-400 hover:text-gray-600 text-sm">
             ← Home
-          </a>
+          </Link>
           <h1 className="text-2xl font-bold">Upload Document</h1>
         </div>
       </header>

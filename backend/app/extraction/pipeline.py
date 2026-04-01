@@ -8,7 +8,7 @@ Human-in-the-loop breakpoint after pre-curation filter.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -213,7 +213,7 @@ async def run_pipeline(
         extra={"run_id": run_id, "document_id": document_id, "chunk_count": len(chunks)},
     )
 
-    final_state: ExtractionPipelineState | None = None
+    final_state: dict[str, Any] | None = None
     last_node: str | None = None
     try:
         if event_callback:
@@ -270,14 +270,15 @@ async def run_pipeline(
                 data={"errors": final_state.get("errors", [])},
             )
 
-        return final_state
+        return final_state  # type: ignore[return-value]
 
     try:
         snapshot = compiled.get_state(config)
     except Exception:
         snapshot = None
-    result_state: ExtractionPipelineState = (  # type: ignore[assignment]
-        snapshot.values if snapshot else (final_state or initial_state)
+    result_state: ExtractionPipelineState = cast(
+        "ExtractionPipelineState",
+        snapshot.values if snapshot else (final_state or initial_state),
     )
 
     is_interrupted = snapshot and snapshot.next if snapshot else False

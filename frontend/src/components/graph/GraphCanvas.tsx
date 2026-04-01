@@ -204,7 +204,7 @@ function computeLayout(
   const allKeys = new Set(classes.map((c) => c._key));
 
   for (const edge of edges) {
-    const edgeType = (edge as Record<string, unknown>).edge_type ?? edge.type;
+    const edgeType = (edge as unknown as Record<string, unknown>).edge_type ?? edge.type;
     if (!HIERARCHY_EDGE_TYPES.has(edgeType as string)) continue;
 
     const fromKey = edge._from.split("/").pop() ?? edge._from;
@@ -348,7 +348,7 @@ export default function GraphCanvas({
       .map((edge) => {
         const fromKey = edge._from.split("/").pop() ?? edge._from;
         const toKey = edge._to.split("/").pop() ?? edge._to;
-        const edgeType = ((edge as Record<string, unknown>).edge_type ?? edge.type) as string;
+        const edgeType = ((edge as unknown as Record<string, unknown>).edge_type ?? edge.type) as string;
         const isExtendsDomain = edgeType === "extends_domain";
         const isHierarchy = edgeType === "subclass_of" || edgeType === "extends_domain";
 

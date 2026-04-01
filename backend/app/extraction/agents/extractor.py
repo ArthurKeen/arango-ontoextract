@@ -14,6 +14,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import settings
+from app.db.client import get_db
+from app.db.utils import run_aql
 from app.extraction.prompts import get_template
 from app.extraction.state import ExtractionPipelineState, StepLog, TokenUsage
 from app.models.ontology import ExtractionResult
@@ -30,9 +32,9 @@ def _get_llm(model_name: str) -> Any:
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
-            model=model_name,
-            api_key=settings.anthropic_api_key,
-            max_tokens=4096,
+            model=model_name,  # type: ignore[call-arg]
+            api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
+            max_tokens=4096,  # type: ignore[call-arg]
         )
     from langchain_openai import ChatOpenAI
 
@@ -100,8 +102,6 @@ def _retrieve_relevant_chunks(
     Falls back to returning the input chunks if vector search is unavailable.
     """
     try:
-        from app.db.client import get_db
-
         db = get_db()
         if not db.has_collection("chunks"):
             return chunks
@@ -119,7 +119,8 @@ FOR chunk IN chunks
   LIMIT 10
   RETURN chunk"""
         result = list(
-            db.aql.execute(
+            run_aql(
+                db,
                 query,
                 bind_vars={"doc_id": document_id, "embedding": sample_embedding},
             )
@@ -332,8 +333,12 @@ async def extractor_node(state: ExtractionPipelineState) -> dict:
     for pass_result, pass_errors, pass_tokens in pass_outputs:
         pass_results.append(pass_result)
         errors.extend(pass_errors)
-        total_tokens["prompt_tokens"] = total_tokens.get("prompt_tokens", 0) + pass_tokens["prompt_tokens"]
-        total_tokens["completion_tokens"] = total_tokens.get("completion_tokens", 0) + pass_tokens["completion_tokens"]
+        total_tokens["prompt_tokens"] = (
+            total_tokens.get("prompt_tokens", 0) + pass_tokens["prompt_tokens"]
+        )
+        total_tokens["completion_tokens"] = (
+            total_tokens.get("completion_tokens", 0) + pass_tokens["completion_tokens"]
+        )
 
     total_tokens["total_tokens"] = (
         total_tokens.get("prompt_tokens", 0) + total_tokens.get("completion_tokens", 0)

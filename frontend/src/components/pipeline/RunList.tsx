@@ -204,7 +204,7 @@ export default function RunList({ onSelectRun, selectedRunId }: RunListProps) {
                     e.stopPropagation();
                     if (!confirm(`Delete run ${run._key}?`)) return;
                     try {
-                      await api.delete(`/api/v1/extraction/runs/${run._key}`);
+                      await api.del(`/api/v1/extraction/runs/${run._key}`);
                       setRuns((prev) => prev.filter((r) => r._key !== run._key));
                       setTotalCount((c) => Math.max(0, c - 1));
                     } catch { /* ignore */ }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api-client";
 import RunList from "@/components/pipeline/RunList";
@@ -133,12 +134,12 @@ function PipelineMonitorInner() {
             >
               {sidebarOpen ? "Hide Runs" : "Show Runs"}
             </button>
-            <a
+            <Link
               href="/"
               className="text-sm text-gray-500 hover:text-gray-700"
             >
               Home
-            </a>
+            </Link>
           </div>
         </div>
       </header>

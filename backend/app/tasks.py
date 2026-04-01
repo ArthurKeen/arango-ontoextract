@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from app.db import documents_repo
 from app.db.client import get_db
@@ -26,10 +27,11 @@ from app.services.ingestion import (
 
 log = logging.getLogger(__name__)
 
-_MIME_PARSERS: dict[str, Any] = {
-    "application/pdf": parse_pdf,
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": parse_docx,
-    "text/markdown": parse_markdown,
+_MIME_PARSERS: dict[str, Callable[[bytes], ParsedDocument]] = {
+    "application/pdf": lambda file_bytes: parse_pdf(file_bytes),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
+        lambda file_bytes: parse_docx(file_bytes)
+    ),
 }
 
 
@@ -70,13 +72,13 @@ async def process_document(doc_id: str, file_bytes: bytes, mime_type: str) -> No
         chunk_dicts = _build_chunk_dicts(doc_id, chunks, embeddings)
         stored = documents_repo.create_chunks(chunk_dicts)
         if not stored:
-            raise RuntimeError(
-                f"All {len(chunk_dicts)} chunk inserts failed — check ArangoDB logs"
-            )
+            raise RuntimeError(f"All {len(chunk_dicts)} chunk inserts failed — check ArangoDB logs")
         documents_repo.update_document_chunk_count(doc_id, len(stored))
         log.info(
             "[ingest:%s] chunks stored, requested=%d stored=%d",
-            doc_id, len(chunk_dicts), len(stored),
+            doc_id,
+            len(chunk_dicts),
+            len(stored),
         )
 
         # --- vector index ---
@@ -87,9 +89,7 @@ async def process_document(doc_id: str, file_bytes: bytes, mime_type: str) -> No
 
     except Exception as exc:
         log.exception("[ingest:%s] FAILED at current stage", doc_id)
-        documents_repo.update_document_status(
-            doc_id, DocumentStatus.FAILED, error_message=str(exc)
-        )
+        documents_repo.update_document_status(doc_id, DocumentStatus.FAILED, error_message=str(exc))
 
 
 _VECTOR_INDEX_NAME = "idx_chunks_embedding_vector"
@@ -107,21 +107,26 @@ def _ensure_vector_index() -> None:
         return
 
     col = db.collection("chunks")
-    for idx in col.indexes():
+    for idx in cast("list[dict[str, Any]]", col.indexes()):
         if idx.get("name") == _VECTOR_INDEX_NAME:
             return  # already exists
 
-    from arango.request import Request
     import math
 
-    chunk_count = col.count()
+    from arango.request import Request
+
+    chunk_count = cast(int, col.count())
     n_lists = max(1, int(math.sqrt(chunk_count) * 15))
     # nLists cannot exceed the number of training points
     n_lists = min(n_lists, chunk_count)
     n_probe = max(1, int(math.sqrt(n_lists)))
 
-    log.info("[ingest] vector index params: chunks=%d, nLists=%d, nProbe=%d",
-             chunk_count, n_lists, n_probe)
+    log.info(
+        "[ingest] vector index params: chunks=%d, nLists=%d, nProbe=%d",
+        chunk_count,
+        n_lists,
+        n_probe,
+    )
 
     body = {
         "type": "vector",
@@ -145,9 +150,7 @@ def _ensure_vector_index() -> None:
     if resp.status_code in (200, 201):
         log.info("[ingest] created vector index %s on chunks.embedding", _VECTOR_INDEX_NAME)
     else:
-        raise RuntimeError(
-            f"Vector index creation failed ({resp.status_code}): {resp.body}"
-        )
+        raise RuntimeError(f"Vector index creation failed ({resp.status_code}): {resp.body}")
 
 
 async def _parse(file_bytes: bytes, mime_type: str) -> ParsedDocument:

@@ -43,7 +43,6 @@ jest.mock("reactflow", () => {
 });
 
 // Must import after mock
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const AgentDAGModule = require("@/components/pipeline/AgentDAG");
 const AgentDAG = AgentDAGModule.default;
 

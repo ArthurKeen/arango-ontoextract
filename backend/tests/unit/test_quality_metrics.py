@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 def _mock_db(aql_results: dict | None = None):
     """Create a mock StandardDatabase with configurable AQL results."""

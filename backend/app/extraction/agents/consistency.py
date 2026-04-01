@@ -14,6 +14,11 @@ from app.services.confidence import _property_agreement_score
 log = logging.getLogger(__name__)
 
 
+def _clamp_confidence(value: float) -> float:
+    """Normalize any confidence-like value into the valid [0, 1] range."""
+    return max(0.0, min(1.0, float(value)))
+
+
 def _class_key(cls: ExtractedClass) -> str:
     """Canonical key for matching classes across passes."""
     return cls.uri.strip().lower()
@@ -44,7 +49,7 @@ def _merge_properties(
     merged: list[ExtractedProperty] = []
     for _key, props in seen.items():
         best = max(props, key=lambda p: len(p.description))
-        avg_confidence = sum(p.confidence for p in props) / len(props)
+        avg_confidence = sum(_clamp_confidence(p.confidence) for p in props) / len(props)
         merged.append(
             ExtractedProperty(
                 uri=best.uri,
@@ -52,7 +57,7 @@ def _merge_properties(
                 description=best.description,
                 property_type=best.property_type,
                 range=best.range,
-                confidence=round(avg_confidence, 3),
+                confidence=round(_clamp_confidence(avg_confidence), 3),
             )
         )
     return merged
@@ -108,9 +113,12 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
     uri_to_classes: dict[str, list[ExtractedClass]] = {}
 
     for result in pass_results:
+        seen_in_pass: set[str] = set()
         for cls in result.classes:
             key = _class_key(cls)
-            uri_counter[key] += 1
+            if key not in seen_in_pass:
+                uri_counter[key] += 1
+                seen_in_pass.add(key)
             uri_to_classes.setdefault(key, []).append(cls)
 
     filtered_classes: list[ExtractedClass] = []
@@ -119,7 +127,7 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
             continue
 
         variants = uri_to_classes[uri_key]
-        agreement_ratio = count / num_passes
+        agreement_ratio = _clamp_confidence(count / num_passes)
 
         descriptions = [v.description for v in variants]
         merged_desc = _merge_descriptions(descriptions)
@@ -138,7 +146,9 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
 
         llm_confidences = [v.confidence for v in variants]
         avg_llm_confidence = (
-            sum(llm_confidences) / len(llm_confidences) if llm_confidences else 0.5
+            sum(_clamp_confidence(c) for c in llm_confidences) / len(llm_confidences)
+            if llm_confidences
+            else 0.5
         )
 
         filtered_classes.append(
@@ -149,8 +159,8 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
                 parent_uri=parent_uri,
                 classification=best_variant.classification,
                 confidence=round(agreement_ratio, 3),
-                llm_confidence=round(avg_llm_confidence, 3),
-                property_agreement=prop_agreement,
+                llm_confidence=round(_clamp_confidence(avg_llm_confidence), 3),
+                property_agreement=round(_clamp_confidence(prop_agreement), 3),
                 properties=merged_props,
             )
         )

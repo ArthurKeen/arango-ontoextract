@@ -493,9 +493,12 @@ Upload a file for processing. The file is parsed, chunked, and embedded asynchro
 
 | Path | Description |
 |------|-------------|
-| `ws://host/ws/extraction/{run_id}` | Real-time extraction pipeline progress |
+| `ws://host/ws/extraction/{run_id}?token=JWT` | Real-time extraction pipeline progress |
+| `ws://host/ws/curation/{session_id}?token=JWT` | Real-time curation collaboration events |
 
-### Event Format
+**Authentication:** Pass a valid JWT as the `token` query parameter. In dev mode (APP_ENV != production), the token is optional and a mock admin user is used.
+
+### Extraction Event Format
 
 ```json
 {
@@ -519,6 +522,42 @@ Upload a file for processing. The file is parsed, chunked, and embedded asynchro
 | `completed` | Pipeline finished |
 | `failed` | Pipeline failed |
 | `heartbeat` | Keep-alive (every 30s if no events) |
+
+### Curation Event Format
+
+```json
+{
+  "event": "decision_made",
+  "data": {"entity_key": "cls_123", "decision": "approve"},
+  "user_id": "user_abc",
+  "session_id": "session_456",
+  "timestamp": 1711500042.5
+}
+```
+
+### Curation Event Types
+
+| Event | Description |
+|-------|-------------|
+| `connected` | WebSocket connection established |
+| `decision_made` | A curation decision was recorded |
+| `entity_merged` | Two entities were merged |
+| `staging_promoted` | Staging entities promoted to production |
+| `heartbeat` | Keep-alive (every 30s if no events) |
+
+---
+
+## Rate Limiting
+
+All authenticated endpoints include rate-limit headers in the response:
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Maximum requests per window |
+| `X-RateLimit-Remaining` | Requests remaining in current window |
+| `X-RateLimit-Reset` | Unix timestamp when the window resets |
+
+When the limit is exceeded, the API returns HTTP 429 with error code `RATE_LIMITED`.
 
 ---
 

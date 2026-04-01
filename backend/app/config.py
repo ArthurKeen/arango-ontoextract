@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -61,10 +62,26 @@ class Settings(BaseSettings):
     er_vector_weight: float = 0.6
     er_topo_weight: float = 0.4
 
+    # -- Ontology Defaults ---------------------------------------------------
+    default_ontology_uri: str = "http://example.org/ontology#"
+
+    # -- CORS ---------------------------------------------------------------
+    cors_origins: str = "http://localhost:3000"
+
     # -- Rate Limiting -----------------------------------------------------
     rate_limit_enabled: bool = True
     rate_limit_default: int = 100
     rate_limit_default_tier: str = "standard"
+
+    @field_validator("app_secret_key", mode="after")
+    @classmethod
+    def _validate_secret_key(cls, v: str, info: Any) -> str:
+        env = info.data.get("app_env", "development")
+        if env == "production" and v in ("change-this", ""):
+            raise ValueError(
+                "APP_SECRET_KEY must be set to a strong random value in production"
+            )
+        return v
 
     @field_validator("test_deployment_mode", mode="before")
     @classmethod

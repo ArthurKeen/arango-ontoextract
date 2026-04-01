@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { api, ApiError } from "@/lib/api-client";
 import type { PaginatedResponse } from "@/lib/api-client";
@@ -242,12 +243,12 @@ export default function EntityResolutionPage() {
                 </button>
               ))}
             </div>
-            <a
+            <Link
               href="/"
               className="text-sm text-gray-500 hover:text-gray-700"
             >
               Home
-            </a>
+            </Link>
           </div>
         </div>
       </header>

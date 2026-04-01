@@ -8,17 +8,22 @@ Provides injectable dependencies for route handlers:
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 from fastapi import Depends, Request
 
-from app.api.auth import AuthenticatedUser, get_user_from_request
-from app.api.errors import ForbiddenError, UnauthorizedError
+from app.api import auth as auth_api
+from app.api.auth import AuthenticatedUser
+from app.api.errors import ForbiddenError, NotFoundError, UnauthorizedError
+
+_T = TypeVar("_T")
 
 ROLES = ("admin", "ontology_engineer", "domain_expert", "viewer")
 
 
 def get_current_user(request: Request) -> AuthenticatedUser:
     """FastAPI dependency — returns the authenticated user or raises 401."""
-    user = get_user_from_request(request)
+    user = auth_api.get_user_from_request(request)
     if user is None:
         raise UnauthorizedError("Authentication required")
     return user
@@ -57,3 +62,13 @@ def require_role(*allowed_roles: str):
         return user
 
     return _guard
+
+
+def get_or_404(result: _T | None, entity: str, entity_id: str) -> _T:
+    """Return *result* if not ``None``, otherwise raise :class:`NotFoundError`."""
+    if result is None:
+        raise NotFoundError(
+            f"{entity} '{entity_id}' not found",
+            details={f"{entity.lower()}_id": entity_id},
+        )
+    return result

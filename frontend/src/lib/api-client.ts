@@ -112,3 +112,12 @@ class ApiClient {
 }
 
 export const api = new ApiClient();
+
+/** Resolve the backend API base URL (no trailing slash). */
+export function getApiBaseUrl(): string {
+  return (
+    (typeof window !== "undefined"
+      ? process.env.NEXT_PUBLIC_API_URL
+      : process.env.NEXT_PUBLIC_API_URL) ?? "http://localhost:8000"
+  );
+}

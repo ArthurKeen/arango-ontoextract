@@ -6,11 +6,12 @@ import logging
 
 from rdflib import OWL, RDF, RDFS, XSD, Graph, Literal, Namespace, URIRef
 
+from app.config import settings
 from app.models.ontology import ExtractionResult
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_NS = "http://example.org/ontology#"
+_DEFAULT_NS = settings.default_ontology_uri
 
 
 def extraction_to_owl(

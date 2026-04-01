@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
-import time
 
 from fastapi import APIRouter, Query, UploadFile
 
-from app.api.errors import ConflictError, NotFoundError, ValidationError
+from app.api.dependencies import get_or_404
+from app.api.errors import ConflictError, ValidationError
 from app.db import documents_repo
 from app.db.client import get_db
+from app.db.utils import run_aql
 from app.models.common import PaginatedResponse
 from app.services.ingestion import compute_file_hash
 from app.tasks import process_document
@@ -32,6 +32,19 @@ _ALLOWED_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/markdown",
 }
+
+
+def _validate_mime(file: UploadFile) -> str:
+    """Return the validated MIME type, raising ValidationError if unsupported."""
+    mime = file.content_type or ""
+    if mime not in _ALLOWED_MIME_TYPES:
+        if file.filename and file.filename.endswith(".md"):
+            return "text/markdown"
+        raise ValidationError(
+            f"Unsupported file type: {mime}",
+            details={"allowed": sorted(_ALLOWED_MIME_TYPES)},
+        )
+    return mime
 
 
 def _to_doc_response(doc: dict) -> dict:
@@ -57,18 +70,7 @@ async def upload_document(
 ) -> dict:
     """Upload a document and start async processing pipeline."""
     content = await file.read()
-
-    mime = file.content_type or ""
-    if mime not in _ALLOWED_MIME_TYPES:
-        if file.filename and file.filename.endswith(".md"):
-            mime = "text/markdown"
-        elif mime not in _ALLOWED_MIME_TYPES:
-            from app.api.errors import ValidationError
-
-            raise ValidationError(
-                f"Unsupported file type: {mime}",
-                details={"allowed": sorted(_ALLOWED_MIME_TYPES)},
-            )
+    mime = _validate_mime(file)
 
     file_hash = compute_file_hash(content)
     existing = documents_repo.find_document_by_hash(file_hash)
@@ -119,12 +121,7 @@ async def list_documents(
 @router.get("/{doc_id}")
 async def get_document(doc_id: str) -> dict:
     """Get document metadata and processing status."""
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
+    doc = get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
     return _to_doc_response(doc)
 
 
@@ -135,12 +132,7 @@ async def get_chunks(
     cursor: str | None = Query(default=None),
 ) -> PaginatedResponse[dict]:
     """List chunks for a document (paginated)."""
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
+    get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
     return documents_repo.get_chunks_for_document(doc_id, limit=limit, cursor=cursor)
 
 
@@ -155,23 +147,10 @@ async def update_document(
     Deletes existing chunks, re-chunks from the new file, and updates
     document metadata (filename, mime_type, file_hash, chunk_count).
     """
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
+    doc = get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
 
     content = await file.read()
-    mime = file.content_type or ""
-    if mime not in _ALLOWED_MIME_TYPES:
-        if file.filename and file.filename.endswith(".md"):
-            mime = "text/markdown"
-        elif mime not in _ALLOWED_MIME_TYPES:
-            raise ValidationError(
-                f"Unsupported file type: {mime}",
-                details={"allowed": sorted(_ALLOWED_MIME_TYPES)},
-            )
+    mime = _validate_mime(file)
 
     file_hash = compute_file_hash(content)
 
@@ -206,14 +185,12 @@ async def update_document(
 @router.get("/{doc_id}/ontologies")
 async def get_document_ontologies(doc_id: str) -> dict:
     """List ontologies extracted from a document (via ``extracted_from`` edges)."""
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(f"Document '{doc_id}' not found", details={"doc_id": doc_id})
+    get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
 
     db = get_db()
     ontologies: list[dict] = []
     if db.has_collection("extracted_from") and db.has_collection("ontology_registry"):
-        ontologies = list(db.aql.execute(
+        ontologies = list(run_aql(db,
             "FOR e IN extracted_from "
             "FILTER e._to == @doc_id "
             "LET oid = e.ontology_id "
@@ -228,73 +205,11 @@ async def get_document_ontologies(doc_id: str) -> dict:
     return {"doc_id": doc_id, "ontologies": ontologies}
 
 
-NEVER_EXPIRES: int = sys.maxsize
-
-
 @router.delete("/{doc_id}")
 async def delete_document(
     doc_id: str,
     confirm: bool = Query(default=False, description="Set to true to actually delete"),
 ) -> dict:
-    """Delete a document with cascade analysis (J.2).
-
-    Without ``?confirm=true``, returns the list of affected ontologies
-    without making changes.  With confirmation, removes the document,
-    its chunks, and expires ``extracted_from`` edges.
-    """
-    doc = documents_repo.get_document(doc_id)
-    if doc is None:
-        raise NotFoundError(
-            f"Document '{doc_id}' not found",
-            details={"doc_id": doc_id},
-        )
-
-    db = get_db()
-    affected_ontologies: list[dict] = []
-    doc_full_id = f"documents/{doc_id}"
-
-    if db.has_collection("extracted_from"):
-        edges = list(
-            db.aql.execute(
-                "FOR e IN extracted_from "
-                "FILTER e._to == @doc_id AND e.expired == @never "
-                "RETURN e",
-                bind_vars={"doc_id": doc_full_id, "never": NEVER_EXPIRES},
-            )
-        )
-
-        ontology_ids = {e.get("ontology_id") for e in edges if e.get("ontology_id")}
-        if ontology_ids and db.has_collection("ontology_registry"):
-            affected_ontologies = list(
-                db.aql.execute(
-                    "FOR o IN ontology_registry FILTER o._key IN @ids "
-                    "RETURN {_key: o._key, name: o.name, status: o.status}",
-                    bind_vars={"ids": list(ontology_ids)},
-                )
-            )
-
-    if not confirm:
-        return {
-            "doc_id": doc_id,
-            "status": "pending_confirmation",
-            "affected_ontologies": affected_ontologies,
-            "message": "Pass ?confirm=true to proceed with deletion.",
-        }
-
-    if db.has_collection("extracted_from"):
-        db.aql.execute(
-            "FOR e IN extracted_from "
-            "FILTER e._to == @doc_id AND e.expired == @never "
-            "UPDATE e WITH {expired: @now} IN extracted_from",
-            bind_vars={"doc_id": doc_full_id, "never": NEVER_EXPIRES, "now": time.time()},
-        )
-
-    chunks_removed = documents_repo.delete_chunks_for_document(doc_id)
-    documents_repo.hard_delete_document(doc_id)
-
-    return {
-        "doc_id": doc_id,
-        "status": "deleted",
-        "chunks_removed": chunks_removed,
-        "affected_ontologies": affected_ontologies,
-    }
+    """Delete a document with cascade analysis and confirmation."""
+    get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
+    return documents_repo.delete_document(doc_id, confirm=confirm)

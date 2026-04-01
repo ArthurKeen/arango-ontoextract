@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import AuthenticatedUser
-from app.api.dependencies import get_current_user, require_role
+from app.api.dependencies import get_current_user, get_or_404, require_role
 from app.api.errors import ConflictError, NotFoundError, ValidationError
 from app.db import orgs_repo
 from app.models.common import PaginatedResponse
@@ -89,13 +89,7 @@ async def get_organization(
     _user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict:
     """Get organization details and settings."""
-    org = orgs_repo.get_organization(org_id)
-    if org is None:
-        raise NotFoundError(
-            f"Organization '{org_id}' not found",
-            details={"org_id": org_id},
-        )
-    return org
+    return get_or_404(orgs_repo.get_organization(org_id), "Organization", org_id)
 
 
 @router.put("/{org_id}")
@@ -105,12 +99,7 @@ async def update_organization(
     _user: AuthenticatedUser = Depends(require_role("admin")),
 ) -> dict:
     """Update organization settings."""
-    org = orgs_repo.get_organization(org_id)
-    if org is None:
-        raise NotFoundError(
-            f"Organization '{org_id}' not found",
-            details={"org_id": org_id},
-        )
+    org = get_or_404(orgs_repo.get_organization(org_id), "Organization", org_id)
 
     updates: dict = {}
     if body.display_name is not None:
@@ -135,12 +124,7 @@ async def add_user_to_org(
     _user: AuthenticatedUser = Depends(require_role("admin")),
 ) -> dict:
     """Add a user to an organization with a role."""
-    org = orgs_repo.get_organization(org_id)
-    if org is None:
-        raise NotFoundError(
-            f"Organization '{org_id}' not found",
-            details={"org_id": org_id},
-        )
+    get_or_404(orgs_repo.get_organization(org_id), "Organization", org_id)
 
     if body.role not in VALID_ROLES:
         raise ValidationError(
@@ -173,12 +157,7 @@ async def list_org_users(
     _user: AuthenticatedUser = Depends(get_current_user),
 ) -> PaginatedResponse[dict]:
     """List users in an organization."""
-    org = orgs_repo.get_organization(org_id)
-    if org is None:
-        raise NotFoundError(
-            f"Organization '{org_id}' not found",
-            details={"org_id": org_id},
-        )
+    get_or_404(orgs_repo.get_organization(org_id), "Organization", org_id)
     return orgs_repo.list_org_users(org_id, limit=limit, cursor=cursor)
 
 

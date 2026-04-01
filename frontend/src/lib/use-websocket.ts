@@ -8,6 +8,7 @@ import type {
   PipelineStep,
 } from "@/types/pipeline";
 import { PIPELINE_STEPS } from "@/types/pipeline";
+import { getApiBaseUrl } from "@/lib/api-client";
 
 interface UseExtractionSocketReturn {
   steps: Map<string, StepStatus>;
@@ -34,19 +35,17 @@ function buildInitialSteps(): Map<string, StepStatus> {
 
 function resolveWsUrl(runId: string): string {
   if (typeof window === "undefined") return "";
-  const apiBase =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-  const wsBase = apiBase.replace(/^http/, "ws");
-  return `${wsBase}/ws/extraction/${runId}`;
+  const wsBase = getApiBaseUrl().replace(/^http/, "ws");
+  const token = localStorage.getItem("aoe_auth_token") ?? "";
+  const sep = token ? "?" : "";
+  return `${wsBase}/ws/extraction/${runId}${sep}${token ? `token=${encodeURIComponent(token)}` : ""}`;
 }
 
 async function fetchStepsFromRest(
   runId: string,
 ): Promise<Map<string, StepStatus> | null> {
   try {
-    const baseUrl =
-      process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-    const res = await fetch(`${baseUrl}/api/v1/extraction/runs/${runId}`);
+    const res = await fetch(`${getApiBaseUrl()}/api/v1/extraction/runs/${runId}`);
     if (!res.ok) return null;
     const run = await res.json();
 

@@ -56,8 +56,8 @@ After startup:
 | LLM Extraction | Done | N-pass extraction with self-correction via LangGraph |
 | Visual Curation | Done | React Flow graph canvas with approve/reject/edit/merge |
 | VCR Timeline | Done | Temporal time travel with point-in-time snapshots |
-| Entity Resolution | Done | Duplicate detection via arango-entity-resolution |
-| Cross-Tier ER | Done | Find overlaps between local and domain ontologies |
+| Entity Resolution | Partial | Blocking/scoring implemented; full pipeline in progress |
+| Cross-Tier ER | Partial | Find overlaps between local and domain ontologies |
 | Staging → Production | Done | Promote approved entities with temporal versioning |
 | Import/Export | Done | OWL/TTL import and TTL/JSON-LD/CSV export |
 | MCP Server | Done | 18 tools for AI agent integration (stdio + SSE) |

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -14,7 +14,6 @@ from app.services.arangordf_bridge import (
     import_from_url,
     import_owl_to_graph,
 )
-
 
 # ---------------------------------------------------------------------------
 # _detect_format

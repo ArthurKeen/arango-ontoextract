@@ -68,9 +68,7 @@ class TestGetExtractionStatus:
     @patch("app.services.schema_extraction._try_import_schema_mapper", return_value=None)
     @patch("app.services.schema_extraction._stub_extract_schema")
     @patch("app.services.schema_extraction.get_db")
-    def test_completed_run_includes_stats(
-        self, mock_get_db, mock_stub, mock_mapper, mock_import
-    ):
+    def test_completed_run_includes_stats(self, mock_get_db, mock_stub, mock_mapper, mock_import):
         mock_get_db.return_value = MagicMock()
         mock_stub.return_value = "@prefix owl: <> ."
         mock_import.return_value = {"triple_count": 5, "imported": True}
@@ -146,7 +144,9 @@ class TestExtractSchema:
         assert result["status"] == "completed"
 
     @patch("app.services.schema_extraction._try_import_schema_mapper", return_value=None)
-    @patch("app.services.schema_extraction._stub_extract_schema", side_effect=ConnectionError("nope"))
+    @patch(
+        "app.services.schema_extraction._stub_extract_schema", side_effect=ConnectionError("nope")
+    )
     @patch("app.services.schema_extraction.get_db")
     def test_failure_sets_error(self, mock_get_db, mock_stub, mock_mapper):
         mock_get_db.return_value = MagicMock()
@@ -157,7 +157,7 @@ class TestExtractSchema:
 
         # Verify the run was recorded with FAILED status
         assert len(_runs) == 1
-        run = list(_runs.values())[0]
+        run = next(iter(_runs.values()))
         assert run.status == ExtractionStatus.FAILED
         assert run.error == "nope"
 
@@ -173,9 +173,9 @@ class TestStubExtractSchema:
 
         Since this calls ArangoClient directly, we mock it at the arango module level.
         """
-        with patch("arango.ArangoClient") as MockClient:
+        with patch("arango.ArangoClient") as mock_client_cls:
             mock_client = MagicMock()
-            MockClient.return_value = mock_client
+            mock_client_cls.return_value = mock_client
             mock_db = MagicMock()
             mock_client.db.return_value = mock_db
             mock_db.collections.return_value = [

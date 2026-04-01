@@ -116,13 +116,17 @@ class TestValidateApiKey:
         db = MagicMock()
         db.has_collection.return_value = True
         mock_get_db.return_value = db
-        mock_run_aql.return_value = iter([{
-            "_key": "k1",
-            "org_id": "org1",
-            "expires_at": 1.0,  # expired long ago
-            "permissions": ["ontology:read"],
-            "status": "active",
-        }])
+        mock_run_aql.return_value = iter(
+            [
+                {
+                    "_key": "k1",
+                    "org_id": "org1",
+                    "expires_at": 1.0,  # expired long ago
+                    "permissions": ["ontology:read"],
+                    "status": "active",
+                }
+            ]
+        )
 
         result = validate_api_key("expired-key")
         assert result["valid"] is False
@@ -136,13 +140,17 @@ class TestValidateApiKey:
         db = MagicMock()
         db.has_collection.return_value = True
         mock_get_db.return_value = db
-        mock_run_aql.return_value = iter([{
-            "_key": "k1",
-            "org_id": "org1",
-            "expires_at": time.time() + 9999,
-            "permissions": ["ontology:read"],
-            "status": "active",
-        }])
+        mock_run_aql.return_value = iter(
+            [
+                {
+                    "_key": "k1",
+                    "org_id": "org1",
+                    "expires_at": time.time() + 9999,
+                    "permissions": ["ontology:read"],
+                    "status": "active",
+                }
+            ]
+        )
 
         result = validate_api_key("good-key")
         assert result["valid"] is True
@@ -157,12 +165,16 @@ class TestValidateApiKey:
         db = MagicMock()
         db.has_collection.return_value = True
         mock_get_db.return_value = db
-        mock_run_aql.return_value = iter([{
-            "_key": "k2",
-            "org_id": "org2",
-            "permissions": ["ontology:read", "ontology:write"],
-            "status": "active",
-        }])
+        mock_run_aql.return_value = iter(
+            [
+                {
+                    "_key": "k2",
+                    "org_id": "org2",
+                    "permissions": ["ontology:read", "ontology:write"],
+                    "status": "active",
+                }
+            ]
+        )
 
         result = validate_api_key("no-expiry-key")
         assert result["valid"] is True
@@ -319,7 +331,17 @@ class TestOntologyDomainSummary:
 
         # First call: registry entries. Second call: class count for entry.
         mock_run_aql.side_effect = [
-            iter([{"ontology_id": "o1", "name": "Test", "tier": "local", "status": "active", "created_at": 1.0}]),
+            iter(
+                [
+                    {
+                        "ontology_id": "o1",
+                        "name": "Test",
+                        "tier": "local",
+                        "status": "active",
+                        "created_at": 1.0,
+                    }
+                ]
+            ),
             iter([5]),
         ]
 
@@ -330,10 +352,12 @@ class TestOntologyDomainSummary:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://ontology/domain/summary"]())
@@ -353,10 +377,12 @@ class TestOntologyDomainSummary:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://ontology/domain/summary"]())
@@ -371,10 +397,12 @@ class TestOntologyDomainSummary:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://ontology/domain/summary"]())
@@ -388,9 +416,11 @@ class TestExtractionRunsRecent:
         db = MagicMock()
         db.has_collection.return_value = True
         mock_get_db.return_value = db
-        mock_run_aql.return_value = iter([
-            {"run_id": "r1", "status": "completed", "doc_id": "d1"},
-        ])
+        mock_run_aql.return_value = iter(
+            [
+                {"run_id": "r1", "status": "completed", "doc_id": "d1"},
+            ]
+        )
 
         mcp = MagicMock()
         captured = {}
@@ -399,10 +429,12 @@ class TestExtractionRunsRecent:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://extraction/runs/recent"]())
@@ -428,10 +460,12 @@ class TestSystemHealth:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://system/health"]())
@@ -452,10 +486,12 @@ class TestSystemHealth:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://system/health"]())
@@ -481,10 +517,12 @@ class TestSystemHealth:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://system/health"]())
@@ -508,10 +546,12 @@ class TestSystemHealth:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://system/health"]())
@@ -529,9 +569,11 @@ class TestOntologyStats:
 
         # Calls in order: class_count, prop_count, class_ids, edge queries x5, total_versions
         mock_run_aql.side_effect = [
-            iter([3]),       # class count
-            iter([2]),       # prop count
-            iter(["ontology_classes/c1", "ontology_classes/c2", "ontology_classes/c3"]),  # class_ids
+            iter([3]),  # class count
+            iter([2]),  # prop count
+            iter(
+                ["ontology_classes/c1", "ontology_classes/c2", "ontology_classes/c3"]
+            ),  # class_ids
             iter([{"f": "ontology_classes/c1", "t": "ontology_classes/c2"}]),  # subclass_of
             iter([]),  # has_property
             iter([]),  # equivalent_class
@@ -548,10 +590,12 @@ class TestOntologyStats:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://ontology/{ontology_id}/stats"]("test-onto"))
@@ -569,10 +613,12 @@ class TestOntologyStats:
             def decorator(fn):
                 captured[uri] = fn
                 return fn
+
             return decorator
 
         mcp.resource = fake_resource
         from app.mcp.resources.ontology import register_ontology_resources
+
         register_ontology_resources(mcp)
 
         result = json.loads(captured["aoe://ontology/{ontology_id}/stats"]("o1"))
@@ -582,6 +628,7 @@ class TestOntologyStats:
 # ===========================================================================
 # Helper to capture MCP tool registrations
 # ===========================================================================
+
 
 def _capture_tools(register_fn):
     """Call a register_*_tools function with a mock MCP and return a dict
@@ -593,11 +640,12 @@ def _capture_tools(register_fn):
         def decorator(fn):
             captured[fn.__name__] = fn
             return fn
+
         return decorator
 
     mcp.tool = fake_tool
     # Some register fns also use mcp.resource
-    mcp.resource = lambda uri: (lambda fn: fn)
+    mcp.resource = lambda uri: lambda fn: fn
     register_fn(mcp)
     return captured
 
@@ -756,10 +804,15 @@ class TestQueryDomainOntology:
         mock_run_aql.side_effect = [
             iter([10]),  # class count
             iter([{"key": "c1", "label": "Cls1"}]),  # recent changes
-            iter([4]),   # prop count
-            iter([2]),   # hierarchy depth
+            iter([4]),  # prop count
+            iter([2]),  # hierarchy depth
         ]
-        mock_doc_get.return_value = {"name": "My Onto", "status": "active", "tier": "local", "created_at": 1.0}
+        mock_doc_get.return_value = {
+            "name": "My Onto",
+            "status": "active",
+            "tier": "local",
+            "created_at": 1.0,
+        }
 
         tools = _capture_tools(register_ontology_tools)
         result = tools["query_domain_ontology"]("onto-1")
@@ -787,8 +840,20 @@ class TestGetClassHierarchy:
         mock_get_db.return_value = db
 
         classes = [
-            {"key": "root", "id": "ontology_classes/root", "label": "Root", "uri": "u:root", "description": ""},
-            {"key": "child", "id": "ontology_classes/child", "label": "Child", "uri": "u:child", "description": ""},
+            {
+                "key": "root",
+                "id": "ontology_classes/root",
+                "label": "Root",
+                "uri": "u:root",
+                "description": "",
+            },
+            {
+                "key": "child",
+                "id": "ontology_classes/child",
+                "label": "Child",
+                "uri": "u:child",
+                "description": "",
+            },
         ]
         edges = [
             {"from_id": "ontology_classes/child", "to_id": "ontology_classes/root"},
@@ -824,7 +889,13 @@ class TestGetClassHierarchy:
         mock_get_db.return_value = db
 
         classes = [
-            {"key": "c1", "id": "ontology_classes/c1", "label": "C1", "uri": "u:c1", "description": ""},
+            {
+                "key": "c1",
+                "id": "ontology_classes/c1",
+                "label": "C1",
+                "uri": "u:c1",
+                "description": "",
+            },
         ]
         mock_run_aql.side_effect = [iter(classes), iter([])]
 
@@ -975,7 +1046,7 @@ class TestGetProvenance:
         # _get_related_chunks: returns chunks
         # _get_curation_decisions: returns decisions
         mock_run_aql.side_effect = [
-            iter([entity]),       # _find_entity - ontology_classes
+            iter([entity]),  # _find_entity - ontology_classes
             iter([{"chunk_index": 0, "text_preview": "Animals are..."}]),  # _get_related_chunks
             iter([{"decision": "accept", "decided_at": 3.0}]),  # _get_curation_decisions
         ]
@@ -1036,21 +1107,29 @@ class TestExportOntology:
         db.has_collection.return_value = True
         mock_get_db.return_value = db
 
-        classes = [{
-            "_key": "c1", "_id": "ontology_classes/c1",
-            "label": "Animal", "uri": "http://example.org/Animal",
-            "description": "An animal",
-        }]
-        properties = [{
-            "_key": "p1", "_id": "ontology_properties/p1",
-            "label": "hasName", "uri": "http://example.org/hasName",
-            "description": "Name property",
-            "property_type": "datatype",
-        }]
+        classes = [
+            {
+                "_key": "c1",
+                "_id": "ontology_classes/c1",
+                "label": "Animal",
+                "uri": "http://example.org/Animal",
+                "description": "An animal",
+            }
+        ]
+        properties = [
+            {
+                "_key": "p1",
+                "_id": "ontology_properties/p1",
+                "label": "hasName",
+                "uri": "http://example.org/hasName",
+                "description": "Name property",
+                "property_type": "datatype",
+            }
+        ]
         mock_run_aql.side_effect = [
-            iter(classes),     # classes
+            iter(classes),  # classes
             iter(properties),  # properties
-            iter([]),          # subclass_of edges
+            iter([]),  # subclass_of edges
         ]
 
         tools = _capture_tools(register_export_tools)
@@ -1067,13 +1146,19 @@ class TestExportOntology:
         db.has_collection.return_value = True
         mock_get_db.return_value = db
 
-        classes = [{
-            "_key": "c1", "_id": "ontology_classes/c1",
-            "label": "Thing", "uri": "http://example.org/Thing",
-            "description": None,
-        }]
+        classes = [
+            {
+                "_key": "c1",
+                "_id": "ontology_classes/c1",
+                "label": "Thing",
+                "uri": "http://example.org/Thing",
+                "description": None,
+            }
+        ]
         mock_run_aql.side_effect = [
-            iter(classes), iter([]), iter([]),
+            iter(classes),
+            iter([]),
+            iter([]),
         ]
 
         tools = _capture_tools(register_export_tools)
@@ -1091,12 +1176,18 @@ class TestExportOntology:
         db.has_collection.return_value = True
         mock_get_db.return_value = db
 
-        classes = [{"_key": "c1", "_id": "ontology_classes/c1", "label": "A", "uri": "http://ex.org/A"}]
-        properties = [{
-            "_key": "p1", "_id": "ontology_properties/p1",
-            "label": "relatesTo", "uri": "http://ex.org/relatesTo",
-            "property_type": "object",
-        }]
+        classes = [
+            {"_key": "c1", "_id": "ontology_classes/c1", "label": "A", "uri": "http://ex.org/A"}
+        ]
+        properties = [
+            {
+                "_key": "p1",
+                "_id": "ontology_properties/p1",
+                "label": "relatesTo",
+                "uri": "http://ex.org/relatesTo",
+                "property_type": "object",
+            }
+        ]
         mock_run_aql.side_effect = [iter(classes), iter(properties), iter([])]
 
         tools = _capture_tools(register_export_tools)
@@ -1121,10 +1212,18 @@ class TestExportOntology:
         mock_get_db.return_value = db
 
         classes = [
-            {"_key": "parent", "_id": "ontology_classes/parent", "label": "Parent",
-             "uri": "http://ex.org/Parent"},
-            {"_key": "child", "_id": "ontology_classes/child", "label": "Child",
-             "uri": "http://ex.org/Child"},
+            {
+                "_key": "parent",
+                "_id": "ontology_classes/parent",
+                "label": "Parent",
+                "uri": "http://ex.org/Parent",
+            },
+            {
+                "_key": "child",
+                "_id": "ontology_classes/child",
+                "label": "Child",
+                "uri": "http://ex.org/Child",
+            },
         ]
         edges = [{"from_id": "ontology_classes/child", "to_id": "ontology_classes/parent"}]
         mock_run_aql.side_effect = [iter(classes), iter([]), iter(edges)]
@@ -1170,8 +1269,11 @@ class TestExportHelpers:
         db = MagicMock()
         db.has_collection.return_value = True
         mock_doc_get.return_value = {
-            "doc_id": "d1", "model": "gpt-4", "status": "completed",
-            "started_at": 1.0, "completed_at": 2.0,
+            "doc_id": "d1",
+            "model": "gpt-4",
+            "status": "completed",
+            "started_at": 1.0,
+            "completed_at": 2.0,
         }
 
         result = _get_extraction_run(db, "r1")
@@ -1325,15 +1427,17 @@ class TestTriggerExtraction:
 
         tools = _capture_tools(register_pipeline_tools)
 
-        with patch("app.services.extraction.start_run", side_effect=Exception("fail")):
-            with patch("app.mcp.tools.pipeline.asyncio") as mock_asyncio:
-                loop = MagicMock()
-                mock_asyncio.get_running_loop.side_effect = RuntimeError
-                mock_asyncio.new_event_loop.return_value = loop
-                loop.run_until_complete.side_effect = Exception("fail")
+        with (
+            patch("app.services.extraction.start_run", side_effect=Exception("fail")),
+            patch("app.mcp.tools.pipeline.asyncio") as mock_asyncio,
+        ):
+            loop = MagicMock()
+            mock_asyncio.get_running_loop.side_effect = RuntimeError
+            mock_asyncio.new_event_loop.return_value = loop
+            loop.run_until_complete.side_effect = Exception("fail")
 
-                result = tools["trigger_extraction"]("doc1")
-                assert "error" in result
+            result = tools["trigger_extraction"]("doc1")
+            assert "error" in result
 
 
 class TestGetExtractionStatus:
@@ -1466,12 +1570,28 @@ class TestGetClassHistory:
         from app.mcp.tools.temporal import register_temporal_tools
 
         mock_history.return_value = [
-            {"_key": "c1_v2", "label": "Animal", "uri": "u:animal", "version": 2,
-             "created": 2.0, "expired": NEVER_EXPIRES, "change_type": "update",
-             "change_summary": "desc changed", "created_by": "curator"},
-            {"_key": "c1_v1", "label": "Animal", "uri": "u:animal", "version": 1,
-             "created": 1.0, "expired": 2.0, "change_type": "create",
-             "change_summary": None, "created_by": "extractor"},
+            {
+                "_key": "c1_v2",
+                "label": "Animal",
+                "uri": "u:animal",
+                "version": 2,
+                "created": 2.0,
+                "expired": NEVER_EXPIRES,
+                "change_type": "update",
+                "change_summary": "desc changed",
+                "created_by": "curator",
+            },
+            {
+                "_key": "c1_v1",
+                "label": "Animal",
+                "uri": "u:animal",
+                "version": 1,
+                "created": 1.0,
+                "expired": 2.0,
+                "change_type": "create",
+                "change_summary": None,
+                "created_by": "extractor",
+            },
         ]
 
         tools = _capture_tools(register_temporal_tools)
@@ -1497,11 +1617,13 @@ class TestGetOntologyDiff:
         mock_diff.return_value = {
             "added": [{"_key": "c3", "label": "Fish", "uri": "u:fish"}],
             "removed": [{"_key": "c2", "label": "Plant", "uri": "u:plant"}],
-            "changed": [{
-                "collection": "ontology_classes",
-                "before": {"_key": "c1", "version": 1},
-                "after": {"_key": "c1", "label": "Animal", "version": 2},
-            }],
+            "changed": [
+                {
+                    "collection": "ontology_classes",
+                    "before": {"_key": "c1", "version": 1},
+                    "after": {"_key": "c1", "label": "Animal", "version": 2},
+                }
+            ],
         }
 
         tools = _capture_tools(register_temporal_tools)
@@ -1574,10 +1696,12 @@ class TestRunEntityResolution:
         from app.mcp.tools.er import register_er_tools
 
         tools = _capture_tools(register_er_tools)
-        with patch("app.services.er.run_er_pipeline", side_effect=Exception("boom")):
-            with patch("app.services.er.ERPipelineConfig"):
-                result = tools["run_entity_resolution"]("o1")
-                assert "error" in result
+        with (
+            patch("app.services.er.run_er_pipeline", side_effect=Exception("boom")),
+            patch("app.services.er.ERPipelineConfig"),
+        ):
+            result = tools["run_entity_resolution"]("o1")
+            assert "error" in result
 
 
 class TestExplainEntityMatch:
@@ -1586,7 +1710,8 @@ class TestExplainEntityMatch:
         from app.mcp.tools.er import register_er_tools
 
         mock_explain.return_value = {
-            "key1": "c1", "key2": "c2",
+            "key1": "c1",
+            "key2": "c2",
             "label_similarity": 0.95,
             "combined_score": 0.88,
         }

@@ -6,7 +6,6 @@ These tests focus on pipeline structure, conditional edge logic, and compile opt
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,14 +13,13 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from app.extraction.pipeline import (
     _NEXT_STEP,
-    _should_retry_extraction,
-    _should_retry_consistency,
     _should_proceed_to_staging,
+    _should_retry_consistency,
+    _should_retry_extraction,
     build_pipeline,
     compile_pipeline,
     set_event_bus,
 )
-
 
 # ---------------------------------------------------------------------------
 # Conditional edge functions

@@ -9,7 +9,6 @@ import pytest
 from app.services.ingestion import Chunk, ParsedDocument, Section
 from app.tasks import _build_chunk_dicts, _ensure_vector_index, process_document
 
-
 # ---------------------------------------------------------------------------
 # _build_chunk_dicts
 # ---------------------------------------------------------------------------
@@ -18,8 +17,12 @@ from app.tasks import _build_chunk_dicts, _ensure_vector_index, process_document
 class TestBuildChunkDicts:
     def test_basic_mapping(self):
         chunks = [
-            Chunk(text="hello", chunk_index=0, source_page=1, section_heading="Intro", token_count=3),
-            Chunk(text="world", chunk_index=1, source_page=2, section_heading="Body", token_count=4),
+            Chunk(
+                text="hello", chunk_index=0, source_page=1, section_heading="Intro", token_count=3
+            ),
+            Chunk(
+                text="world", chunk_index=1, source_page=2, section_heading="Body", token_count=4
+            ),
         ]
         embeddings = [[0.1, 0.2], [0.3, 0.4]]
         result = _build_chunk_dicts("doc1", chunks, embeddings)
@@ -41,7 +44,9 @@ class TestBuildChunkDicts:
         assert result == []
 
     def test_mismatched_lengths_raises(self):
-        chunks = [Chunk(text="a", chunk_index=0, source_page=None, section_heading="", token_count=1)]
+        chunks = [
+            Chunk(text="a", chunk_index=0, source_page=None, section_heading="", token_count=1)
+        ]
         with pytest.raises(ValueError):
             _build_chunk_dicts("doc1", chunks, [])
 
@@ -142,7 +147,13 @@ class TestProcessDocument:
         mock_parse_md.return_value = parsed
 
         chunks = [
-            Chunk(text="Hello world", chunk_index=0, source_page=None, section_heading="Title", token_count=5),
+            Chunk(
+                text="Hello world",
+                chunk_index=0,
+                source_page=None,
+                section_heading="Title",
+                token_count=5,
+            ),
         ]
         mock_chunk.return_value = chunks
         mock_embed_svc.embed_texts = AsyncMock(return_value=[[0.1, 0.2, 0.3]])

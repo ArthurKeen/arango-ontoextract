@@ -6,17 +6,16 @@ and _get_class_neighborhood with mocked DB calls.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.er_topology import (
-    _jaccard,
     _get_class_neighborhood,
-    compute_topological_similarity,
+    _jaccard,
     compute_batch_topological_similarity,
+    compute_topological_similarity,
 )
-
 
 # ---------------------------------------------------------------------------
 # _jaccard

@@ -6,9 +6,9 @@ import sys
 from unittest.mock import MagicMock, patch
 
 from app.extraction.agents.er_agent import (
-    er_agent_node,
-    _run_er_matching,
     _create_extension_edges,
+    _run_er_matching,
+    er_agent_node,
 )
 from app.extraction.state import ExtractionPipelineState
 from app.models.ontology import ExtractedClass, ExtractionResult

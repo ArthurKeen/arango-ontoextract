@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.models.ontology import ExtractionResult
 from app.services.ontology import create_staging_graph, get_staging_graph, promote_staging
-
 
 # ---------------------------------------------------------------------------
 # create_staging_graph

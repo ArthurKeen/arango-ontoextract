@@ -6,9 +6,8 @@ _auto_register_ontology, _update_existing_ontology, and helpers.
 from __future__ import annotations
 
 import sys
-import time
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,6 +17,7 @@ NEVER_EXPIRES: int = sys.maxsize
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_db(
     *,
@@ -29,9 +29,16 @@ def _mock_db(
     mock = MagicMock()
 
     all_names = {
-        "extraction_runs", "ontology_classes", "ontology_properties",
-        "has_property", "subclass_of", "related_to",
-        "extracted_from", "has_chunk", "produced_by", "chunks",
+        "extraction_runs",
+        "ontology_classes",
+        "ontology_properties",
+        "has_property",
+        "subclass_of",
+        "related_to",
+        "extracted_from",
+        "has_chunk",
+        "produced_by",
+        "chunks",
         "ontology_registry",
     }
     if existing_collections is None:
@@ -89,6 +96,7 @@ def _make_result(
 # ---------------------------------------------------------------------------
 # _compute_agreement_rate
 # ---------------------------------------------------------------------------
+
 
 class TestComputeAgreementRate:
     def test_single_pass_returns_one(self):
@@ -161,6 +169,7 @@ class TestComputeAgreementRate:
 # _serialize_step_log
 # ---------------------------------------------------------------------------
 
+
 class TestSerializeStepLog:
     def test_dict_passthrough(self):
         from app.services.extraction import _serialize_step_log
@@ -179,6 +188,7 @@ class TestSerializeStepLog:
 # ---------------------------------------------------------------------------
 # _load_document_chunks
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDocumentChunks:
     @patch("app.services.extraction.run_aql")
@@ -205,6 +215,7 @@ class TestLoadDocumentChunks:
 # ---------------------------------------------------------------------------
 # _store_results
 # ---------------------------------------------------------------------------
+
 
 class TestStoreResults:
     def test_inserts_results_doc(self):
@@ -239,6 +250,7 @@ class TestStoreResults:
 # start_run
 # ---------------------------------------------------------------------------
 
+
 class TestStartRun:
     @patch("app.services.extraction.execute_run", new_callable=AsyncMock)
     @patch("app.services.extraction._load_document_chunks", return_value=[])
@@ -246,7 +258,11 @@ class TestStartRun:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_creates_record_and_executes(
-        self, mock_get_db, mock_get_col, mock_load, mock_execute,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_load,
+        mock_execute,
     ):
         from app.services.extraction import start_run
 
@@ -257,7 +273,9 @@ class TestStartRun:
         mock_execute.return_value = {"status": "completed"}
 
         result = await start_run(
-            mock_db, document_id="doc_1", event_callback=MagicMock(),
+            mock_db,
+            document_id="doc_1",
+            event_callback=MagicMock(),
         )
 
         mock_col.insert.assert_called_once()
@@ -270,7 +288,11 @@ class TestStartRun:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_passes_target_ontology_id(
-        self, mock_get_db, mock_get_col, mock_load, mock_execute,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_load,
+        mock_execute,
     ):
         from app.services.extraction import start_run
 
@@ -295,7 +317,11 @@ class TestStartRun:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_passes_domain_ontology_ids(
-        self, mock_get_db, mock_get_col, mock_load, mock_execute,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_load,
+        mock_execute,
     ):
         from app.services.extraction import start_run
 
@@ -318,6 +344,7 @@ class TestStartRun:
 # execute_run -- success path
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteRunSuccess:
     def _setup_mocks(self):
         """Shared setup: mocked DB, run_record, pipeline, etc."""
@@ -338,14 +365,16 @@ class TestExecuteRunSuccess:
             },
         }
 
-        consistency_result = _make_result(classes=[
-            {
-                "label": "Person",
-                "uri": "http://ex.org#Person",
-                "confidence": 0.9,
-                "properties": [{"label": "name", "range": "xsd:string"}],
-            },
-        ])
+        consistency_result = _make_result(
+            classes=[
+                {
+                    "label": "Person",
+                    "uri": "http://ex.org#Person",
+                    "confidence": 0.9,
+                    "properties": [{"label": "name", "range": "xsd:string"}],
+                },
+            ]
+        )
 
         pipeline_state = {
             "consistency_result": consistency_result,
@@ -368,9 +397,16 @@ class TestExecuteRunSuccess:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_completes_with_auto_register(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks,
-        mock_store, mock_materialize, mock_auto_reg, mock_produced_by,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
+        mock_store,
+        mock_materialize,
+        mock_auto_reg,
+        mock_produced_by,
     ):
         from app.services.extraction import execute_run
 
@@ -403,9 +439,16 @@ class TestExecuteRunSuccess:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_completes_with_target_ontology(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks,
-        mock_store, mock_materialize, mock_update_existing, mock_produced_by,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
+        mock_store,
+        mock_materialize,
+        mock_update_existing,
+        mock_produced_by,
     ):
         from app.services.extraction import execute_run
 
@@ -434,8 +477,12 @@ class TestExecuteRunSuccess:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_uses_doc_ids_from_record_when_not_provided(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
     ):
         from app.services.extraction import execute_run
 
@@ -446,8 +493,13 @@ class TestExecuteRunSuccess:
             "doc_id": "doc_from_record",
             "doc_ids": ["doc_from_record"],
             "status": "running",
-            "stats": {"passes": 1, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         mock_get_db.return_value = mock_db
         mock_get_col.return_value = mock_col
@@ -465,8 +517,12 @@ class TestExecuteRunSuccess:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_falls_back_to_single_doc_id(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
     ):
         """When doc_ids is empty but doc_id is set on the run record."""
         from app.services.extraction import execute_run
@@ -477,8 +533,13 @@ class TestExecuteRunSuccess:
             "_key": "run_abc",
             "doc_id": "fallback_doc",
             "status": "running",
-            "stats": {"passes": 1, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         mock_get_db.return_value = mock_db
         mock_get_col.return_value = mock_col
@@ -494,6 +555,7 @@ class TestExecuteRunSuccess:
 # execute_run -- failure path
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteRunFailure:
     @patch("app.services.extraction._load_document_chunks", return_value=[])
     @patch("app.services.extraction.run_pipeline", new_callable=AsyncMock)
@@ -502,8 +564,12 @@ class TestExecuteRunFailure:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_pipeline_exception_marks_failed(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
     ):
         from app.services.extraction import execute_run
 
@@ -513,15 +579,20 @@ class TestExecuteRunFailure:
             "_key": "run_fail",
             "doc_ids": ["doc_1"],
             "status": "running",
-            "stats": {"passes": 1, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         mock_get_db.return_value = mock_db
         mock_get_col.return_value = mock_col
         mock_doc_get.side_effect = [run_record, {"_key": "run_fail", "status": "failed"}]
         mock_run_pipeline.side_effect = RuntimeError("LLM timeout")
 
-        result = await execute_run(
+        await execute_run(
             run_id="run_fail",
             document_ids=["doc_1"],
             event_callback=MagicMock(),
@@ -538,7 +609,10 @@ class TestExecuteRunFailure:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_run_not_found_raises(
-        self, mock_get_db, mock_get_col, mock_doc_get,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
     ):
         from app.api.errors import NotFoundError
         from app.services.extraction import execute_run
@@ -558,8 +632,13 @@ class TestExecuteRunFailure:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_null_consistency_sets_failed(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks, mock_store,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
+        mock_store,
     ):
         from app.services.extraction import execute_run
 
@@ -569,8 +648,13 @@ class TestExecuteRunFailure:
             "_key": "run_null",
             "doc_ids": ["doc_1"],
             "status": "running",
-            "stats": {"passes": 1, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         mock_get_db.return_value = mock_db
         mock_get_col.return_value = mock_col
@@ -584,7 +668,9 @@ class TestExecuteRunFailure:
         }
 
         await execute_run(
-            run_id="run_null", document_ids=["doc_1"], event_callback=MagicMock(),
+            run_id="run_null",
+            document_ids=["doc_1"],
+            event_callback=MagicMock(),
         )
 
         update_arg = mock_col.update.call_args[0][0]
@@ -598,8 +684,13 @@ class TestExecuteRunFailure:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_completed_with_errors(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks, mock_store,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
+        mock_store,
     ):
         from app.services.extraction import execute_run
 
@@ -609,8 +700,13 @@ class TestExecuteRunFailure:
             "_key": "run_err",
             "doc_ids": ["doc_1"],
             "status": "running",
-            "stats": {"passes": 1, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         consistency = _make_result(classes=[])
         mock_get_db.return_value = mock_db
@@ -625,7 +721,9 @@ class TestExecuteRunFailure:
         }
 
         await execute_run(
-            run_id="run_err", document_ids=["doc_1"], event_callback=MagicMock(),
+            run_id="run_err",
+            document_ids=["doc_1"],
+            event_callback=MagicMock(),
         )
 
         update_arg = mock_col.update.call_args[0][0]
@@ -636,6 +734,7 @@ class TestExecuteRunFailure:
 # execute_run -- domain context / tier2
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteRunDomainContext:
     @patch("app.services.extraction._load_document_chunks", return_value=[])
     @patch("app.services.extraction.run_pipeline", new_callable=AsyncMock)
@@ -644,8 +743,12 @@ class TestExecuteRunDomainContext:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_serializes_domain_context(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
     ):
         from app.services.extraction import execute_run
 
@@ -656,15 +759,23 @@ class TestExecuteRunDomainContext:
             "doc_ids": ["doc_1"],
             "domain_ontology_ids": ["dom1"],
             "status": "running",
-            "stats": {"passes": 1, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         mock_get_db.return_value = mock_db
         mock_get_col.return_value = mock_col
         mock_doc_get.side_effect = [run_record, run_record]
         mock_run_pipeline.return_value = {
-            "consistency_result": None, "errors": [], "step_logs": [],
-            "token_usage": {}, "extraction_passes": [],
+            "consistency_result": None,
+            "errors": [],
+            "step_logs": [],
+            "token_usage": {},
+            "extraction_passes": [],
         }
 
         with patch(
@@ -688,8 +799,12 @@ class TestExecuteRunDomainContext:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_domain_context_failure_falls_back(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
     ):
         from app.services.extraction import execute_run
 
@@ -700,15 +815,23 @@ class TestExecuteRunDomainContext:
             "doc_ids": ["doc_1"],
             "domain_ontology_ids": ["dom1"],
             "status": "running",
-            "stats": {"passes": 1, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         mock_get_db.return_value = mock_db
         mock_get_col.return_value = mock_col
         mock_doc_get.side_effect = [run_record, run_record]
         mock_run_pipeline.return_value = {
-            "consistency_result": None, "errors": [], "step_logs": [],
-            "token_usage": {}, "extraction_passes": [],
+            "consistency_result": None,
+            "errors": [],
+            "step_logs": [],
+            "token_usage": {},
+            "extraction_passes": [],
         }
 
         with patch(
@@ -731,6 +854,7 @@ class TestExecuteRunDomainContext:
 # retry_run
 # ---------------------------------------------------------------------------
 
+
 class TestRetryRun:
     @patch("app.services.extraction.start_run", new_callable=AsyncMock)
     @patch("app.services.extraction.get_run")
@@ -751,7 +875,7 @@ class TestRetryRun:
         }
         mock_start_run.return_value = {"_key": "run_new", "status": "completed"}
 
-        result = await retry_run(mock_db, run_id="run_old", event_callback=MagicMock())
+        await retry_run(mock_db, run_id="run_old", event_callback=MagicMock())
 
         mock_start_run.assert_called_once()
         _, kwargs = mock_start_run.call_args
@@ -780,7 +904,10 @@ class TestRetryRun:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_retries_completed_with_errors(
-        self, mock_get_db, mock_get_run, mock_start_run,
+        self,
+        mock_get_db,
+        mock_get_run,
+        mock_start_run,
     ):
         from app.services.extraction import retry_run
 
@@ -803,7 +930,10 @@ class TestRetryRun:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_fallback_to_single_doc_id(
-        self, mock_get_db, mock_get_run, mock_start_run,
+        self,
+        mock_get_db,
+        mock_get_run,
+        mock_start_run,
     ):
         """When doc_ids is missing, uses doc_id field."""
         from app.services.extraction import retry_run
@@ -827,24 +957,27 @@ class TestRetryRun:
 # _materialize_to_graph -- classes and properties
 # ---------------------------------------------------------------------------
 
+
 class TestMaterializeToGraph:
     def test_inserts_classes_and_properties(self):
         from app.services.extraction import _materialize_to_graph
 
         mock_db, cols = _mock_db(chunk_keys=[])
 
-        result = _make_result(classes=[
-            {
-                "label": "Animal",
-                "uri": "http://ex.org/ontology#Animal",
-                "description": "A living creature",
-                "confidence": 0.85,
-                "properties": [
-                    {"label": "species", "range": "xsd:string", "confidence": 0.9},
-                    {"label": "habitat", "range": "http://ex.org#Habitat", "confidence": 0.7},
-                ],
-            },
-        ])
+        result = _make_result(
+            classes=[
+                {
+                    "label": "Animal",
+                    "uri": "http://ex.org/ontology#Animal",
+                    "description": "A living creature",
+                    "confidence": 0.85,
+                    "properties": [
+                        {"label": "species", "range": "xsd:string", "confidence": 0.9},
+                        {"label": "habitat", "range": "http://ex.org#Habitat", "confidence": 0.7},
+                    ],
+                },
+            ]
+        )
 
         _materialize_to_graph(
             mock_db,
@@ -884,21 +1017,23 @@ class TestMaterializeToGraph:
 
         mock_db, cols = _mock_db(chunk_keys=[])
 
-        result = _make_result(classes=[
-            {
-                "label": "LivingThing",
-                "uri": "http://ex.org/ontology#LivingThing",
-                "description": "Base class",
-                "properties": [],
-            },
-            {
-                "label": "Animal",
-                "uri": "http://ex.org/ontology#Animal",
-                "description": "A creature",
-                "parent_uri": "http://ex.org/ontology#LivingThing",
-                "properties": [],
-            },
-        ])
+        result = _make_result(
+            classes=[
+                {
+                    "label": "LivingThing",
+                    "uri": "http://ex.org/ontology#LivingThing",
+                    "description": "Base class",
+                    "properties": [],
+                },
+                {
+                    "label": "Animal",
+                    "uri": "http://ex.org/ontology#Animal",
+                    "description": "A creature",
+                    "parent_uri": "http://ex.org/ontology#LivingThing",
+                    "properties": [],
+                },
+            ]
+        )
 
         _materialize_to_graph(
             mock_db,
@@ -920,13 +1055,19 @@ class TestMaterializeToGraph:
         mock_db, cols = _mock_db(chunk_keys=[])
         cols["ontology_classes"].insert.side_effect = Exception("duplicate key")
 
-        result = _make_result(classes=[
-            {"label": "Broken", "uri": "http://ex.org#Broken", "properties": []},
-        ])
+        result = _make_result(
+            classes=[
+                {"label": "Broken", "uri": "http://ex.org#Broken", "properties": []},
+            ]
+        )
 
         # Should not raise
         _materialize_to_graph(
-            mock_db, run_id="r", document_id="d", ontology_id="o", result=result,
+            mock_db,
+            run_id="r",
+            document_id="d",
+            ontology_id="o",
+            result=result,
         )
 
     def test_creates_missing_collections(self):
@@ -940,7 +1081,11 @@ class TestMaterializeToGraph:
         result = _make_result(classes=[])
 
         _materialize_to_graph(
-            mock_db, run_id="r", document_id="d", ontology_id="o", result=result,
+            mock_db,
+            run_id="r",
+            document_id="d",
+            ontology_id="o",
+            result=result,
         )
 
         # Should have called create_collection for each missing collection
@@ -954,19 +1099,25 @@ class TestMaterializeToGraph:
 
         mock_db, cols = _mock_db(chunk_keys=[])
 
-        result = _make_result(classes=[
-            {
-                "label": "Foo",
-                "uri": "http://ex.org/ontology#Foo",
-                "properties": [
-                    {"label": "name", "range": "xsd:string"},
-                    {"label": "relatedTo", "range": "http://ex.org#Bar"},
-                ],
-            },
-        ])
+        result = _make_result(
+            classes=[
+                {
+                    "label": "Foo",
+                    "uri": "http://ex.org/ontology#Foo",
+                    "properties": [
+                        {"label": "name", "range": "xsd:string"},
+                        {"label": "relatedTo", "range": "http://ex.org#Bar"},
+                    ],
+                },
+            ]
+        )
 
         _materialize_to_graph(
-            mock_db, run_id="r", document_id="d", ontology_id="o", result=result,
+            mock_db,
+            run_id="r",
+            document_id="d",
+            ontology_id="o",
+            result=result,
         )
 
         prop_col = cols["ontology_properties"]
@@ -985,7 +1136,11 @@ class TestMaterializeToGraph:
         result = _make_result(classes=[])
 
         _materialize_to_graph(
-            mock_db, run_id="r", document_id="doc_1", ontology_id="o", result=result,
+            mock_db,
+            run_id="r",
+            document_id="doc_1",
+            ontology_id="o",
+            result=result,
         )
 
         hc = cols["has_chunk"]
@@ -996,15 +1151,27 @@ class TestMaterializeToGraph:
     def test_no_chunks_collection(self):
         from app.services.extraction import _materialize_to_graph
 
-        mock_db, cols = _mock_db(has_chunks=False, existing_collections={
-            "ontology_classes", "ontology_properties",
-            "has_property", "subclass_of", "related_to",
-            "extracted_from", "has_chunk", "produced_by",
-        })
+        mock_db, cols = _mock_db(
+            has_chunks=False,
+            existing_collections={
+                "ontology_classes",
+                "ontology_properties",
+                "has_property",
+                "subclass_of",
+                "related_to",
+                "extracted_from",
+                "has_chunk",
+                "produced_by",
+            },
+        )
 
         result = _make_result(classes=[])
         _materialize_to_graph(
-            mock_db, run_id="r", document_id="d", ontology_id="o", result=result,
+            mock_db,
+            run_id="r",
+            document_id="d",
+            ontology_id="o",
+            result=result,
         )
 
         cols["has_chunk"].insert.assert_not_called()
@@ -1013,6 +1180,7 @@ class TestMaterializeToGraph:
 # ---------------------------------------------------------------------------
 # _recompute_multi_signal_confidence
 # ---------------------------------------------------------------------------
+
 
 class TestRecomputeMultiSignalConfidence:
     @patch("app.services.extraction.compute_class_confidence", return_value=0.88)
@@ -1026,10 +1194,10 @@ class TestRecomputeMultiSignalConfidence:
         # 4. related_to probe, 5. provenance_count
         mock_run_aql.side_effect = [
             [{"rdf": "owl:DatatypeProperty", "cnt": 2}],  # prop types
-            [],           # has_parent: no
-            [True],       # has_children: yes
-            [],           # has_lateral via related_to: no
-            [1],          # provenance_count
+            [],  # has_parent: no
+            [True],  # has_children: yes
+            [],  # has_lateral via related_to: no
+            [1],  # provenance_count
         ]
         mock_db.has_collection.side_effect = lambda name: name != "extends_domain"
 
@@ -1075,7 +1243,7 @@ class TestRecomputeMultiSignalConfidence:
     def test_skips_unknown_key(self, mock_run_aql, mock_compute):
         from app.services.extraction import _recompute_multi_signal_confidence
 
-        mock_db, cols = _mock_db()
+        mock_db, _cols = _mock_db()
         mock_db.has_collection.return_value = False
 
         classes = [
@@ -1104,20 +1272,27 @@ class TestRecomputeMultiSignalConfidence:
     def test_checks_related_to_and_extends_domain(self, mock_run_aql, mock_compute):
         from app.services.extraction import _recompute_multi_signal_confidence
 
-        mock_db, cols = _mock_db()
+        mock_db, _cols = _mock_db()
         # related_to and extends_domain both exist
-        mock_db.has_collection.side_effect = lambda n: n in {
-            "related_to", "extends_domain",
-            "ontology_classes", "ontology_properties",
-            "has_property", "subclass_of", "extracted_from",
-        }
+        mock_db.has_collection.side_effect = lambda n: (
+            n
+            in {
+                "related_to",
+                "extends_domain",
+                "ontology_classes",
+                "ontology_properties",
+                "has_property",
+                "subclass_of",
+                "extracted_from",
+            }
+        )
 
         mock_run_aql.side_effect = [
-            [],       # prop_type_counts
-            [],       # has_parent
-            [],       # has_children
-            [True],   # related_to lateral
-            [1],      # provenance
+            [],  # prop_type_counts
+            [],  # has_parent
+            [],  # has_children
+            [True],  # related_to lateral
+            [1],  # provenance
         ]
 
         classes = [
@@ -1149,6 +1324,7 @@ class TestRecomputeMultiSignalConfidence:
 # _auto_register_ontology
 # ---------------------------------------------------------------------------
 
+
 class TestAutoRegisterOntology:
     @patch("app.db.registry_repo.create_registry_entry")
     @patch("app.db.documents_repo.get_document")
@@ -1158,16 +1334,21 @@ class TestAutoRegisterOntology:
         mock_get_doc.return_value = {"filename": "my-research-paper.pdf"}
         mock_create.return_value = {"_key": "onto_abc"}
 
-        result_mock = _make_result(classes=[
-            {
-                "label": "Concept",
-                "uri": "http://ex.org#Concept",
-                "properties": [{"label": "name"}],
-            },
-        ])
+        result_mock = _make_result(
+            classes=[
+                {
+                    "label": "Concept",
+                    "uri": "http://ex.org#Concept",
+                    "properties": [{"label": "name"}],
+                },
+            ]
+        )
 
         oid = _auto_register_ontology(
-            MagicMock(), run_id="run_1", document_id="doc_1", result=result_mock,
+            MagicMock(),
+            run_id="run_1",
+            document_id="doc_1",
+            result=result_mock,
         )
 
         assert oid == "onto_abc"
@@ -1186,7 +1367,10 @@ class TestAutoRegisterOntology:
         mock_get_doc.side_effect = RuntimeError("db error")
 
         oid = _auto_register_ontology(
-            MagicMock(), run_id="r", document_id="d", result=MagicMock(),
+            MagicMock(),
+            run_id="r",
+            document_id="d",
+            result=MagicMock(),
         )
 
         assert oid is None
@@ -1202,7 +1386,10 @@ class TestAutoRegisterOntology:
         result_mock = _make_result(classes=[])
 
         oid = _auto_register_ontology(
-            MagicMock(), run_id="run_1", document_id="missing", result=result_mock,
+            MagicMock(),
+            run_id="run_1",
+            document_id="missing",
+            result=result_mock,
         )
 
         assert oid == "onto_fallback"
@@ -1213,6 +1400,7 @@ class TestAutoRegisterOntology:
 # ---------------------------------------------------------------------------
 # _update_existing_ontology
 # ---------------------------------------------------------------------------
+
 
 class TestUpdateExistingOntology:
     @patch("app.db.registry_repo.update_registry_entry")
@@ -1227,21 +1415,33 @@ class TestUpdateExistingOntology:
         }
         mock_update.return_value = {}
 
-        result_mock = _make_result(classes=[
-            {"label": "A", "uri": "http://ex.org#A", "properties": [{"label": "p1"}, {"label": "p2"}]},
-            {"label": "B", "uri": "http://ex.org#B", "properties": [{"label": "p3"}]},
-        ])
+        result_mock = _make_result(
+            classes=[
+                {
+                    "label": "A",
+                    "uri": "http://ex.org#A",
+                    "properties": [{"label": "p1"}, {"label": "p2"}],
+                },
+                {"label": "B", "uri": "http://ex.org#B", "properties": [{"label": "p3"}]},
+            ]
+        )
 
         oid = _update_existing_ontology(
-            MagicMock(), ontology_id="onto_1", run_id="run_new", result=result_mock,
+            MagicMock(),
+            ontology_id="onto_1",
+            run_id="run_new",
+            result=result_mock,
         )
 
         assert oid == "onto_1"
-        mock_update.assert_called_once_with("onto_1", {
-            "class_count": 5,
-            "property_count": 8,
-            "extraction_run_id": "run_new",
-        })
+        mock_update.assert_called_once_with(
+            "onto_1",
+            {
+                "class_count": 5,
+                "property_count": 8,
+                "extraction_run_id": "run_new",
+            },
+        )
 
     @patch("app.db.registry_repo.get_registry_entry")
     def test_returns_none_when_not_found(self, mock_get):
@@ -1250,7 +1450,10 @@ class TestUpdateExistingOntology:
         mock_get.return_value = None
 
         oid = _update_existing_ontology(
-            MagicMock(), ontology_id="missing", run_id="run_x", result=MagicMock(),
+            MagicMock(),
+            ontology_id="missing",
+            run_id="run_x",
+            result=MagicMock(),
         )
 
         assert oid is None
@@ -1262,7 +1465,10 @@ class TestUpdateExistingOntology:
         mock_get.side_effect = RuntimeError("db down")
 
         oid = _update_existing_ontology(
-            MagicMock(), ontology_id="onto_1", run_id="r", result=MagicMock(),
+            MagicMock(),
+            ontology_id="onto_1",
+            run_id="r",
+            result=MagicMock(),
         )
 
         assert oid is None
@@ -1271,6 +1477,7 @@ class TestUpdateExistingOntology:
 # ---------------------------------------------------------------------------
 # get_run and get_run_results
 # ---------------------------------------------------------------------------
+
 
 class TestGetRun:
     @patch("app.services.extraction.doc_get")
@@ -1328,6 +1535,7 @@ class TestGetRunResults:
 # get_run_cost
 # ---------------------------------------------------------------------------
 
+
 class TestGetRunCost:
     @patch("app.services.extraction.run_aql", return_value=[])
     @patch("app.services.extraction.doc_get")
@@ -1381,8 +1589,12 @@ class TestGetRunCost:
             "model": "gpt-4o",
             "started_at": 0,
             "completed_at": 0,
-            "stats": {"token_usage": {}, "classes_extracted": 0,
-                      "properties_extracted": 0, "pass_agreement_rate": 0},
+            "stats": {
+                "token_usage": {},
+                "classes_extracted": 0,
+                "properties_extracted": 0,
+                "pass_agreement_rate": 0,
+            },
         }
         mock_aql.return_value = ["onto_from_aql"]
 
@@ -1399,6 +1611,7 @@ class TestGetRunCost:
 # ---------------------------------------------------------------------------
 # _get_collection
 # ---------------------------------------------------------------------------
+
 
 class TestGetCollection:
     def test_returns_existing(self):
@@ -1429,6 +1642,7 @@ class TestGetCollection:
 # _generate_run_id
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateRunId:
     def test_format(self):
         from app.services.extraction import _generate_run_id
@@ -1442,6 +1656,7 @@ class TestGenerateRunId:
 # execute_run -- agreement rate from step_logs
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteRunAgreementRateFromStepLogs:
     @patch("app.services.extraction._store_results")
     @patch("app.services.extraction._auto_register_ontology", return_value=None)
@@ -1452,8 +1667,14 @@ class TestExecuteRunAgreementRateFromStepLogs:
     @patch("app.services.extraction.get_db")
     @pytest.mark.asyncio
     async def test_extracts_agreement_from_step_logs(
-        self, mock_get_db, mock_get_col, mock_doc_get,
-        mock_run_pipeline, mock_load_chunks, mock_auto_reg, mock_store,
+        self,
+        mock_get_db,
+        mock_get_col,
+        mock_doc_get,
+        mock_run_pipeline,
+        mock_load_chunks,
+        mock_auto_reg,
+        mock_store,
     ):
         from app.services.extraction import execute_run
 
@@ -1463,8 +1684,13 @@ class TestExecuteRunAgreementRateFromStepLogs:
             "_key": "run_sl",
             "doc_ids": ["doc_1"],
             "status": "running",
-            "stats": {"passes": 2, "consistency_threshold": 0.7,
-                      "token_usage": {}, "errors": [], "step_logs": []},
+            "stats": {
+                "passes": 2,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
         }
         mock_get_db.return_value = mock_db
         mock_get_col.return_value = mock_col
@@ -1485,7 +1711,9 @@ class TestExecuteRunAgreementRateFromStepLogs:
         }
 
         await execute_run(
-            run_id="run_sl", document_ids=["doc_1"], event_callback=MagicMock(),
+            run_id="run_sl",
+            document_ids=["doc_1"],
+            event_callback=MagicMock(),
         )
 
         update_arg = mock_col.update.call_args[0][0]

@@ -3,25 +3,35 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.extraction.judges.faithfulness import (
-    _RATING_SCORES,
     _DEFAULT_SCORE as FAITH_DEFAULT,
+)
+from app.extraction.judges.faithfulness import (
     _build_user_prompt as faith_build_prompt,
+)
+from app.extraction.judges.faithfulness import (
     _parse_response as faith_parse_response,
+)
+from app.extraction.judges.faithfulness import (
     judge_faithfulness,
 )
+from app.extraction.judges.quality_judge_node import quality_judge_node
 from app.extraction.judges.semantic_validator import (
     _DEFAULT_SCORE as SEM_DEFAULT,
+)
+from app.extraction.judges.semantic_validator import (
     _build_user_prompt as sem_build_prompt,
+)
+from app.extraction.judges.semantic_validator import (
     _parse_response as sem_parse_response,
+)
+from app.extraction.judges.semantic_validator import (
     validate_semantics,
 )
-from app.extraction.judges.quality_judge_node import quality_judge_node
 from app.extraction.state import ExtractionPipelineState
 from app.models.ontology import ExtractedClass, ExtractedProperty, ExtractionResult
 

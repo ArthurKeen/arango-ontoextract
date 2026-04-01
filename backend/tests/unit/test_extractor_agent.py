@@ -5,8 +5,6 @@ _retrieve_relevant_chunks, and the extractor_node LangGraph node.
 from __future__ import annotations
 
 import json
-import sys
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,7 +17,6 @@ from app.extraction.agents.extractor import (
     extractor_node,
 )
 from app.models.ontology import ExtractionResult
-
 
 # ---------------------------------------------------------------------------
 # _get_llm
@@ -36,7 +33,7 @@ class TestGetLlm:
             patch.dict("sys.modules", {"langchain_anthropic": mock_module}),
         ):
             mock_settings.anthropic_api_key = "sk-test"
-            llm = _get_llm("claude-3-opus")
+            _get_llm("claude-3-opus")
         mock_anthropic_cls.assert_called_once()
 
     def test_returns_openai_for_gpt(self):
@@ -49,7 +46,7 @@ class TestGetLlm:
         ):
             mock_settings.openai_api_key = "sk-test"
             mock_settings.openai_base_url = ""
-            llm = _get_llm("gpt-4o")
+            _get_llm("gpt-4o")
         mock_openai_cls.assert_called_once()
 
 
@@ -107,11 +104,7 @@ class TestParseLlmResponse:
         assert len(result.classes) == 1
 
     def test_clamps_confidence(self):
-        data = {
-            "classes": [
-                {"uri": "u", "label": "L", "description": "d", "confidence": 1.5}
-            ]
-        }
+        data = {"classes": [{"uri": "u", "label": "L", "description": "d", "confidence": 1.5}]}
         result = _parse_llm_response(json.dumps(data), 1, "m")
         assert result.classes[0].confidence == 1.0
 
@@ -139,7 +132,7 @@ class TestParseLlmResponse:
         assert result.classes[0].properties[0].confidence == 0.5
 
     def test_raises_on_invalid_json(self):
-        with pytest.raises(Exception):
+        with pytest.raises(json.JSONDecodeError):
             _parse_llm_response("not json", 1, "m")
 
     def test_fills_missing_pass_and_model(self):
@@ -219,16 +212,12 @@ class TestExtractorNode:
 
     @pytest.mark.asyncio
     async def test_produces_extraction_passes(self):
-        extraction_json = json.dumps({
-            "classes": [
-                {"uri": "u1", "label": "L", "description": "d", "confidence": 0.8}
-            ]
-        })
+        extraction_json = json.dumps(
+            {"classes": [{"uri": "u1", "label": "L", "description": "d", "confidence": 0.8}]}
+        )
 
         mock_llm = AsyncMock()
-        mock_llm.ainvoke.return_value = MagicMock(
-            content=extraction_json, usage_metadata=None
-        )
+        mock_llm.ainvoke.return_value = MagicMock(content=extraction_json, usage_metadata=None)
 
         mock_template = MagicMock()
         mock_template.render.return_value = ("system msg", "user msg")
@@ -236,7 +225,10 @@ class TestExtractorNode:
         with (
             patch("app.extraction.agents.extractor._get_llm", return_value=mock_llm),
             patch("app.extraction.agents.extractor.get_template", return_value=mock_template),
-            patch("app.extraction.agents.extractor._retrieve_relevant_chunks", side_effect=lambda did, c, bt: c),
+            patch(
+                "app.extraction.agents.extractor._retrieve_relevant_chunks",
+                side_effect=lambda did, c, bt: c,
+            ),
         ):
             result = await extractor_node(self._make_state())
 
@@ -257,7 +249,10 @@ class TestExtractorNode:
         with (
             patch("app.extraction.agents.extractor._get_llm", return_value=mock_llm),
             patch("app.extraction.agents.extractor.get_template", return_value=mock_template),
-            patch("app.extraction.agents.extractor._retrieve_relevant_chunks", side_effect=lambda did, c, bt: c),
+            patch(
+                "app.extraction.agents.extractor._retrieve_relevant_chunks",
+                side_effect=lambda did, c, bt: c,
+            ),
         ):
             result = await extractor_node(self._make_state(chunks=[]))
 
@@ -279,7 +274,10 @@ class TestExtractorNode:
         with (
             patch("app.extraction.agents.extractor._get_llm", return_value=mock_llm),
             patch("app.extraction.agents.extractor.get_template", return_value=mock_template),
-            patch("app.extraction.agents.extractor._retrieve_relevant_chunks", side_effect=lambda did, c, bt: c),
+            patch(
+                "app.extraction.agents.extractor._retrieve_relevant_chunks",
+                side_effect=lambda did, c, bt: c,
+            ),
         ):
             result = await extractor_node(self._make_state())
 

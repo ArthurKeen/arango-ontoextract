@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.services.ontology_graphs import (
     PER_ONTOLOGY_EDGE_DEFINITIONS,
     _safe_graph_name,
@@ -13,7 +11,6 @@ from app.services.ontology_graphs import (
     ensure_ontology_graph,
     list_ontology_graphs,
 )
-
 
 # ---------------------------------------------------------------------------
 # _safe_graph_name

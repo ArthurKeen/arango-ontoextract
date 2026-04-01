@@ -1470,8 +1470,16 @@ The `ontology_constraints` collection already exists in §5.1 with fields for `o
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/admin/reset` | **Development/demo only.** Purges all extracted data: truncates `ontology_classes`, `ontology_properties`, `ontology_constraints`, all edge collections, `extraction_runs`, `ontology_registry`, `curation_decisions`. Preserves `documents` and `chunks` so re-extraction can be triggered without re-upload. Requires `ALLOW_SYSTEM_RESET=true` in environment. Returns `{ reset: true, collections_truncated: [...] }`. |
-| `POST` | `/api/v1/admin/reset/full` | **Development/demo only.** Full purge including documents and chunks. Requires `ALLOW_SYSTEM_RESET=true`. |
+| `POST` | `/api/v1/admin/reset` | **Development/demo only.** Purges all extracted data: truncates `ontology_classes`, `ontology_properties`, `ontology_constraints`, all edge collections (`subclass_of`, `has_property`, `has_constraint`, `extracted_from`, `extends_domain`, `related_to`, `imports`, `has_chunk`, `produced_by`), `extraction_runs`, `ontology_registry`, `curation_decisions`, `quality_history`. Removes all per-ontology named graphs (`ontology_*`). Preserves `documents` and `chunks` so re-extraction can be triggered without re-upload. Preserves ArangoDB Visualizer configuration assets (`_graphThemeStore`, `_editor_saved_queries`, `_canvasActions`, `_viewpoints`). Requires `ALLOW_SYSTEM_RESET=true` in environment. Returns `{ reset: true, collections_truncated: [...], graphs_removed: [...] }`. |
+| `POST` | `/api/v1/admin/reset/full` | **Development/demo only.** Full purge: same as soft reset plus documents and chunks. Removes all per-ontology named graphs. Requires `ALLOW_SYSTEM_RESET=true`. |
+
+**Deletion Context Summary:**
+
+| Context | Method | Scope | History Preserved? | Use Case |
+|---------|--------|-------|-------------------|----------|
+| **Ontology lifecycle deletion** (FR-8.13) | Temporal soft-delete | Expire classes, properties, edges; deprecate registry entry | **Yes** — VCR timeline shows historical state | Normal ontology management |
+| **Document deletion** (FR-1.9) | Hard-delete doc + chunks; expire provenance edges | Document and chunks removed; ontology classes preserved | **Partial** — classes survive, provenance edges expired | Removing a source document |
+| **System reset** (§7.2.1) | Hard-delete (truncate) | All ontology data wiped; optionally documents too | **No** — fresh start, no history | Development/demo restart |
 
 ### 7.3 Ontology Endpoints
 

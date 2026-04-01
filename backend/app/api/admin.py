@@ -24,12 +24,29 @@ ONTOLOGY_COLLECTIONS = [
     "extends_domain",
     "related_to",
     "imports",
+    "has_chunk",
+    "produced_by",
     "extraction_runs",
     "ontology_registry",
     "curation_decisions",
+    "quality_history",
 ]
 
 ALL_COLLECTIONS = ONTOLOGY_COLLECTIONS + ["documents", "chunks"]
+
+
+def _remove_ontology_graphs(db) -> list[str]:
+    """Remove all per-ontology named graphs (ontology_*)."""
+    removed: list[str] = []
+    try:
+        for g in db.graphs():
+            name = g["name"] if isinstance(g, dict) else g
+            if isinstance(name, str) and name.startswith("ontology_"):
+                db.delete_graph(name, drop_collections=False)
+                removed.append(name)
+    except Exception:
+        log.warning("failed to list/remove ontology graphs", exc_info=True)
+    return removed
 
 
 def _require_reset_enabled() -> None:
@@ -50,8 +67,9 @@ async def reset_ontology_data() -> dict:
         if db.has_collection(name):
             db.collection(name).truncate()
             truncated.append(name)
-    log.warning("system reset: truncated %s", truncated)
-    return {"reset": True, "collections_truncated": truncated}
+    graphs_removed = _remove_ontology_graphs(db)
+    log.warning("system reset: truncated %s, removed graphs %s", truncated, graphs_removed)
+    return {"reset": True, "collections_truncated": truncated, "graphs_removed": graphs_removed}
 
 
 @router.post("/reset/full")
@@ -64,5 +82,6 @@ async def reset_all_data() -> dict:
         if db.has_collection(name):
             db.collection(name).truncate()
             truncated.append(name)
-    log.warning("full system reset: truncated %s", truncated)
-    return {"reset": True, "collections_truncated": truncated}
+    graphs_removed = _remove_ontology_graphs(db)
+    log.warning("full system reset: truncated %s, removed graphs %s", truncated, graphs_removed)
+    return {"reset": True, "collections_truncated": truncated, "graphs_removed": graphs_removed}

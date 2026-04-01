@@ -31,9 +31,9 @@ def _get_llm(model_name: str) -> Any:
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(
-            model=model_name,
-            api_key=settings.anthropic_api_key,
-            max_tokens=4096,
+            model=model_name,  # type: ignore[call-arg]
+            api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
+            max_tokens=4096,  # type: ignore[call-arg]
         )
     from langchain_openai import ChatOpenAI
 

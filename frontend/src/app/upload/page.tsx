@@ -40,12 +40,29 @@ export default function UploadPage() {
   const [extractingDocs, setExtractingDocs] = useState<Set<string>>(new Set());
   const [ontologyOptions, setOntologyOptions] = useState<OntologyOption[]>([]);
   const [targetOntologyId, setTargetOntologyId] = useState<string>("");
+  const [docOntologies, setDocOntologies] = useState<Record<string, { _key: string; name: string }[]>>({});
 
   const loadDocuments = useCallback(async () => {
     try {
       const res = await api.get<{ data: DocumentEntry[] }>("/api/v1/documents");
-      setDocuments(res.data ?? []);
+      const docs = res.data ?? [];
+      setDocuments(docs);
       setDocsLoaded(true);
+
+      const mapping: Record<string, { _key: string; name: string }[]> = {};
+      await Promise.all(
+        docs.map(async (doc) => {
+          try {
+            const ontRes = await api.get<{ ontologies: { _key: string; name: string }[] }>(
+              `/api/v1/documents/${doc._key}/ontologies`,
+            );
+            if (ontRes.ontologies?.length) {
+              mapping[doc._key] = ontRes.ontologies;
+            }
+          } catch { /* ignore */ }
+        }),
+      );
+      setDocOntologies(mapping);
     } catch {
       setDocsLoaded(true);
     }
@@ -356,6 +373,20 @@ export default function UploadPage() {
                           ? new Date(doc.upload_date).toLocaleDateString()
                           : ""}
                       </p>
+                      {docOntologies[doc._key]?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {docOntologies[doc._key].map((ont) => (
+                            <a
+                              key={ont._key}
+                              href={`/ontology/${ont._key}/edit`}
+                              className="inline-flex items-center text-[11px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100 transition-colors"
+                              title={`View ontology: ${ont.name}`}
+                            >
+                              {ont.name}
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       {(doc.status === "ready" || doc.status === "processed") && (

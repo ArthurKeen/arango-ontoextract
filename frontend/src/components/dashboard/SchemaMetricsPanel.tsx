@@ -47,28 +47,12 @@ export default function SchemaMetricsPanel({ schemaMetrics }: Props) {
               value={`${schemaMetrics.attribute_richness.toFixed(1)} props/class`}
             />
             <MetricItem
-              label="Inheritance Richness"
-              value={`${schemaMetrics.inheritance_richness.toFixed(1)} sub/parent`}
-            />
-            <MetricItem
               label="Max Depth"
               value={`${schemaMetrics.max_depth} levels`}
             />
             <MetricItem
               label="Annotation Completeness"
               value={`${(schemaMetrics.annotation_completeness * 100).toFixed(0)}%`}
-            />
-            <MetricItem
-              label="Relationship Types"
-              value={`${schemaMetrics.relationship_diversity} distinct`}
-            />
-            <MetricItem
-              label="Avg Degree"
-              value={`${schemaMetrics.avg_connectivity_degree.toFixed(1)} edges/class`}
-            />
-            <MetricItem
-              label="URI Consistency"
-              value={`${(schemaMetrics.uri_consistency * 100).toFixed(0)}%`}
             />
           </div>
         </div>

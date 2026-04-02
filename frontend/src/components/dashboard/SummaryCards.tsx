@@ -46,7 +46,7 @@ function Card({
 
 export default function SummaryCards({ summary }: Props) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       <Card
         label="Total Ontologies"
         value={String(summary.ontology_count)}
@@ -57,12 +57,6 @@ export default function SummaryCards({ summary }: Props) {
         value={summary.avg_health_score !== null ? String(summary.avg_health_score) : "N/A"}
         colorClass={healthColor(summary.avg_health_score)}
         subtitle="0-100 composite"
-      />
-      <Card
-        label="Avg Confidence"
-        value={summary.avg_confidence !== null ? summary.avg_confidence.toFixed(2) : "N/A"}
-        colorClass={confidenceColor(summary.avg_confidence)}
-        subtitle="7-signal blend"
       />
       <Card
         label="Avg Faithfulness"

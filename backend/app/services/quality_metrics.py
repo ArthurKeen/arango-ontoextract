@@ -224,21 +224,6 @@ def _compute_schema_metrics(
         (property_count / class_count) if class_count > 0 else 0.0
     )
 
-    classes_with_children = 0
-    if subclass_edge_count > 0 and _has(db, "subclass_of"):
-        rows = list(run_aql(db,
-            "FOR e IN subclass_of "
-            "FILTER e.ontology_id == @oid AND e.expired == @never "
-            "COLLECT parent = e._to "
-            "COLLECT WITH COUNT INTO cnt RETURN cnt",
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-        ))
-        classes_with_children = rows[0] if rows else 0
-    inheritance_richness = (
-        (subclass_edge_count / classes_with_children)
-        if classes_with_children > 0 else 0.0
-    )
-
     max_depth = 0
     if _has(db, "ontology_classes") and _has(db, "subclass_of") and subclass_edge_count > 0:
         rows = list(run_aql(db,
@@ -275,46 +260,11 @@ def _compute_schema_metrics(
         described = rows[0] if rows else 0
         annotation_completeness = described / class_count
 
-    relationship_diversity = 0
-    if relationship_count > 0 and _has(db, "related_to"):
-        rows = list(run_aql(db,
-            "FOR e IN related_to "
-            "FILTER e.ontology_id == @oid AND e.expired == @never "
-            "COLLECT label = e.label "
-            "COLLECT WITH COUNT INTO cnt RETURN cnt",
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-        ))
-        relationship_diversity = rows[0] if rows else 0
-
-    avg_connectivity_degree = (
-        (total_edges / class_count) if class_count > 0 else 0.0
-    )
-
-    uri_consistency = 1.0
-    if class_count > 1 and _has(db, "ontology_classes"):
-        rows = list(run_aql(db,
-            "FOR c IN ontology_classes "
-            "FILTER c.ontology_id == @oid AND c.expired == @never AND c.uri != null "
-            "LET ns = REGEX_REPLACE(c.uri, '#[^#]*$', '#') "
-            "COLLECT namespace = ns WITH COUNT INTO cnt "
-            "SORT cnt DESC "
-            "LIMIT 1 "
-            "RETURN {namespace, cnt}",
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-        ))
-        if rows and rows[0]:
-            primary_ns_count = rows[0].get("cnt", 0)
-            uri_consistency = primary_ns_count / class_count if class_count > 0 else 1.0
-
     return {
         "relationship_richness": round(relationship_richness, 4),
         "attribute_richness": round(attribute_richness, 2),
-        "inheritance_richness": round(inheritance_richness, 2),
         "max_depth": max_depth,
         "annotation_completeness": round(annotation_completeness, 4),
-        "relationship_diversity": relationship_diversity,
-        "avg_connectivity_degree": round(avg_connectivity_degree, 2),
-        "uri_consistency": round(uri_consistency, 4),
     }
 
 
@@ -505,7 +455,6 @@ def _summarise_ontologies(ontologies: list[dict[str, Any]]) -> dict[str, Any]:
             "ontology_count": 0,
             "total_classes": 0,
             "total_properties": 0,
-            "avg_confidence": None,
             "avg_faithfulness": None,
             "avg_semantic_validity": None,
             "avg_completeness": 0.0,
@@ -516,7 +465,6 @@ def _summarise_ontologies(ontologies: list[dict[str, Any]]) -> dict[str, Any]:
 
     total_classes = 0
     total_properties = 0
-    all_confidences: list[float] = []
     all_faithfulness: list[float] = []
     all_semantic_validity: list[float] = []
     all_completeness: list[float] = []
@@ -527,8 +475,6 @@ def _summarise_ontologies(ontologies: list[dict[str, Any]]) -> dict[str, Any]:
     for oq in ontologies:
         total_classes += oq["class_count"]
         total_properties += oq["property_count"]
-        if oq["avg_confidence"] is not None:
-            all_confidences.append(oq["avg_confidence"])
         if oq.get("avg_faithfulness") is not None:
             all_faithfulness.append(oq["avg_faithfulness"])
         if oq.get("avg_semantic_validity") is not None:
@@ -540,11 +486,6 @@ def _summarise_ontologies(ontologies: list[dict[str, Any]]) -> dict[str, Any]:
             ontologies_with_cycles += 1
         total_orphans += oq["orphan_count"]
 
-    avg_confidence = (
-        round(sum(all_confidences) / len(all_confidences), 4)
-        if all_confidences
-        else None
-    )
     avg_faithfulness = (
         round(sum(all_faithfulness) / len(all_faithfulness), 4)
         if all_faithfulness
@@ -570,7 +511,6 @@ def _summarise_ontologies(ontologies: list[dict[str, Any]]) -> dict[str, Any]:
         "ontology_count": len(ontologies),
         "total_classes": total_classes,
         "total_properties": total_properties,
-        "avg_confidence": avg_confidence,
         "avg_faithfulness": avg_faithfulness,
         "avg_semantic_validity": avg_semantic_validity,
         "avg_completeness": avg_completeness,

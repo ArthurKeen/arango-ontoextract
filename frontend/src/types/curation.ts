@@ -165,7 +165,6 @@ export interface QualitySummary {
   ontology_count: number;
   total_classes: number;
   total_properties: number;
-  avg_confidence: number | null;
   avg_faithfulness: number | null;
   avg_semantic_validity: number | null;
   avg_completeness: number;
@@ -177,12 +176,8 @@ export interface QualitySummary {
 export interface SchemaMetrics {
   relationship_richness: number;
   attribute_richness: number;
-  inheritance_richness: number;
   max_depth: number;
   annotation_completeness: number;
-  relationship_diversity: number;
-  avg_connectivity_degree: number;
-  uri_consistency: number;
 }
 
 export interface OntologyScorecard {

@@ -139,8 +139,8 @@ export default function Home() {
             />
             <ActionCard
               title="Quality Dashboard"
-              description="Radar chart metrics, health scores, and OntoQA analysis."
-              href="/quality"
+              description="View quality metrics, LLM-as-judge scores, and ontology health."
+              href="/dashboard"
               accentColor="bg-amber-600"
             />
           </div>

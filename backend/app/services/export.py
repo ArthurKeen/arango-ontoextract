@@ -54,7 +54,7 @@ def _build_rdf_graph(ontology_id: str) -> Graph:
     """
     db = get_db()
 
-    registry = get_registry_entry(ontology_id)
+    registry = get_registry_entry(ontology_id, db=db)
     ontology_uri = settings.default_ontology_uri.rstrip("#") + "/" + ontology_id
     ontology_label = ontology_id
     if registry:

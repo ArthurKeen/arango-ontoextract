@@ -26,6 +26,16 @@ interface OntologyOption {
   tier: string;
 }
 
+interface ImportResultData {
+  ontology_id?: string;
+  name?: string;
+  class_count?: number;
+}
+
+interface ExtractionRunResponse {
+  run_id?: string;
+}
+
 type UploadState = "idle" | "uploading" | "extracting" | "success" | "error";
 
 export default function UploadPage() {
@@ -44,7 +54,7 @@ export default function UploadPage() {
   const [mode, setMode] = useState<"extract" | "import">("extract");
   const [importState, setImportState] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [importName, setImportName] = useState("");
-  const [importResult, setImportResult] = useState<Record<string, unknown> | null>(null);
+  const [importResult, setImportResult] = useState<ImportResultData | null>(null);
   const [importError, setImportError] = useState("");
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -106,7 +116,7 @@ export default function UploadPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) return null;
-      const data = await res.json();
+      const data = await res.json() as ExtractionRunResponse;
       return data.run_id ?? null;
     } catch {
       return null;

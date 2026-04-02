@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.extraction.pipeline import _NEXT_STEP, run_pipeline
+from app.extraction.pipeline import _NEXT_STEPS, run_pipeline
 
 
 async def _empty_stream() -> AsyncIterator[dict[str, Any]]:
@@ -101,7 +101,7 @@ class TestPipelineStepEvents:
             for c in callback.call_args_list
             if c.kwargs["event_type"] == "step_started"
         ]
-        assert "filter" not in _NEXT_STEP
+        assert "filter" not in _NEXT_STEPS
         for step in step_started_steps:
             assert step != "__end__"
 

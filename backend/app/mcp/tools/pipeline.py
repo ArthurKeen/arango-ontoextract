@@ -79,9 +79,10 @@ def register_pipeline_tools(mcp: FastMCP) -> None:
             run_id: The extraction run identifier.
         """
         try:
+            from app.db.client import get_db
             from app.services.extraction import get_run
 
-            run = get_run(run_id=run_id)
+            run = get_run(get_db(), run_id=run_id)
             stats = run.get("stats", {})
 
             elapsed = None

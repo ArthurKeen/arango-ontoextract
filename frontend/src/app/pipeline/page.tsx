@@ -40,7 +40,7 @@ function PipelineMonitorInner() {
     if (runIdParam !== selectedRunId) {
       setSelectedRunId(runIdParam);
     }
-  }, [searchParams]);
+  }, [searchParams, selectedRunId]);
   const [activeTab, setActiveTab] = useState<DetailTab>("metrics");
   const { steps, isConnected, error: wsError } = useExtractionSocket(selectedRunId);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -134,6 +134,12 @@ function PipelineMonitorInner() {
             >
               {sidebarOpen ? "Hide Runs" : "Show Runs"}
             </button>
+            <Link
+              href="/dashboard"
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Dashboard
+            </Link>
             <Link
               href="/"
               className="text-sm text-gray-500 hover:text-gray-700"

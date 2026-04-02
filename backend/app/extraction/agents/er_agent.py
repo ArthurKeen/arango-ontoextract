@@ -84,6 +84,7 @@ def er_agent_node(state: ExtractionPipelineState) -> dict:
     )
 
     return {
+        "current_step": "er_agent",
         "er_results": er_results,
         "merge_candidates": merge_candidates,
         "errors": errors,

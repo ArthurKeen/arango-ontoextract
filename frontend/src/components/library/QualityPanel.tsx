@@ -6,12 +6,8 @@ import { api } from "@/lib/api-client";
 interface SchemaMetrics {
   relationship_richness: number;
   attribute_richness: number;
-  inheritance_richness: number;
   max_depth: number;
   annotation_completeness: number;
-  relationship_diversity: number;
-  avg_connectivity_degree: number;
-  uri_consistency: number;
 }
 
 interface QualityData {
@@ -194,28 +190,12 @@ export default function QualityPanel({ ontologyId }: QualityPanelProps) {
                 <span className="text-gray-700">{data.schema_metrics.attribute_richness.toFixed(1)} props/class</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Inheritance Richness</span>
-                <span className="text-gray-700">{data.schema_metrics.inheritance_richness.toFixed(1)} subclasses/parent</span>
-              </div>
-              <div className="flex justify-between">
                 <span className="text-gray-500">Max Depth</span>
                 <span className="text-gray-700">{data.schema_metrics.max_depth} levels</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Annotation Completeness</span>
                 <span className="text-gray-700">{(data.schema_metrics.annotation_completeness * 100).toFixed(0)}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Relationship Types</span>
-                <span className="text-gray-700">{data.schema_metrics.relationship_diversity} distinct</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Avg Degree</span>
-                <span className="text-gray-700">{data.schema_metrics.avg_connectivity_degree.toFixed(1)} edges/class</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">URI Consistency</span>
-                <span className="text-gray-700">{(data.schema_metrics.uri_consistency * 100).toFixed(0)}%</span>
               </div>
             </div>
           </details>

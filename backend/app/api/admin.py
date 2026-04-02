@@ -50,10 +50,16 @@ def _remove_ontology_graphs(db) -> list[str]:
 
 
 def _require_reset_enabled() -> None:
-    if os.environ.get("ALLOW_SYSTEM_RESET", "").lower() not in ("true", "1", "yes"):
+    env_value = os.getenv("ALLOW_SYSTEM_RESET")
+    if env_value is None:
+        enabled = False
+    else:
+        enabled = env_value.strip().lower() in {"1", "true", "yes", "on"}
+
+    if not enabled:
         raise HTTPException(
             status_code=403,
-            detail="System reset disabled. Set ALLOW_SYSTEM_RESET=true to enable.",
+            detail="System reset disabled. Set ALLOW_SYSTEM_RESET=true in .env to enable.",
         )
 
 

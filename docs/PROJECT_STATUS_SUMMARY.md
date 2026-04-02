@@ -29,7 +29,7 @@ AOE is an LLM-driven ontology extraction and curation platform built on ArangoDB
 | **Temporal Versioning** | Complete | Full version history on every class/property/edge; VCR timeline with additive entity playback |
 | **ArangoDB Visualizer** | Complete | Auto-installed themes, canvas actions, saved queries (temporal-aware) per ontology graph |
 | **MCP Server** | Complete | Runtime tools for AI agents to query ontologies, trigger extractions |
-| **Quality Metrics** | Mostly Complete | Health score (0–100), quality panel in library; dedicated dashboard page pending |
+| **Quality Metrics** | Mostly Complete | Health score (0–100), quality panel in library, unified `/dashboard` with `/quality` redirect alias, audited OntoQA panel, and labeled mock/demo RAG comparison |
 | **Deletion & Integrity** | Complete | Temporal soft-delete with cross-ontology cascade; system reset for dev/demo |
 
 ### Architecture
@@ -58,7 +58,7 @@ AI Agents (Claude, GPT-4o, external MCP clients)
 |------|-----------------|----------|
 | Ontology Imports & Dependencies (`owl:imports`, standard catalog) | 1.5 weeks | P1 |
 | Entity Resolution (real `arango-entity-resolution` integration) | 1.5 weeks | P1 |
-| Quality Dashboard (`/quality` page, history, gold-standard recall) | 3 days | P1 |
+| Quality History + Recall (`/dashboard` already live; `/quality` redirects) | 3 days | P1 |
 | OWL Constraints & SHACL Shapes | 1 week | P2 |
 | Schema Extraction from ArangoDB | 1 week | P2 |
 | Ontology Release Management (semver, breaking change detection, revert) | 1 week | P1 |

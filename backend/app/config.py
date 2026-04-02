@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     rate_limit_default: int = 100
     rate_limit_default_tier: str = "standard"
 
+    # -- Admin -------------------------------------------------------------
+    allow_system_reset: bool = False
+
     @field_validator("app_secret_key", mode="after")
     @classmethod
     def _validate_secret_key(cls, v: str, info: Any) -> str:

@@ -370,25 +370,6 @@ def _detect_cycles(db: StandardDatabase, ontology_id: str) -> bool:
     rows = list(run_aql(db,
         "FOR c IN ontology_classes "
         "FILTER c.ontology_id == @oid AND c.expired == @never "
-        "LIMIT 1 "
-        "LET cycle_check = ("
-        "  FOR v, e, p IN 1..100 OUTBOUND c subclass_of "
-        "    OPTIONS {uniqueEdges: 'path'} "
-        "    FILTER e.expired == @never "
-        "    FILTER v._id == c._id "
-        "    LIMIT 1 "
-        "    RETURN true "
-        ") "
-        "FILTER LENGTH(cycle_check) > 0 "
-        "RETURN true",
-        bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-    ))
-    if rows:
-        return True
-
-    rows = list(run_aql(db,
-        "FOR c IN ontology_classes "
-        "FILTER c.ontology_id == @oid AND c.expired == @never "
         "LET cycle_check = ("
         "  FOR v, e, p IN 1..100 OUTBOUND c subclass_of "
         "    OPTIONS {uniqueEdges: 'path'} "
@@ -417,13 +398,16 @@ def compute_health_score(
 ) -> int:
     """Compute a 0-100 composite ontology health score.
 
+    Both ``completeness`` and ``connectivity`` must be 0-1 decimals
+    (i.e. pre-divided by 100 at the call site).
+
     Dimensions (weights):
       - Completeness (20%): ratio of classes with properties
       - Connectivity (20%): ratio of classes with inter-class relationships
       - Structural integrity (15%): penalizes cycles and orphans
       - Average confidence (20%): mean multi-signal confidence
       - Property richness (15%): properties-per-class ratio
-      - Source coverage (10%): chunk support ratio
+      - Source coverage (10%): chunks-per-class ratio (capped at 1.0)
 
     An ontology with only datatype properties but no inter-class
     relationships will score low on connectivity, preventing a
@@ -431,8 +415,6 @@ def compute_health_score(
 
     Returns an integer 0-100.
     """
-    completeness_pct = min(completeness / 100.0, 1.0) if completeness > 1.0 else completeness
-
     cycle_penalty = 0.3 if has_cycles else 0.0
     orphan_ratio = (orphan_count / total_classes) if total_classes > 0 else 0.0
     structural = max(0.0, 1.0 - cycle_penalty - orphan_ratio)
@@ -440,13 +422,12 @@ def compute_health_score(
     prop_per_class = (total_properties / total_classes) if total_classes > 0 else 0.0
     property_richness = min(prop_per_class / 3.0, 1.0)
 
-    source_coverage = min(chunk_count / 5.0, 1.0)
-
-    connectivity_score = min(connectivity / 100.0, 1.0) if connectivity > 1.0 else connectivity
+    chunks_per_class = (chunk_count / total_classes) if total_classes > 0 else 0.0
+    source_coverage = min(chunks_per_class, 1.0)
 
     raw = (
-        0.20 * completeness_pct
-        + 0.20 * connectivity_score
+        0.20 * min(completeness, 1.0)
+        + 0.20 * min(connectivity, 1.0)
         + 0.15 * structural
         + 0.20 * avg_confidence
         + 0.15 * property_richness
@@ -517,15 +498,9 @@ def compute_extraction_quality(
     }
 
 
-def compute_quality_summary(db: StandardDatabase) -> dict[str, Any]:
-    """Aggregate quality metrics across all registered ontologies."""
-    ontology_ids: list[str] = []
-    if _has(db, "ontology_registry"):
-        ontology_ids = list(run_aql(db,
-            "FOR o IN ontology_registry RETURN o._key"
-        ))
-
-    if not ontology_ids:
+def _summarise_ontologies(ontologies: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate quality metrics from pre-computed per-ontology scorecards."""
+    if not ontologies:
         return {
             "ontology_count": 0,
             "total_classes": 0,
@@ -549,25 +524,21 @@ def compute_quality_summary(db: StandardDatabase) -> dict[str, Any]:
     ontologies_with_cycles = 0
     total_orphans = 0
 
-    for oid in ontology_ids:
-        try:
-            oq = compute_ontology_quality(db, oid)
-            total_classes += oq["class_count"]
-            total_properties += oq["property_count"]
-            if oq["avg_confidence"] is not None:
-                all_confidences.append(oq["avg_confidence"])
-            if oq.get("avg_faithfulness") is not None:
-                all_faithfulness.append(oq["avg_faithfulness"])
-            if oq.get("avg_semantic_validity") is not None:
-                all_semantic_validity.append(oq["avg_semantic_validity"])
-            all_completeness.append(oq["completeness"])
-            if oq["health_score"] is not None:
-                all_health_scores.append(oq["health_score"])
-            if oq["has_cycles"]:
-                ontologies_with_cycles += 1
-            total_orphans += oq["orphan_count"]
-        except Exception:
-            log.warning("quality computation failed for ontology %s", oid, exc_info=True)
+    for oq in ontologies:
+        total_classes += oq["class_count"]
+        total_properties += oq["property_count"]
+        if oq["avg_confidence"] is not None:
+            all_confidences.append(oq["avg_confidence"])
+        if oq.get("avg_faithfulness") is not None:
+            all_faithfulness.append(oq["avg_faithfulness"])
+        if oq.get("avg_semantic_validity") is not None:
+            all_semantic_validity.append(oq["avg_semantic_validity"])
+        all_completeness.append(oq["completeness"])
+        if oq["health_score"] is not None:
+            all_health_scores.append(oq["health_score"])
+        if oq["has_cycles"]:
+            ontologies_with_cycles += 1
+        total_orphans += oq["orphan_count"]
 
     avg_confidence = (
         round(sum(all_confidences) / len(all_confidences), 4)
@@ -596,7 +567,7 @@ def compute_quality_summary(db: StandardDatabase) -> dict[str, Any]:
     )
 
     return {
-        "ontology_count": len(ontology_ids),
+        "ontology_count": len(ontologies),
         "total_classes": total_classes,
         "total_properties": total_properties,
         "avg_confidence": avg_confidence,
@@ -607,6 +578,24 @@ def compute_quality_summary(db: StandardDatabase) -> dict[str, Any]:
         "ontologies_with_cycles": ontologies_with_cycles,
         "total_orphans": total_orphans,
     }
+
+
+def compute_quality_summary(db: StandardDatabase) -> dict[str, Any]:
+    """Aggregate quality metrics across all registered ontologies."""
+    ontology_ids: list[str] = []
+    if _has(db, "ontology_registry"):
+        ontology_ids = list(run_aql(db,
+            "FOR o IN ontology_registry RETURN o._key"
+        ))
+
+    ontologies: list[dict[str, Any]] = []
+    for oid in ontology_ids:
+        try:
+            ontologies.append(compute_ontology_quality(db, oid))
+        except Exception:
+            log.warning("quality computation failed for ontology %s", oid, exc_info=True)
+
+    return _summarise_ontologies(ontologies)
 
 
 def get_class_scores(
@@ -653,8 +642,6 @@ def get_qualitative_evaluation(
 
 def compute_dashboard_payload(db: StandardDatabase) -> dict[str, Any]:
     """Assemble the full dashboard payload: summary + per-ontology scorecards."""
-    summary = compute_quality_summary(db)
-
     ontology_ids: list[str] = []
     if _has(db, "ontology_registry"):
         ontology_ids = list(run_aql(db,
@@ -664,10 +651,11 @@ def compute_dashboard_payload(db: StandardDatabase) -> dict[str, Any]:
     ontologies: list[dict[str, Any]] = []
     for oid in ontology_ids:
         try:
-            oq = compute_ontology_quality(db, oid)
-            ontologies.append(oq)
+            ontologies.append(compute_ontology_quality(db, oid))
         except Exception:
             log.warning("dashboard: quality failed for %s", oid, exc_info=True)
+
+    summary = _summarise_ontologies(ontologies)
 
     # Compute flags/alerts
     alerts: list[dict[str, str]] = []

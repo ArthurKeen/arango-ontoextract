@@ -35,12 +35,11 @@ class TestComputeOntologyQuality:
             1: [3],                                 # property count
             2: [4],                                 # classes with props
             3: [0],                                 # orphan query
-            4: [],                                  # cycle check 1
-            5: [],                                  # cycle check 2
-            6: [2],                                 # related_to count
-            7: [3],                                 # classes_with_relationships
-            8: [2],                                 # chunk count
-            9: [0],                                 # _count_edges (subclass_of)
+            4: [],                                  # cycle check
+            5: [2],                                 # related_to count
+            6: [3],                                 # classes_with_relationships
+            7: [2],                                 # chunk count
+            8: [0],                                 # _count_edges (subclass_of)
             # _compute_schema_metrics queries follow (all default to 0/empty)
         })
 
@@ -85,22 +84,27 @@ class TestComputeOntologyQuality:
         assert result["class_count"] == 2
         assert result["property_count"] == 0
 
-    @patch("app.services.extraction.get_run_cost", return_value={"estimated_cost": 1.234567})
-    def test_cost_lookup_skips_quality_enrichment(self, mock_get_run_cost):
+    def test_cost_lookup_skips_quality_enrichment(self):
         from app.services.quality_metrics import compute_ontology_quality
+
+        mock_get_run_cost = MagicMock(return_value={"estimated_cost": 1.234567})
 
         db = _mock_db({
             0: [{"cnt": 0, "avg_conf": None, "avg_faith": None, "avg_sem": None}],
             1: [0],
             2: [0],
             3: [],
-            4: [],
-            5: [0],
-            6: [0],   # _count_edges (subclass_of)
-            7: [{"run_id": "run_1", "name": "Ontology 1", "tier": "domain"}],
+            4: [0],
+            5: [0],   # _count_edges (subclass_of)
+            6: [{"run_id": "run_1", "name": "Ontology 1", "tier": "domain"}],
         })
 
-        result = compute_ontology_quality(db, "onto_1")
+        # Patch at the call site inside the lazy import
+        import sys
+        fake_extraction = MagicMock()
+        fake_extraction.get_run_cost = mock_get_run_cost
+        with patch.dict(sys.modules, {"app.services.extraction": fake_extraction}):
+            result = compute_ontology_quality(db, "onto_1")
 
         assert result["estimated_cost"] == 1.234567
         mock_get_run_cost.assert_called_once_with(
@@ -253,7 +257,7 @@ class TestDetectCycles:
     def test_no_cycle(self):
         from app.services.quality_metrics import _detect_cycles
 
-        db = _mock_db({0: [], 1: []})
+        db = _mock_db({0: []})
 
         assert _detect_cycles(db, "onto_1") is False
 
@@ -383,12 +387,12 @@ class TestComputeHealthScore:
         )
         assert score_connected > score_orphans
 
-    def test_completeness_as_percentage_handled(self):
-        """completeness > 1.0 is treated as percentage (e.g. 80.0 = 80%)."""
+    def test_completeness_clamped_to_1(self):
+        """Values above 1.0 are clamped, not treated as percentages."""
         from app.services.quality_metrics import compute_health_score
 
-        score = compute_health_score(
-            completeness=80.0,
+        score_normal = compute_health_score(
+            completeness=0.8,
             has_cycles=False,
             orphan_count=0,
             total_classes=10,
@@ -397,7 +401,29 @@ class TestComputeHealthScore:
             chunk_count=3,
             connectivity=0.5,
         )
-        assert 50 <= score <= 100
+        score_over = compute_health_score(
+            completeness=1.5,
+            has_cycles=False,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=0.7,
+            total_properties=15,
+            chunk_count=3,
+            connectivity=0.5,
+        )
+        score_at_1 = compute_health_score(
+            completeness=1.0,
+            has_cycles=False,
+            orphan_count=0,
+            total_classes=10,
+            avg_confidence=0.7,
+            total_properties=15,
+            chunk_count=3,
+            connectivity=0.5,
+        )
+        # Over-1.0 is clamped to 1.0, so same as completeness=1.0
+        assert score_over == score_at_1
+        assert score_at_1 >= score_normal
 
     def test_connectivity_improves_score(self):
         from app.services.quality_metrics import compute_health_score

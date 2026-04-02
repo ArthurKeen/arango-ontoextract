@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException
 
-from app.config import settings
 from app.db.client import get_db
 
 log = logging.getLogger(__name__)
@@ -50,7 +50,10 @@ def _remove_ontology_graphs(db) -> list[str]:
 
 
 def _require_reset_enabled() -> None:
-    if not settings.allow_system_reset:
+    env_value = os.getenv("ALLOW_SYSTEM_RESET")
+    enabled = bool(env_value) and env_value.strip().lower() in {"1", "true", "yes", "on"}
+
+    if not enabled:
         raise HTTPException(
             status_code=403,
             detail="System reset disabled. Set ALLOW_SYSTEM_RESET=true in .env to enable.",

@@ -6,6 +6,7 @@ and tracks token usage and cost.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import sys
@@ -20,12 +21,13 @@ from app.config import settings
 from app.db.client import get_db
 from app.db.pagination import paginate
 from app.db.utils import doc_get, run_aql
+from app.extraction.judges.qualitative_eval_node import run_qualitative_evaluation
 from app.extraction.pipeline import run_pipeline
 from app.models.common import PaginatedResponse
 from app.services.confidence import compute_class_confidence
-from app.extraction.judges.qualitative_eval_node import run_qualitative_evaluation
 
 log = logging.getLogger(__name__)
+_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
 _MODEL_TOKEN_RATES_PER_MILLION: dict[str, dict[str, float]] = {
     "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
@@ -294,14 +296,15 @@ async def execute_run(
                         exc_info=True,
                     )
 
-                # Fire-and-forget: async qualitative evaluation (non-blocking)
-                import asyncio
-                asyncio.ensure_future(
+                # Track the task so it is not garbage-collected before completion.
+                task = asyncio.create_task(
                     _run_qualitative_eval_background(
                         run_id=run_id,
                         final_state=final_state,
                     )
                 )
+                _BACKGROUND_TASKS.add(task)
+                task.add_done_callback(_BACKGROUND_TASKS.discard)
 
     except Exception as exc:
         log.exception("extraction pipeline failed", extra={"run_id": run_id})
@@ -664,9 +667,7 @@ def _is_object_property(
             return True
         return True
     frag = range_val.split("/")[-1]
-    if frag in class_keys or range_val in class_keys:
-        return True
-    return False
+    return frag in class_keys or range_val in class_keys
 
 
 def _infer_property_type(

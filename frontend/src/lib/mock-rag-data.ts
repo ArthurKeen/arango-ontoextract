@@ -1,5 +1,9 @@
 import type { RagComparisonData } from "@/types/curation";
 
+export const MOCK_RAG_DATA_LABEL = "Mock / Demo Data";
+export const MOCK_RAG_DATA_DISCLAIMER =
+  "RAG comparison results on this page are simulated for product demos and UI validation. They do not come from a live benchmark API yet.";
+
 /**
  * Mock evaluation datasets available for selection.
  * Will be replaced with real API calls later.

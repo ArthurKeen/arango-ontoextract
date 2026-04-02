@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.api.admin import _require_reset_enabled
+from app.api.admin import _remove_ontology_graphs, _require_reset_enabled
 
 
 class TestRequireResetEnabled:
@@ -38,6 +38,28 @@ class TestRequireResetEnabled:
 
 
 class TestResetEndpoints:
+    def test_remove_ontology_graphs_removes_only_prefixed_graphs(self):
+        mock_db = MagicMock()
+        mock_db.graphs.return_value = [
+            {"name": "ontology_customer"},
+            {"name": "other_graph"},
+            "ontology_supplier",
+        ]
+
+        removed = _remove_ontology_graphs(mock_db)
+
+        assert removed == ["ontology_customer", "ontology_supplier"]
+        assert mock_db.delete_graph.call_count == 2
+
+    def test_remove_ontology_graphs_handles_graph_listing_error(self):
+        mock_db = MagicMock()
+        mock_db.graphs.side_effect = RuntimeError("boom")
+
+        removed = _remove_ontology_graphs(mock_db)
+
+        assert removed == []
+        mock_db.delete_graph.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_reset_ontology_truncates_collections(self):
         mock_collection = MagicMock()

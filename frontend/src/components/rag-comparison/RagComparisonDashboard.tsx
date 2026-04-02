@@ -1,9 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import type { RagComparisonData } from "@/types/curation";
-import { MOCK_DATASETS, getMockRagComparison } from "@/lib/mock-rag-data";
+import {
+  MOCK_DATASETS,
+  MOCK_RAG_DATA_DISCLAIMER,
+  MOCK_RAG_DATA_LABEL,
+  getMockRagComparison,
+} from "@/lib/mock-rag-data";
 import RagComparisonSummary from "./RagComparisonSummary";
 import RagCostLatency from "./RagCostLatency";
 import RagQueryTable from "./RagQueryTable";
@@ -18,14 +23,21 @@ const RagWinLoss = dynamic(() => import("./RagWinLoss"), { ssr: false });
 
 export default function RagComparisonDashboard() {
   const [datasetId, setDatasetId] = useState(MOCK_DATASETS[0].id);
-
-  const data: RagComparisonData = useMemo(
-    () => getMockRagComparison(datasetId),
-    [datasetId],
-  );
+  const data: RagComparisonData = getMockRagComparison(datasetId);
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-900">
+            {MOCK_RAG_DATA_LABEL}
+          </span>
+          <p className="text-sm text-amber-900">
+            {MOCK_RAG_DATA_DISCLAIMER}
+          </p>
+        </div>
+      </div>
+
       {/* Dataset selector + info */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4 flex items-center justify-between flex-wrap gap-4">
         <div>

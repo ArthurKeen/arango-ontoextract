@@ -12,7 +12,7 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.extraction.pipeline import (
-    _NEXT_STEP,
+    _NEXT_STEPS,
     _should_proceed_to_staging,
     _should_retry_consistency,
     _should_retry_extraction,
@@ -135,20 +135,20 @@ class TestSetEventBus:
 
 
 # ---------------------------------------------------------------------------
-# NEXT_STEP mapping
+# NEXT_STEPS mapping
 # ---------------------------------------------------------------------------
 
 
-class TestNextStepMapping:
+class TestNextStepsMapping:
     def test_has_expected_transitions(self):
-        assert _NEXT_STEP["strategy_selector"] == "extractor"
-        assert _NEXT_STEP["extractor"] == "consistency_checker"
-        assert _NEXT_STEP["consistency_checker"] == "quality_judge"
-        assert _NEXT_STEP["quality_judge"] == "er_agent"
-        assert _NEXT_STEP["er_agent"] == "filter"
+        assert _NEXT_STEPS["strategy_selector"] == ["extractor"]
+        assert _NEXT_STEPS["extractor"] == ["consistency_checker"]
+        assert _NEXT_STEPS["consistency_checker"] == ["quality_judge", "er_agent"]
+        assert _NEXT_STEPS["quality_judge"] == ["filter"]
+        assert _NEXT_STEPS["er_agent"] == ["filter"]
 
-    def test_filter_not_in_next_step(self):
-        assert "filter" not in _NEXT_STEP
+    def test_filter_not_in_next_steps(self):
+        assert "filter" not in _NEXT_STEPS
 
 
 # ---------------------------------------------------------------------------

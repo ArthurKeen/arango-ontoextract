@@ -40,7 +40,7 @@ function PipelineMonitorInner() {
     if (runIdParam !== selectedRunId) {
       setSelectedRunId(runIdParam);
     }
-  }, [searchParams]);
+  }, [searchParams, selectedRunId]);
   const [activeTab, setActiveTab] = useState<DetailTab>("metrics");
   const { steps, isConnected, error: wsError } = useExtractionSocket(selectedRunId);
   const [sidebarOpen, setSidebarOpen] = useState(true);

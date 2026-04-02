@@ -373,4 +373,5 @@ class TestQualitativeEvaluation:
             )
 
         # Map phase fails -> no observations -> specific weakness message
-        assert "observations" in result["weaknesses"][0].lower() or "could not" in result["weaknesses"][0].lower()
+        weakness = result["weaknesses"][0].lower()
+        assert "observations" in weakness or "could not" in weakness

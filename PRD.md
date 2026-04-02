@@ -415,15 +415,15 @@ This section defines the end-to-end workflows performed by each role. These work
 **Trigger:** User wants to assess ontology quality
 
 **Main Flow:**
-1. User navigates to `/quality` (quality dashboard)
-2. Dashboard shows aggregate metrics: avg extraction precision, curation throughput, deduplication accuracy
-3. Traffic-light indicators show status vs. PRD targets (green ≥ target, yellow within 10%, red below)
-4. User clicks an ontology → sees per-ontology quality: avg confidence, completeness, orphan count, cycle detection
-5. User views trend sparklines showing quality over time
-6. User navigates to library → QualityPanel shows inline quality summary for selected ontology
+1. User navigates to `/dashboard` (primary quality dashboard). The legacy `/quality` URL redirects here.
+2. Dashboard shows aggregate quality summary cards and ontology-level alerts.
+3. User reviews the per-ontology score table and radar chart for LLM-as-judge metrics.
+4. User clicks an ontology → sees per-ontology quality: health score, faithfulness, semantic validity, completeness, orphan/cycle flags, and class score distribution.
+5. User can open the GraphRAG vs VectorRAG comparison tab, clearly labeled as mock/demo data until a live benchmark API exists.
+6. User navigates to library → QualityPanel shows inline quality summary for the selected ontology.
 
 **Alternative Flows:**
-- 1a. `/quality` page not yet implemented → user accesses quality via library QualityPanel
+- 1a. User lands on `/quality` from an older bookmark or doc link → system redirects to `/dashboard`
 
 **Post-conditions:** User informed of quality status. Can prioritize curation effort on low-quality ontologies.
 
@@ -503,7 +503,7 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 | UC-8 | Deprecate ontology | All entities expired (not deleted); registry status=deprecated; dependent ontologies warned | DELETE /library/{id}?confirm=true, GET /library/{id} |
 | UC-9 | System reset | Collections empty; named graphs removed; documents preserved (soft) or removed (full) | POST /admin/reset, POST /admin/reset/full |
 | UC-10 | MCP tool calls | Correct data returned; no side effects on reads | MCP tools: search_similar_classes, get_class_hierarchy, export_ontology |
-| UC-11 | Quality metrics | Health score computed; confidence values differentiated; completeness accurate | GET /quality/{id}, GET /quality/summary |
+| UC-11 | Quality metrics | Health score computed; confidence values differentiated; completeness accurate | GET /quality/{id}, GET /quality/dashboard, GET /quality/summary |
 | UC-12 | Create + publish release | RC created with snapshot; breaking changes detected; release published; export serves version; previous release superseded | POST /ontology/{id}/releases, POST .../publish, GET /ontology/{id}/export?version=1.2.0 |
 | UC-13 | Revert to previous release | Current state matches target release; changes preserved in history; revert appears as timeline event | POST /ontology/{id}/revert, GET /ontology/{id}/timeline |
 
@@ -1986,7 +1986,7 @@ An orphan class with only datatype properties scores 0.15. A well-connected clas
 | FR-13.4 | Time-to-first-ontology measured | Computed as elapsed time from `documents.uploaded_at` to `extraction_runs.completed_at`. Per-run value displayed in pipeline metrics; aggregate average in quality dashboard. |
 | FR-13.5 | Gold-standard recall comparison | User can upload a reference OWL/TTL file; system computes `recall = |extracted ∩ reference| / |reference|` using fuzzy label matching. Results displayed alongside the ontology detail. |
 | FR-13.6 | Structural quality analysis per ontology | System computes: (a) **Completeness** — % of classes with ≥1 property, % of properties with defined domain+range; (b) **Coherence** — cycle detection in `subclass_of` hierarchy; (c) **Orphan count** — classes with no parent and not designated as root; (d) **Avg confidence** — mean of multi-signal per-class confidence across all current classes. |
-| FR-13.7 | Quality dashboard page with radar chart | Dedicated `/quality` route with a **radar/spider chart** showing 6 quality dimensions normalized to 0–5, surrounded by **score cards** with numeric values and plain-English explanations. Supports per-ontology drill-down (select an ontology to see its specific radar) and aggregate view (all ontologies combined). Expandable "Schema Metrics (OntoQA)" section shows the 8 detailed metrics from §6.13.3. The 6 radar dimensions are: **Annotation Quality** (description completeness), **Completeness** (classes with properties), **Faithfulness** (avg multi-signal confidence including LLM-as-Judge), **Connectivity** (inter-class relationships), **Structural Integrity** (coherence + orphan ratio), **Curation Acceptance** (curator approval rate, N/A until curation starts). Each score card includes an (ⓘ) tooltip explaining the metric. Ontology comparison mode: select two ontologies to overlay their radar polygons. Uses `recharts` `RadarChart` component (React-native charting library). |
+| FR-13.7 | Quality dashboard page with radar chart | Dedicated `/dashboard` route with a **radar/spider chart** showing 6 quality dimensions normalized to 0–5, surrounded by **score cards** with numeric values and plain-English explanations. `/quality` remains a legacy alias that redirects to `/dashboard`. Supports per-ontology drill-down (select an ontology to see its specific radar) and aggregate view (all ontologies combined). Expandable "Schema Metrics (OntoQA)" section shows the 4 audited metrics from §6.13.3: Relationship Richness, Attribute Richness, Max Depth, and Annotation Completeness. The 6 radar dimensions are: **Annotation Quality** (description completeness), **Completeness** (classes with properties), **Faithfulness** (avg multi-signal confidence including LLM-as-Judge), **Connectivity** (inter-class relationships), **Structural Integrity** (coherence + orphan ratio), **Curation Acceptance** (curator approval rate, N/A until curation starts). Each score card includes an (ⓘ) tooltip explaining the metric. Ontology comparison mode: select two ontologies to overlay their radar polygons. Uses `recharts` `RadarChart` component (React-native charting library). |
 | FR-13.8 | Quality history over time | Quality metrics stored with timestamps so trends can be tracked. Leverages temporal snapshot infrastructure for historical quality snapshots. |
 | FR-13.9 | Low-confidence visual highlighting in curation graph | Nodes in the curation graph canvas are color-coded by multi-signal confidence: red border < 0.5, yellow 0.5–0.7, green > 0.7. Enables curators to focus on uncertain entities first. |
 | FR-13.10 | Quality-oriented ArangoDB Visualizer queries | Saved queries for: "Low Confidence Classes" (below threshold), "Orphan Classes" (no hierarchy edges), "Classes Without Properties" (incomplete definitions). |
@@ -2000,7 +2000,7 @@ An orphan class with only datatype properties scores 0.15. A well-connected clas
 
 #### 6.13.3 Ontology Quality Dashboard
 
-**Description:** A curated dashboard page (`/dashboard`) focused on ontology quality scores, LLM-as-judge evaluation metrics, and per-ontology extraction cost. This is the primary view for assessing the quality of all tracked ontologies at a glance.
+**Description:** A curated dashboard page (`/dashboard`) focused on ontology quality scores, LLM-as-judge evaluation metrics, and per-ontology extraction cost. This is the primary view for assessing the quality of all tracked ontologies at a glance. The legacy `/quality` route redirects here.
 
 **Layout & Visual Design:**
 
@@ -2009,8 +2009,8 @@ The dashboard draws inspiration from evaluation platforms (e.g., the radar chart
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Summary Cards                                                       │
-│  [Total Ontologies] [Avg Health Score] [Avg Confidence]              │
-│  [Avg Faithfulness] [Avg Semantic Validity] [Avg Completeness]       │
+│  [Total Ontologies] [Avg Health Score] [Avg Faithfulness]            │
+│  [Avg Semantic Validity] [Avg Completeness]                          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  Per-Ontology Scorecard Table (sortable, filterable)                 │
@@ -2068,7 +2068,6 @@ Top-level aggregate metrics across all tracked ontologies:
 |------|-------|--------|
 | **Total Ontologies** | Count of registered ontologies | `ontology_registry` collection |
 | **Avg Health Score** | Weighted avg health (0–100) with traffic-light color | `compute_quality_summary()` |
-| **Avg Confidence** | Mean blended 7-signal confidence | Aggregated from `ontology_classes.confidence` |
 | **Avg Faithfulness** | Mean LLM-judge faithfulness score | Aggregated from `ontology_classes.faithfulness_score` |
 | **Avg Semantic Validity** | Mean LLM-judge semantic validity | Aggregated from `ontology_classes.semantic_validity_score` |
 | **Avg Completeness** | Mean % of classes with properties | From `compute_quality_summary()` |
@@ -2116,6 +2115,17 @@ Each axis maps to a **metric card** beside the radar chart, showing:
 
 When multiple ontologies are selected or in aggregate mode, the radar chart overlays multiple polygons (one per ontology) with different colors for comparison, similar to the reference design where different configurations are compared visually.
 
+**Schema Metrics (OntoQA) Panel**
+
+The expandable schema panel intentionally surfaces only the 4 OntoQA metrics that survived the dashboard audit:
+
+- **Relationship Richness**
+- **Attribute Richness**
+- **Max Depth**
+- **Annotation Completeness**
+
+Metrics such as URI consistency, average connectivity degree, inheritance richness, and relationship diversity are intentionally omitted from the dashboard because they were judged redundant or too implementation-specific for decision-making.
+
 **Section 4: Strengths & Weaknesses (Qualitative Evaluation)**
 
 Per-ontology display of the qualitative evaluation produced by the Qualitative Evaluation Agent (§6.11, FR-11.11):
@@ -2161,6 +2171,8 @@ Bottom section highlighting ontologies that need attention:
 | `GET` | `/api/v1/quality/summary` | Aggregate quality scores across all ontologies (now includes avg faithfulness, avg semantic validity) |
 | `GET` | `/api/v1/quality/dashboard` | Single aggregated payload for the dashboard: all ontology scores, summary cards, flags/alerts |
 | `POST` | `/api/v1/quality/recall` | Upload a reference OWL/TTL file to compute recall against extracted ontology |
+
+**Current Implementation Note:** The GraphRAG vs VectorRAG tab in the dashboard currently uses clearly labeled mock/demo data for UI walkthroughs. A live benchmark API remains future work.
 
 ### 6.14 Ontology Constraints (OWL Restrictions & SHACL Shapes)
 
@@ -2453,8 +2465,8 @@ Clients that don't support WebSocket can poll the corresponding `GET` status end
 | `/ontology/[ontologyId]/edit` | Ontology Graph Editor (Ontology Mode) | Full graph editor for an approved ontology — same graph canvas, VCR timeline, and node/edge actions as curation, plus direct class/property creation, drag-and-drop reparenting, and ongoing editing without requiring an extraction run. Accessible from the library page. |
 | `/entity-resolution` | Entity Resolution | Run and review ER pipelines, view merge candidates and clusters |
 | `/login` | Login | Authentication page; renders login form (or redirects to OIDC provider). Bypassed when `NEXT_PUBLIC_DEV_MODE=true`. |
-| `/quality` | Quality Dashboard | Aggregate ontology quality metrics (extraction precision, curation throughput, structural quality) with traffic-light indicators and trend sparklines (Section 6.13). |
-| `/dashboard` | Ontology Quality Dashboard | Curated dashboard focused on ontology quality scores and LLM-as-judge metrics. Summary cards (avg health, avg faithfulness, avg semantic validity, avg completeness), per-ontology scorecard table (sortable by any metric), radar/spider chart for LLM-as-judge dimensions (faithfulness, semantic validity, completeness, structural integrity, property richness, source coverage) with overlaid polygons for multi-ontology comparison, metric cards with scores and descriptions, per-ontology strengths/weaknesses from Qualitative Evaluation Agent, per-ontology estimated extraction cost, flags/alerts for problem ontologies. Drill-down per ontology shows faithfulness distribution histogram, class-level scores, and confidence signal breakdown. See §6.13.3 for full specification. |
+| `/quality` | Quality Dashboard Alias | Legacy route retained for compatibility; redirects to `/dashboard`. |
+| `/dashboard` | Ontology Quality Dashboard | Curated dashboard focused on ontology quality scores and LLM-as-judge metrics. Summary cards (avg health, avg faithfulness, avg semantic validity, avg completeness), per-ontology scorecard table (sortable by any metric), radar/spider chart for LLM-as-judge dimensions (faithfulness, semantic validity, completeness, structural integrity, property richness, source coverage) with overlaid polygons for multi-ontology comparison, metric cards with scores and descriptions, per-ontology strengths/weaknesses from Qualitative Evaluation Agent, per-ontology estimated extraction cost, flags/alerts for problem ontologies, and an OntoQA panel limited to the 4 audited schema metrics. The GraphRAG vs VectorRAG tab is currently clearly labeled mock/demo data until a live benchmark API is added. Drill-down per ontology shows class-level score distribution and confidence signal breakdown. See §6.13.3 for full specification. |
 
 ---
 

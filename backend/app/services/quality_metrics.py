@@ -178,7 +178,11 @@ def compute_ontology_quality(
         "tier": ontology_tier,
         "avg_confidence": round(avg_confidence, 4) if avg_confidence is not None else None,
         "avg_faithfulness": round(avg_faithfulness, 4) if avg_faithfulness is not None else None,
-        "avg_semantic_validity": round(avg_semantic_validity, 4) if avg_semantic_validity is not None else None,
+        "avg_semantic_validity": (
+            round(avg_semantic_validity, 4)
+            if avg_semantic_validity is not None
+            else None
+        ),
         "class_count": class_count,
         "property_count": property_count,
         "completeness": round(completeness, 2),
@@ -585,19 +589,56 @@ def compute_dashboard_payload(db: StandardDatabase) -> dict[str, Any]:
         oid = oq["ontology_id"]
         name = oq.get("name", oid)
         if oq.get("has_cycles"):
-            alerts.append({"ontology_id": oid, "name": name, "flag": "has_cycles", "severity": "red"})
+            alerts.append(
+                {"ontology_id": oid, "name": name, "flag": "has_cycles", "severity": "red"}
+            )
         if oq.get("class_count", 0) > 0:
             orphan_ratio = oq.get("orphan_count", 0) / oq["class_count"]
             if orphan_ratio > 0.3:
-                alerts.append({"ontology_id": oid, "name": name, "flag": "high_orphan_ratio", "severity": "yellow"})
+                alerts.append(
+                    {
+                        "ontology_id": oid,
+                        "name": name,
+                        "flag": "high_orphan_ratio",
+                        "severity": "yellow",
+                    }
+                )
         if oq.get("avg_confidence") is not None and oq["avg_confidence"] < 0.5:
-            alerts.append({"ontology_id": oid, "name": name, "flag": "low_confidence", "severity": "yellow"})
+            alerts.append(
+                {
+                    "ontology_id": oid,
+                    "name": name,
+                    "flag": "low_confidence",
+                    "severity": "yellow",
+                }
+            )
         if oq.get("avg_faithfulness") is not None and oq["avg_faithfulness"] < 0.4:
-            alerts.append({"ontology_id": oid, "name": name, "flag": "low_faithfulness", "severity": "red"})
+            alerts.append(
+                {
+                    "ontology_id": oid,
+                    "name": name,
+                    "flag": "low_faithfulness",
+                    "severity": "red",
+                }
+            )
         if oq.get("completeness", 0) == 0 and oq.get("class_count", 0) > 0:
-            alerts.append({"ontology_id": oid, "name": name, "flag": "zero_completeness", "severity": "red"})
+            alerts.append(
+                {
+                    "ontology_id": oid,
+                    "name": name,
+                    "flag": "zero_completeness",
+                    "severity": "red",
+                }
+            )
         if oq.get("avg_semantic_validity") is not None and oq["avg_semantic_validity"] < 0.5:
-            alerts.append({"ontology_id": oid, "name": name, "flag": "low_semantic_validity", "severity": "yellow"})
+            alerts.append(
+                {
+                    "ontology_id": oid,
+                    "name": name,
+                    "flag": "low_semantic_validity",
+                    "severity": "yellow",
+                }
+            )
 
     return {
         "summary": summary,

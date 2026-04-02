@@ -120,14 +120,17 @@ export default function UploadPage() {
 
     const formData = new FormData();
     formData.append("file", file);
-    if (importName.trim()) {
-      formData.append("name", importName.trim());
-    }
-    formData.append("tier", "domain");
+
+    const label = importName.trim() || file.name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " ");
+    const id = `import_${Date.now().toString(36)}`;
 
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
-      const res = await fetch(`${baseUrl}/api/v1/ontology/import`, {
+      const params = new URLSearchParams({
+        ontology_id: id,
+        ontology_label: label,
+      });
+      const res = await fetch(`${baseUrl}/api/v1/ontology/import?${params}`, {
         method: "POST",
         body: formData,
       });

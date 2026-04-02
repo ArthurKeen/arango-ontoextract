@@ -41,6 +41,12 @@ export default function UploadPage() {
   const [ontologyOptions, setOntologyOptions] = useState<OntologyOption[]>([]);
   const [targetOntologyId, setTargetOntologyId] = useState<string>("");
   const [docOntologies, setDocOntologies] = useState<Record<string, { _key: string; name: string }[]>>({});
+  const [mode, setMode] = useState<"extract" | "import">("extract");
+  const [importState, setImportState] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [importName, setImportName] = useState("");
+  const [importResult, setImportResult] = useState<Record<string, unknown> | null>(null);
+  const [importError, setImportError] = useState("");
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -104,6 +110,38 @@ export default function UploadPage() {
       return data.run_id ?? null;
     } catch {
       return null;
+    }
+  };
+
+  const importOWLFile = async (file: File) => {
+    setImportState("uploading");
+    setImportError("");
+    setImportResult(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    if (importName.trim()) {
+      formData.append("name", importName.trim());
+    }
+    formData.append("tier", "domain");
+
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+      const res = await fetch(`${baseUrl}/api/v1/ontology/import`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.detail || errBody.message || `Import failed (${res.status})`);
+      }
+      const data = await res.json();
+      setImportResult(data);
+      setImportState("success");
+      loadDocuments();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+      setImportState("error");
     }
   };
 
@@ -217,11 +255,120 @@ export default function UploadPage() {
           <Link href="/" className="text-gray-400 hover:text-gray-600 text-sm">
             ← Home
           </Link>
-          <h1 className="text-2xl font-bold">Upload Document</h1>
+          <h1 className="text-2xl font-bold">
+            {mode === "extract" ? "Upload Document" : "Import Ontology"}
+          </h1>
+        </div>
+        <div className="max-w-4xl mx-auto px-6 pb-4 flex gap-4">
+          <button
+            onClick={() => setMode("extract")}
+            className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${mode === "extract" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+          >
+            Extract from Document
+          </button>
+          <button
+            onClick={() => setMode("import")}
+            className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${mode === "import" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+          >
+            Import OWL / TTL / RDF
+          </button>
         </div>
       </header>
 
       <div className="max-w-4xl mx-auto px-6 py-10 space-y-8">
+
+        {/* === IMPORT MODE === */}
+        {mode === "import" && (
+          <>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4">
+              <div>
+                <label htmlFor="import-name" className="block text-sm font-medium text-gray-700 mb-1">
+                  Ontology Name (optional)
+                </label>
+                <input
+                  id="import-name"
+                  type="text"
+                  value={importName}
+                  onChange={(e) => setImportName(e.target.value)}
+                  placeholder="e.g., FIBO Financial Instruments"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  If blank, the name will be derived from the file.
+                </p>
+              </div>
+
+              <div
+                onClick={() => importFileRef.current?.click()}
+                className="border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50"
+              >
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".ttl,.owl,.rdf,.n3,.nt,.jsonld,.xml,.skos"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) importOWLFile(file);
+                    e.target.value = "";
+                  }}
+                />
+                <div className="text-4xl text-gray-300 mb-3">🦉</div>
+                <p className="text-gray-600 font-medium">
+                  Click to select an OWL, Turtle, RDF, or SKOS file
+                </p>
+                <p className="text-sm text-gray-400 mt-1">
+                  Supported: .ttl, .owl, .rdf, .n3, .nt, .jsonld, .xml, .skos
+                </p>
+              </div>
+            </div>
+
+            {importState === "uploading" && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">
+                <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-blue-700 font-medium">Importing ontology via ArangoRDF...</p>
+              </div>
+            )}
+
+            {importState === "success" && importResult && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-green-700 font-medium">Import successful</p>
+                <div className="mt-2 text-sm text-green-600 space-y-1">
+                  {importResult.ontology_id && (
+                    <p><span className="font-mono">ontology_id:</span> {String(importResult.ontology_id)}</p>
+                  )}
+                  {importResult.name && (
+                    <p><span className="font-mono">name:</span> {String(importResult.name)}</p>
+                  )}
+                  {importResult.class_count != null && (
+                    <p><span className="font-mono">classes:</span> {String(importResult.class_count)}</p>
+                  )}
+                </div>
+                <div className="mt-3 flex gap-3">
+                  <a href="/library" className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    View in Library
+                  </a>
+                  {importResult.ontology_id && (
+                    <a href={`/ontology/${importResult.ontology_id}/edit`} className="text-sm px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                      Edit Graph
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {importState === "error" && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-red-700 font-medium">Import failed</p>
+                <p className="mt-1 text-sm text-red-600">{importError}</p>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* === EXTRACT MODE === */}
+        {mode === "extract" && (
+        <>
         {/* Target ontology selector */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <label
@@ -423,6 +570,8 @@ export default function UploadPage() {
               </div>
             )}
           </section>
+        )}
+        </>
         )}
       </div>
     </main>

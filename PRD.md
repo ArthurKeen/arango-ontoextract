@@ -11,6 +11,7 @@
 
 1. [Executive Summary](#1-executive-summary)
 2. [User Personas](#2-user-personas)
+   - 2a. Use Cases & Workflows
 3. [Objectives & Success Metrics](#3-objectives--success-metrics)
 4. [System Architecture](#4-system-architecture)
 5. [Data Model](#5-data-model)
@@ -26,6 +27,8 @@
    - 6.6 ArangoDB Graph Visualizer Customization
    - 6.7 Entity Resolution & Deduplication
    - 6.8 Import & Export
+   - 6.8a Ontology Release Management & Revert
+   - 6.8b OWL/RDFS Foundation Layer (Metamodel)
    - 6.9 Schema Extraction from ArangoDB Databases
    - 6.10 MCP Server (Runtime)
    - 6.11 Agentic Extraction Pipeline (LangGraph)
@@ -35,7 +38,8 @@
    - 6.15 Ontology Imports & Dependency Management
 7. [API Specification](#7-api-specification-backend)
    - 7.1–7.7 Endpoint groups
-   - 7.8 Frontend Pages (Next.js Routes)
+   - 7.8 Frontend Architecture: Object-Centric Workspace
+   - 7.9 API Conventions
 8. [Non-Functional Requirements](#8-non-functional-requirements)
    - 8.1 Performance
    - 8.2 Scalability
@@ -146,6 +150,8 @@ This section defines the end-to-end workflows performed by each role. These work
 | View/modify system configuration | ❌ | ❌ | ❌ | ✅ |
 
 ### Use Case Catalog
+
+> **Note on routes:** The use cases below describe logical workflows. References to routes like `/upload`, `/library`, `/curation/[runId]` describe the v1 multi-page UI. In the target object-centric workspace (§7.8), all these workflows occur within the unified `/workspace` route via the Asset Explorer, Canvas, and context menus. Legacy routes redirect to the workspace with appropriate context.
 
 #### UC-1: Extract Ontology from Document (Domain Expert)
 
@@ -592,12 +598,12 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 |-----------|-----------|-----------|
 | Database | ArangoDB 3.12+ | Multi-model (document + graph + vector + search) in single engine |
 | Ontology Bridge | `ArangoRDF` | Stores OWL/RDFS ontologies in ArangoDB via PGT, preserving OWL metamodel semantics |
-| LLM Orchestration | LangChain with structured outputs | Enforced JSON schema outputs for extraction |
+| LLM Orchestration | LangChain (individual LLM calls with structured output) + LangGraph (multi-step agent orchestration) | Complementary: LangChain for single calls, LangGraph for pipeline |
 | LLM Provider | Claude 3.5 Sonnet (primary), GPT-4o (fallback) | Best-in-class structured extraction |
 | Backend Framework | FastAPI (Python 3.11+) | Async, Pydantic-native, OpenAPI auto-docs |
 | Task Queue | Celery + Redis (or ARQ) | Async document processing pipeline |
-| Frontend | React 18 + Next.js 14 | SSR, file-based routing, React Server Components |
-| Graph Visualization | React Flow (native React) or Cytoscape.js via `react-cytoscapejs` | **Must be React-compatible** — renders as React components within the Next.js curation dashboard; supports interactive node/edge manipulation, custom node renderers, and layout algorithms |
+| Frontend | React 18 + Next.js 15 | SSR, file-based routing, React Server Components |
+| Graph Visualization | **Sigma.js** via `@react-sigma/core` + **graphology** (target); React Flow (v0.1.0 prototype) | WebGL rendering, handles 100K+ nodes |
 | Vector Embeddings | OpenAI `text-embedding-3-small` or local model | Chunk embeddings for RAG + entity resolution |
 | Agentic Orchestration | LangGraph | Stateful multi-step agent graphs with checkpointing and human-in-the-loop |
 | MCP Server | `mcp` Python SDK | Exposes ontology tools to any MCP-compatible AI agent |
@@ -652,6 +658,8 @@ All ontology edge collections carry `created` and `expired` fields (same interva
 | Collection | Purpose | Key Fields |
 |------------|---------|------------|
 | `ontology_registry` | Catalog of all imported/extracted ontologies in the library | `_key`, `ontology_uri` (canonical namespace URI), `label`, `description`, `ontology_type` (owl\|rdfs\|skos\|mixed), `source_type` (import\|extraction\|schema_reverse), `source_file`, `version`, `iri_prefix`, `pgt_graph_name`, `owl_imports` (list of dependent ontology URIs), `status` (draft\|active\|deprecated), `created_at`, `created_by`, `class_count`, `property_count` |
+| `ontology_releases` | Immutable release snapshots | `_key`, `ontology_id` (FK to registry), `version` (semver string), `version_major`/`minor`/`patch`, `release_status` (candidate/released/superseded), `snapshot_timestamp`, `release_notes`, `released_by`, `released_at`, `class_count`, `property_count`, `owl_version_iri`, `breaking_changes`, `created_at` |
+| `quality_history` | Quality metric snapshots over time | `_key`, `ontology_id`, `timestamp`, `health_score`, `avg_confidence`, `completeness`, `connectivity`, `schema_metrics` |
 
 Each ontology in the library gets a registry entry. All `ontology_classes` and `ontology_properties` documents carry an `ontology_id` foreign key linking back to this registry, enabling filtering and isolation.
 
@@ -1704,6 +1712,7 @@ Ontology in the AOE Library
 | **Strategy Selector** | Analyzes document type, length, domain; picks extraction model, prompt template, and chunking strategy | Document metadata, first N chunks | Extraction config (model, prompt, chunk params) |
 | **Extraction Agent** | Runs N-pass LLM extraction with self-correction; retries on parse failures; validates output against Pydantic schemas | Chunks, extraction config, domain ontology context (for Tier 2) | Raw extracted classes + properties per pass |
 | **Consistency Checker** | Compares results across passes; keeps only concepts appearing in ≥ M of N passes; assigns confidence scores | Multi-pass extraction results | Filtered, scored extraction result |
+| **Quality Judge** | Runs LLM-as-Judge faithfulness evaluation and semantic validation in parallel (`asyncio.gather`). Rates each class as EXPLICIT/INFERRED/PLAUSIBLE/HALLUCINATED. Checks for domain/range mismatches and disjointness violations. | Consistency result + source chunks | Per-class faithfulness + semantic validity scores |
 | **Entity Resolution Agent** | Invokes `arango-entity-resolution` pipeline (`ConfigurableERPipeline`) for vector + field similarity + topological scoring against existing ontologies; flags merge candidates via WCC clustering; auto-links EXTENSION classes to domain parents using `CrossCollectionMatchingService` | Filtered extraction, domain ontology, local ontology | Extraction + merge candidates + `extends_domain` edges |
 | **Pre-Curation Filter** | Removes obvious noise (generic terms, duplicates within run); annotates remaining entities with provenance links and confidence tiers (high/medium/low) | Extraction + merge candidates | Clean staging graph ready for human review |
 | **Qualitative Evaluation Agent** | After all LLM-as-judge metrics (faithfulness, semantic validity, property agreement) are computed and pre-curation filtering is done, this agent performs a final qualitative evaluation pass. It receives the full batch of extracted classes along with all their per-class judge scores (faithfulness, semantic validity, confidence, structural quality, etc.) and asks the LLM to produce a qualitative summary of the ontology extraction's strengths and weaknesses. The response is enforced as structured JSON via the provider's JSON mode / structured output parameter (e.g., `response_format` for OpenAI, tool-use JSON for Anthropic). This runs **async** as a background step and does not block staging. | Filtered extraction batch + all per-class LLM-as-judge scores (faithfulness, semantic validity, property agreement, structural quality, description quality, provenance strength) | JSON: `{"strengths": ["markdown point 1", ...], "weaknesses": ["markdown point 1", ...]}` stored on the extraction run record |
@@ -1996,7 +2005,6 @@ An orphan class with only datatype properties scores 0.15. A well-connected clas
 | FR-13.11 | Multi-signal per-class confidence | Each class's `confidence` field is computed as a weighted blend of 7 signals: cross-pass agreement, LLM-as-Judge faithfulness, semantic validity, structural quality (relationship richness), description quality, provenance strength, and property agreement (see §6.13.1). |
 | FR-13.12 | Composite ontology health score | Each ontology receives a 0–100 health score blending completeness, connectivity, coherence, avg confidence, property richness, and coverage (see §6.13.2). Displayed on ontology cards with traffic-light color coding. |
 | FR-13.13 | Provenance strength in confidence | Per-class confidence includes a provenance strength signal based on the number of distinct source chunks supporting the class via `extracted_from` edges. |
-| FR-13.14 | Ontology Quality Dashboard with radar chart | Dedicated dashboard page (`/dashboard`) displaying per-ontology LLM-as-judge metrics in a radar/spider chart (faithfulness, semantic validity, completeness, structural integrity, property richness, source coverage) alongside metric cards, as specified in §6.13.3. |
 | FR-13.15 | Per-ontology LLM-as-judge metric aggregation | The quality API aggregates `faithfulness_score` and `semantic_validity_score` from individual `ontology_classes` documents to produce per-ontology averages. These are not currently exposed — must be added to `compute_ontology_quality()`. |
 | FR-13.16 | Per-ontology estimated cost | Each ontology's estimated extraction cost (USD) is derived by tracing `ontology_registry.extraction_run_id` → `extraction_runs.stats.token_usage` and computing cost from token counts and model pricing. Displayed per-ontology on the dashboard. |
 | FR-13.17 | Qualitative evaluation display | Strengths and weaknesses from the Qualitative Evaluation Agent (§6.11) are displayed per-ontology on the dashboard, sourced from `extraction_runs.stats.qualitative_evaluation` via the ontology's linked extraction run. |
@@ -2287,7 +2295,7 @@ The `ontology_constraints` collection already exists in §5.1 with fields for `o
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/admin/reset` | **Development/demo only.** Purges all extracted data: truncates `ontology_classes`, `ontology_properties`, `ontology_constraints`, all edge collections (`subclass_of`, `has_property`, `has_constraint`, `extracted_from`, `extends_domain`, `related_to`, `imports`, `has_chunk`, `produced_by`), `extraction_runs`, `ontology_registry`, `curation_decisions`, `quality_history`. Removes all per-ontology named graphs (`ontology_*`). Preserves `documents` and `chunks` so re-extraction can be triggered without re-upload. Preserves ArangoDB Visualizer configuration assets (`_graphThemeStore`, `_editor_saved_queries`, `_canvasActions`, `_viewpoints`). Requires `ALLOW_SYSTEM_RESET=true` in environment. Returns `{ reset: true, collections_truncated: [...], graphs_removed: [...] }`. |
+| `POST` | `/api/v1/admin/reset` | **Development/demo only.** Purges all extracted data: truncates `ontology_classes`, `ontology_properties`, `ontology_constraints`, all edge collections (`subclass_of`, `has_property`, `extracted_from`, `extends_domain`, `related_to`, `imports`, `has_chunk`, `produced_by`, `equivalent_class`, `merge_candidate`), `extraction_runs`, `ontology_registry`, `curation_decisions`, `quality_history`. Removes all per-ontology named graphs (`ontology_*`). Preserves `documents` and `chunks` so re-extraction can be triggered without re-upload. Preserves ArangoDB Visualizer configuration assets (`_graphThemeStore`, `_editor_saved_queries`, `_canvasActions`, `_viewpoints`). Requires `ALLOW_SYSTEM_RESET=true` in environment. Returns `{ reset: true, collections_truncated: [...], graphs_removed: [...] }`. |
 | `POST` | `/api/v1/admin/reset/full` | **Development/demo only.** Full purge: same as soft reset plus documents and chunks. Removes all per-ontology named graphs. Requires `ALLOW_SYSTEM_RESET=true`. |
 
 **Deletion Context Summary:**
@@ -2385,7 +2393,7 @@ The `ontology_constraints` collection already exists in §5.1 with fields for `o
 | `GET` | `/api/v1/quality/summary` | Aggregate quality scores across all ontologies |
 | `POST` | `/api/v1/quality/recall` | Upload reference OWL/TTL file; compute recall against extracted ontology |
 
-### 7.8 API Conventions
+### 7.9 API Conventions
 
 **Pagination:**
 
@@ -2545,6 +2553,7 @@ The previous multi-page routes redirect to the workspace with appropriate contex
 | `/ontology/[id]/edit` | Opens workspace with ontology loaded in canvas |
 | `/pipeline` | Opens workspace with pipeline runs expanded in asset explorer |
 | `/quality` or `/dashboard` | Opens workspace with quality radar overlay visible |
+| `/entity-resolution` | Opens workspace with ER candidates view in canvas |
 | `/login` | Separate page (only exception to single-page rule) |
 
 #### Requirements

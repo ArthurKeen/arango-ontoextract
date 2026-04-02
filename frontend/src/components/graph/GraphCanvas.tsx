@@ -151,17 +151,21 @@ function OntologyNode({ data, selected }: NodeProps<OntologyNodeData>) {
           </span>
         )}
       </div>
-      <div className="mt-1 flex items-center gap-1.5">
-        <span className="text-xs text-gray-400">
-          {(confidence * 100).toFixed(0)}%
-        </span>
-        <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full ${confidence > 0.7 ? "bg-green-500" : confidence >= 0.5 ? "bg-yellow-500" : "bg-red-500"}`}
-            style={{ width: `${confidence * 100}%` }}
-          />
+      {confidence != null && !isNaN(confidence) ? (
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className="text-xs text-gray-400">
+            {(confidence * 100).toFixed(0)}%
+          </span>
+          <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full ${confidence > 0.7 ? "bg-green-500" : confidence >= 0.5 ? "bg-yellow-500" : "bg-red-500"}`}
+              style={{ width: `${confidence * 100}%` }}
+            />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="mt-1 text-[10px] text-gray-300">Imported</div>
+      )}
       <Handle
         type="source"
         position={Position.Bottom}

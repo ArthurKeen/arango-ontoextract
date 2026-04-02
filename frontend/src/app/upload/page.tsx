@@ -300,6 +300,15 @@ export default function UploadPage() {
 
               <div
                 onClick={() => importFileRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add("border-blue-500", "bg-blue-50"); }}
+                onDragLeave={(e) => { e.currentTarget.classList.remove("border-blue-500", "bg-blue-50"); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.currentTarget.classList.remove("border-blue-500", "bg-blue-50");
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) importOWLFile(file);
+                }}
                 className="border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50"
               >
                 <input
@@ -315,7 +324,7 @@ export default function UploadPage() {
                 />
                 <div className="text-4xl text-gray-300 mb-3">🦉</div>
                 <p className="text-gray-600 font-medium">
-                  Click to select an OWL, Turtle, RDF, or SKOS file
+                  Drop an OWL, Turtle, RDF, or SKOS file here — or click to browse
                 </p>
                 <p className="text-sm text-gray-400 mt-1">
                   Supported: .ttl, .owl, .rdf, .n3, .nt, .jsonld, .xml, .skos

@@ -111,7 +111,7 @@ function OntologyNode({ data, selected }: NodeProps<OntologyNodeData>) {
     borderStyle = confidence < 0.5 ? "border-dashed" : "border-solid";
   }
 
-  const nodeSize = Math.max(160, 160 + (confidence - 0.5) * 80);
+  const nodeSize = Math.max(160, 160 + ((confidence || 0) - 0.5) * 80);
 
   return (
     <div

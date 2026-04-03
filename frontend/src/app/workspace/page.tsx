@@ -1,14 +1,32 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import LensToolbar, { type LensType } from "@/components/workspace/LensToolbar";
 import AssetExplorer from "@/components/workspace/AssetExplorer";
 import EmptyCanvasState from "@/components/workspace/EmptyCanvasState";
 import FloatingDetailPanel from "@/components/workspace/FloatingDetailPanel";
 import ContextMenu, { type ContextMenuItem } from "@/components/workspace/ContextMenu";
-import VCRTimeline from "@/components/timeline/VCRTimeline";
-import { api, type PaginatedResponse } from "@/lib/api-client";
-import type { OntologyRegistryEntry } from "@/types/curation";
+import { api, ApiError, type PaginatedResponse } from "@/lib/api-client";
+import type {
+  OntologyRegistryEntry,
+  OntologyClass,
+  OntologyProperty,
+  OntologyEdge,
+} from "@/types/curation";
+
+const GraphCanvas = dynamic(() => import("@/components/graph/GraphCanvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full flex items-center justify-center">
+      <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+    </div>
+  ),
+});
+
+const VCRTimeline = dynamic(() => import("@/components/timeline/VCRTimeline"), {
+  ssr: false,
+});
 
 interface ContextMenuState {
   x: number;
@@ -30,6 +48,12 @@ export default function WorkspacePage() {
   const [activeLens, setActiveLens] = useState<LensType>("semantic");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [ontologyName, setOntologyName] = useState<string | null>(null);
+
+  const [classes, setClasses] = useState<OntologyClass[]>([]);
+  const [properties, setProperties] = useState<OntologyProperty[]>([]);
+  const [edges, setEdges] = useState<OntologyEdge[]>([]);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState<string | null>(null);
 
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
@@ -57,6 +81,45 @@ export default function WorkspacePage() {
     loadName();
     return () => { cancelled = true; };
   }, [selectedOntologyId]);
+
+  const fetchGraphData = useCallback(async (ontologyId: string) => {
+    setGraphLoading(true);
+    setGraphError(null);
+    try {
+      const [classesRes, edgesRes] = await Promise.all([
+        api.get<PaginatedResponse<OntologyClass>>(
+          `/api/v1/ontology/${ontologyId}/classes`,
+        ),
+        api.get<PaginatedResponse<OntologyEdge>>(
+          `/api/v1/ontology/${ontologyId}/edges`,
+        ),
+      ]);
+      const classesList = Array.isArray(classesRes) ? classesRes : classesRes.data;
+      const edgesList = Array.isArray(edgesRes) ? edgesRes : edgesRes.data;
+      setClasses(classesList);
+      setEdges(edgesList);
+      setProperties([]);
+    } catch (err) {
+      setGraphError(
+        err instanceof ApiError
+          ? err.body.message
+          : "Failed to load ontology graph data",
+      );
+    } finally {
+      setGraphLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedOntologyId) {
+      setClasses([]);
+      setProperties([]);
+      setEdges([]);
+      setGraphError(null);
+      return;
+    }
+    fetchGraphData(selectedOntologyId);
+  }, [selectedOntologyId, fetchGraphData]);
 
   // Keyboard shortcuts for lens switching
   useEffect(() => {
@@ -118,6 +181,18 @@ export default function WorkspacePage() {
     setSelectedNodeKey(null);
     setSelectedEdgeKey(null);
     setDetailPanelOpen(false);
+    setGraphError(null);
+  }, []);
+
+  const handleNodeSelect = useCallback((classKey: string) => {
+    setSelectedNodeKey(classKey);
+    setSelectedEdgeKey(null);
+    setDetailPanelOpen(true);
+  }, []);
+
+  const handleEdgeSelect = useCallback((edgeKey: string) => {
+    setSelectedEdgeKey(edgeKey);
+    setSelectedNodeKey(null);
   }, []);
 
   const handleSelectDocument = useCallback((_docId: string) => {
@@ -139,6 +214,18 @@ export default function WorkspacePage() {
   const handleCanvasContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
+      const target = e.target as HTMLElement;
+
+      const nodeEl = target.closest("[data-testid^='graph-node-']");
+      if (nodeEl) {
+        const testId = nodeEl.getAttribute("data-testid") ?? "";
+        const classKey = testId.replace("graph-node-", "");
+        if (classKey) {
+          setContextMenu({ x: e.clientX, y: e.clientY, type: "class", data: { _key: classKey } });
+          return;
+        }
+      }
+
       setContextMenu({ x: e.clientX, y: e.clientY, type: "canvas", data: {} });
     },
     [],
@@ -146,12 +233,25 @@ export default function WorkspacePage() {
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
+  function lensToColorMode(lens: LensType): "confidence" | "status" {
+    if (lens === "curation") return "status";
+    if (lens === "confidence") return "confidence";
+    return "confidence";
+  }
+
   function getContextMenuItems(): ContextMenuItem[] {
     if (!contextMenu) return [];
 
     const { type, data } = contextMenu;
 
     switch (type) {
+      case "class":
+        return [
+          { label: "Edit Metadata", icon: "✏️", onClick: () => {} },
+          { label: "View Provenance", icon: "🔍", onClick: () => {} },
+          { label: "View History", icon: "📜", onClick: () => {} },
+          { label: "Delete", icon: "🗑️", onClick: () => {}, danger: true },
+        ];
       case "document":
         return [
           { label: "Extract to New Ontology", icon: "🔷", onClick: () => {} },
@@ -229,24 +329,39 @@ export default function WorkspacePage() {
             onContextMenu={selectedOntologyId ? handleCanvasContextMenu : undefined}
           >
             {selectedOntologyId ? (
-              <div className="h-full flex items-center justify-center text-sm text-gray-400">
-                <div className="text-center">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-50 flex items-center justify-center">
-                    <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
-                    </svg>
-                  </div>
-                  <p className="font-medium text-gray-600 mb-1">
-                    Canvas: {ontologyName ?? selectedOntologyId}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    Lens: <span className="capitalize">{activeLens}</span>
-                  </p>
-                  <p className="text-xs text-gray-300 mt-2">
-                    Graph visualization will render here
+              graphLoading ? (
+                <div className="h-full flex flex-col items-center justify-center gap-3">
+                  <div className="animate-spin h-10 w-10 border-3 border-blue-500 border-t-transparent rounded-full" />
+                  <p className="text-sm text-gray-500">
+                    Loading {ontologyName ?? selectedOntologyId}...
                   </p>
                 </div>
-              </div>
+              ) : graphError ? (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8">
+                  <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-red-600 font-medium">{graphError}</p>
+                  <button
+                    onClick={() => selectedOntologyId && fetchGraphData(selectedOntologyId)}
+                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <GraphCanvas
+                  classes={classes}
+                  properties={properties}
+                  edges={edges}
+                  onNodeSelect={handleNodeSelect}
+                  onEdgeSelect={handleEdgeSelect}
+                  colorMode={lensToColorMode(activeLens)}
+                  className="h-full"
+                />
+              )
             ) : (
               <EmptyCanvasState />
             )}

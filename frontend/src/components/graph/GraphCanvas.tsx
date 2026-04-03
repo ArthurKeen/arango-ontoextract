@@ -200,93 +200,66 @@ const EDGE_COLORS: Record<string, string> = {
   imports: "#e11d48",
 };
 
-// --- Layout: simple hierarchical using dagre-like positioning ---
+// --- Layout: dagre automatic graph layout ---
+
+import dagre from "dagre";
 
 const HIERARCHY_EDGE_TYPES = new Set([
   "subclass_of",
   "extends_domain",
 ]);
 
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 80;
+
 function computeLayout(
   classes: OntologyClass[],
   edges: OntologyEdge[],
 ): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>();
-  const children = new Map<string, string[]>();
-  const hasParent = new Set<string>();
-  const allKeys = new Set(classes.map((c) => c._key));
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: "TB",
+    nodesep: 80,
+    ranksep: 120,
+    edgesep: 40,
+    marginx: 40,
+    marginy: 40,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  const classKeySet = new Set(classes.map((c) => c._key));
+
+  for (const cls of classes) {
+    g.setNode(cls._key, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  }
 
   for (const edge of edges) {
-    const edgeType = (edge as unknown as Record<string, unknown>).edge_type ?? edge.type;
-    if (!HIERARCHY_EDGE_TYPES.has(edgeType as string)) continue;
-
     const fromKey = edge._from.split("/").pop() ?? edge._from;
     const toKey = edge._to.split("/").pop() ?? edge._to;
-    if (!allKeys.has(fromKey) || !allKeys.has(toKey)) continue;
+    if (!classKeySet.has(fromKey) || !classKeySet.has(toKey)) continue;
+    if (fromKey === toKey) continue;
 
-    if (!children.has(toKey)) children.set(toKey, []);
-    children.get(toKey)!.push(fromKey);
-    hasParent.add(fromKey);
+    const edgeType = ((edge as unknown as Record<string, unknown>).edge_type ?? edge.type) as string;
+    const isHierarchy = HIERARCHY_EDGE_TYPES.has(edgeType);
+
+    g.setEdge(
+      isHierarchy ? toKey : fromKey,
+      isHierarchy ? fromKey : toKey,
+    );
   }
 
-  const roots = classes.filter((c) => !hasParent.has(c._key));
-  if (roots.length === 0 && classes.length > 0) {
-    roots.push(classes[0]);
-  }
+  dagre.layout(g);
 
-  const COL_WIDTH = 280;
-  const ROW_HEIGHT = 140;
-
-  function placeSubtree(
-    key: string,
-    depth: number,
-    startX: number,
-    visited: Set<string>,
-  ): number {
-    if (visited.has(key) || !allKeys.has(key)) return startX;
-    visited.add(key);
-
-    const kids = (children.get(key) ?? []).filter((k) => !visited.has(k) && allKeys.has(k));
-
-    if (kids.length === 0) {
-      positions.set(key, { x: startX, y: depth * ROW_HEIGHT });
-      return startX + COL_WIDTH;
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const cls of classes) {
+    const node = g.node(cls._key);
+    if (node) {
+      positions.set(cls._key, {
+        x: node.x - NODE_WIDTH / 2,
+        y: node.y - NODE_HEIGHT / 2,
+      });
     }
-
-    let nextX = startX;
-    for (const kid of kids) {
-      nextX = placeSubtree(kid, depth + 1, nextX, visited);
-    }
-
-    const childPositions = kids
-      .map((k) => positions.get(k))
-      .filter((p): p is { x: number; y: number } => p != null);
-    const avgX =
-      childPositions.length > 0
-        ? childPositions.reduce((s, p) => s + p.x, 0) / childPositions.length
-        : startX;
-
-    positions.set(key, { x: avgX, y: depth * ROW_HEIGHT });
-    return nextX;
   }
-
-  const visited = new Set<string>();
-  let nextX = 0;
-  for (const root of roots) {
-    nextX = placeSubtree(root._key, 0, nextX, visited);
-    nextX += COL_WIDTH / 2;
-  }
-
-  const orphans = classes.filter((c) => !positions.has(c._key));
-  const ORPHAN_COLS = Math.max(3, Math.ceil(Math.sqrt(orphans.length)));
-  orphans.forEach((cls, idx) => {
-    const col = idx % ORPHAN_COLS;
-    const row = Math.floor(idx / ORPHAN_COLS);
-    positions.set(cls._key, {
-      x: nextX + col * COL_WIDTH,
-      y: row * ROW_HEIGHT,
-    });
-  });
 
   return positions;
 }

@@ -800,11 +800,38 @@ All PRD §6 features are tracked in the implementation plan:
 | S: Schema Extraction | 1 week | 6 | **P2** | Reverse engineering | PENDING |
 | D: Test Coverage & CI | 1 week | 7 | **P2** | Quality gate | PENDING |
 | E: Production Polish | 1 week | 7 | **P2** | v1.0.0 readiness | PENDING |
-| OWL: Foundation Layer (Metamodel) | 1 week | 7 | **P1** | Formal OWL completeness | PENDING |
+| PGT: Property Collection Alignment | 1.5 weeks | 12 | **P0** | Schema alignment (ADR-006) | PENDING — on `object-centric-ux` branch |
+| OWL: Foundation Layer (Metamodel) | 1 week | 7 | **P1** | Formal OWL completeness (depends on PGT) | PENDING |
 | V: Sigma.js Migration | 2–3 weeks | 11 | **P1** (post-v1.0) | Scalability | PENDING |
 | **Total remaining** | **~8–9 weeks** | **~70 tasks** | | |
 
 See `docs/REMAINING_WORK_PLAN.md` for detailed task breakdowns per stream.
+
+---
+
+### Sprint PGT: Property Collection Alignment (1.5 weeks)
+
+**Goal:** Align the extraction pipeline's storage model with ArangoRDF PGT's collection-per-type pattern. Split `ontology_properties` into `ontology_object_properties` + `ontology_datatype_properties`, replace `has_property`/`related_to` with `rdfs_domain`/`rdfs_range_class` edges, and update the extraction prompt to separately request attributes and relationships.
+
+**PRD Reference:** §5.1 (data model), ADR-006
+**Branch:** `object-centric-ux`
+
+| # | Task | Files | Description |
+|---|------|-------|-------------|
+| PGT.1 | Create new collections migration | `backend/migrations/017_pgt_collections.py` | Create `ontology_object_properties`, `ontology_datatype_properties` (vertex), `rdfs_domain`, `rdfs_range_class` (edge). |
+| PGT.2 | Update Pydantic models | `backend/app/models/ontology.py` | Replace `ExtractedProperty` with `ExtractedAttribute` (`label`, `range_datatype`, `description`, `confidence`) and `ExtractedRelationship` (`label`, `target_class_uri`, `description`, `confidence`). Update `ExtractedClass` to have `attributes` + `relationships` instead of `properties`. |
+| PGT.3 | Update extraction prompt | `backend/app/extraction/prompts/tier1_standard.py`, `tier2/tier2_standard.py` | Split `properties` array into `attributes` (datatype) and `relationships` (object). Clear guidance to LLM on the distinction. |
+| PGT.4 | Update consistency checker | `backend/app/extraction/agents/consistency.py` | Merge attributes and relationships separately across passes. Property agreement computed per type. |
+| PGT.5 | Update materialization | `backend/app/services/extraction.py` | Write to `ontology_object_properties` + `ontology_datatype_properties`. Create `rdfs_domain` + `rdfs_range_class` edges. Remove `has_property` + `related_to` creation. |
+| PGT.6 | Update quality metrics | `backend/app/services/quality_metrics.py`, `confidence.py` | Connectivity queries use `rdfs_range_class`. Completeness uses `rdfs_domain`. OntoQA metrics updated. |
+| PGT.7 | Update import bridge | `backend/app/services/arangordf_bridge.py` | Map PGT collections (`owl_ObjectProperty` → `ontology_object_properties`). Post-import creates `rdfs_domain`/`rdfs_range_class` edges. |
+| PGT.8 | Data migration script | `backend/migrations/018_migrate_properties.py` | Migrate existing `ontology_properties` → split collections. Convert `has_property` → `rdfs_domain`. Convert `related_to` → `rdfs_range_class`. |
+| PGT.9 | Update graph visualization | `frontend/src/components/graph/GraphCanvas.tsx` | Render object properties as labeled edges via `rdfs_domain`→`rdfs_range_class` traversal. Update edge type handling. |
+| PGT.10 | Update API endpoints | `backend/app/api/ontology.py` | Class detail returns attributes + relationships separately. Edge listing uses new collections. Export uses new collections. |
+| PGT.11 | Update named graphs | `backend/app/services/ontology_graphs.py` | Edge definitions use `rdfs_domain`, `rdfs_range_class` instead of `has_property`, `related_to`. |
+| PGT.12 | Update tests | All test files referencing `ontology_properties`, `has_property`, `related_to` | Adapt to new collection names and query patterns. |
+
+**Sprint PGT exit:** Extracted and imported ontologies share the same schema. ObjectProperty and DatatypeProperty stored in separate collections. Domain/range expressed as graph edges. Extraction prompt clearly distinguishes attributes from relationships.
 
 ---
 

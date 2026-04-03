@@ -633,7 +633,9 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 | Collection | Purpose | Key Fields |
 |------------|---------|------------|
 | `ontology_classes` | Versioned `owl:Class` / `rdfs:Class` / `skos:Concept` instances | `_key`, `uri`, `rdf_type` (owl:Class\|skos:Concept), `label`, `description`, `tier` (domain\|local), `ontology_id` (FK to registry), `org_id`, `status` (draft\|approved\|deprecated), `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
-| `ontology_properties` | Versioned `owl:ObjectProperty` / `owl:DatatypeProperty` instances | `_key`, `uri`, `rdf_type`, `label`, `domain_class` (denormalized from `has_property` edge for query convenience), `range` (URI or datatype), `ontology_id`, `tier`, `status`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
+| `ontology_object_properties` | Versioned `owl:ObjectProperty` instances (inter-class relationships). See ADR-006. | `_key`, `uri`, `label`, `description`, `ontology_id`, `confidence`, `status`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
+| `ontology_datatype_properties` | Versioned `owl:DatatypeProperty` instances (class attributes). See ADR-006. | `_key`, `uri`, `label`, `description`, `range_datatype` (e.g., `xsd:string`, `xsd:integer`), `ontology_id`, `confidence`, `status`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
+| ~~`ontology_properties`~~ | **Deprecated** — replaced by `ontology_object_properties` + `ontology_datatype_properties` per ADR-006. Retained temporarily during migration. | |
 | `ontology_constraints` | Versioned OWL restrictions and SHACL shapes | `_key`, `ontology_id`, `constraint_type` (owl:Restriction\|sh:NodeShape\|sh:PropertyShape), `property_id`, `on_class` (target class), `restriction_type` (owl:allValuesFrom\|owl:someValuesFrom\|owl:minCardinality\|owl:maxCardinality\|owl:hasValue), `restriction_value`, `shape_uri`, `severity` (sh:Violation\|sh:Warning\|sh:Info), `sh_path`, `sh_datatype`, `sh_min_count`, `sh_max_count`, `sh_pattern`, `sh_in`, `message`, `created`, `expired`, `ttlExpireAt` |
 
 #### Edge Collections (Temporal — All Edges Carry `created`/`expired`)
@@ -642,7 +644,10 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 |------------|-----------|---------|
 | `subclass_of` | `ontology_classes` → `ontology_classes` | `rdfs:subClassOf` / `skos:broader` hierarchy |
 | `equivalent_class` | `ontology_classes` → `ontology_classes` | `owl:equivalentClass` / `skos:exactMatch` mappings |
-| `has_property` | `ontology_classes` → `ontology_properties` | `rdfs:domain` — class → property associations |
+| `rdfs_domain` | `ontology_object_properties` OR `ontology_datatype_properties` → `ontology_classes` | Links a property to its domain class. Replaces `has_property`. See ADR-006. |
+| `rdfs_range_class` | `ontology_object_properties` → `ontology_classes` | Links an object property to its range class. Together with `rdfs_domain`, enables class→property→class traversal. Replaces `related_to`. See ADR-006. |
+| ~~`has_property`~~ | ~~`ontology_classes` → `ontology_properties`~~ | **Deprecated** — replaced by `rdfs_domain`. See ADR-006. |
+| ~~`related_to`~~ | ~~`ontology_classes` → `ontology_classes`~~ | **Deprecated** — replaced by `rdfs_domain` → ObjectProperty → `rdfs_range_class` traversal. See ADR-006. |
 | `extends_domain` | `ontology_classes` (local) → `ontology_classes` (domain) | Tier 2 → Tier 1 linkage (specialization via `rdfs:subClassOf` or `skos:narrower`) |
 | `extracted_from` | `ontology_classes` → `documents` | Provenance: which source document produced this class (links to the document, not individual chunks) |
 | `has_chunk` | `documents` → `chunks` | Links source documents to their semantic text chunks (process graph) |

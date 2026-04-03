@@ -101,6 +101,26 @@ class ExtractionClassification(StrEnum):
     NEW = "new"
 
 
+class ExtractedAttribute(BaseModel):
+    """A datatype property (class attribute) extracted by the LLM."""
+
+    uri: str
+    label: str
+    description: str = ""
+    range_datatype: str = "xsd:string"
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+
+
+class ExtractedRelationship(BaseModel):
+    """An object property (inter-class relationship) extracted by the LLM."""
+
+    uri: str
+    label: str
+    description: str = ""
+    target_class_uri: str
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+
+
 class ExtractedClass(BaseModel):
     """Pydantic model for LLM extraction output — a single ontology class."""
 
@@ -111,11 +131,18 @@ class ExtractedClass(BaseModel):
     parent_domain_uri: str | None = None
     classification: ExtractionClassification = ExtractionClassification.NEW
     confidence: float = Field(ge=0.0, le=1.0)
+    # Legacy field — kept for backward compat during migration
+    properties: list["ExtractedProperty"] = []
+    # PGT-aligned fields (ADR-006)
+    attributes: list[ExtractedAttribute] = []
+    relationships: list[ExtractedRelationship] = []
+    # Quality signals
     llm_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     faithfulness_score: float = Field(default=0.5, ge=0.0, le=1.0)
     semantic_validity_score: float = Field(default=0.8, ge=0.0, le=1.0)
     property_agreement: float = Field(default=1.0, ge=0.0, le=1.0)
-    properties: list["ExtractedProperty"] = []
+    attribute_agreement: float = Field(default=1.0, ge=0.0, le=1.0)
+    relationship_agreement: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class ExtractedProperty(BaseModel):

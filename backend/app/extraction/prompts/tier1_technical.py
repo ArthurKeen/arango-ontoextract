@@ -20,13 +20,21 @@ You MUST output valid JSON matching the following schema exactly:
       "parent_uri": "string | null (URI of parent class via rdfs:subClassOf)",
       "classification": "new | existing | extension",
       "confidence": 0.0-1.0,
-      "properties": [
+      "attributes": [
         {{
-          "uri": "string (namespace#propertyName)",
+          "uri": "string (namespace#attributeName)",
           "label": "string",
           "description": "string",
-          "property_type": "datatype | object",
-          "range": "string (target class URI or XSD datatype)",
+          "range_datatype": "string (XSD type: xsd:string, xsd:integer, xsd:date, xsd:boolean, xsd:decimal, xsd:dateTime, xsd:float, xsd:anyURI)",
+          "confidence": 0.0-1.0
+        }}
+      ],
+      "relationships": [
+        {{
+          "uri": "string (namespace#relationshipName)",
+          "label": "string (verb phrase, e.g., 'holds', 'contains', 'is managed by')",
+          "description": "string",
+          "target_class_uri": "string (MUST be the URI of another class in this response)",
           "confidence": 0.0-1.0
         }}
       ]
@@ -41,8 +49,11 @@ Guidelines:
 - Extract precise technical definitions, not general descriptions
 - Use the document's own terminology for labels
 - Identify constraints and cardinality where stated
-- Differentiate between object properties (links to classes) and datatype \
-properties (links to XSD types)
+- Extract ATTRIBUTES and RELATIONSHIPS separately for each class:
+  * "attributes" = owl:DatatypeProperty — scalar values (XSD types). Use for \
+    quantities, identifiers, dates, names, and other literal values
+  * "relationships" = owl:ObjectProperty — connections between classes. The \
+    target_class_uri MUST be the URI of another class in this response
 - Assign higher confidence to concepts explicitly defined in the document
 - For standards documents, preserve section/clause references in descriptions"""
 

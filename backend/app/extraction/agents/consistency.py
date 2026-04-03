@@ -8,7 +8,13 @@ from collections import Counter
 
 from app.config import settings
 from app.extraction.state import ExtractionPipelineState, StepLog
-from app.models.ontology import ExtractedClass, ExtractedProperty, ExtractionResult
+from app.models.ontology import (
+    ExtractedAttribute,
+    ExtractedClass,
+    ExtractedProperty,
+    ExtractedRelationship,
+    ExtractionResult,
+)
 from app.services.confidence import _property_agreement_score
 
 log = logging.getLogger(__name__)
@@ -27,6 +33,16 @@ def _class_key(cls: ExtractedClass) -> str:
 def _property_key(prop: ExtractedProperty) -> str:
     """Canonical key for matching properties across passes."""
     return prop.uri.strip().lower()
+
+
+def _attribute_key(attr: ExtractedAttribute) -> str:
+    """Canonical key for matching attributes across passes."""
+    return attr.uri.strip().lower()
+
+
+def _relationship_key(rel: ExtractedRelationship) -> str:
+    """Canonical key for matching relationships across passes."""
+    return rel.uri.strip().lower()
 
 
 def _merge_descriptions(descriptions: list[str]) -> str:
@@ -61,6 +77,93 @@ def _merge_properties(
             )
         )
     return merged
+
+
+def _merge_attributes(
+    attribute_lists: list[list[ExtractedAttribute]],
+) -> list[ExtractedAttribute]:
+    """Union attributes across passes, averaging confidence for duplicates."""
+    seen: dict[str, list[ExtractedAttribute]] = {}
+    for attr_list in attribute_lists:
+        for attr in attr_list:
+            key = _attribute_key(attr)
+            seen.setdefault(key, []).append(attr)
+
+    merged: list[ExtractedAttribute] = []
+    for _key, attrs in seen.items():
+        best = max(attrs, key=lambda a: len(a.description))
+        avg_confidence = sum(_clamp_confidence(a.confidence) for a in attrs) / len(attrs)
+        merged.append(
+            ExtractedAttribute(
+                uri=best.uri,
+                label=best.label,
+                description=best.description,
+                range_datatype=best.range_datatype,
+                confidence=round(_clamp_confidence(avg_confidence), 3),
+            )
+        )
+    return merged
+
+
+def _merge_relationships(
+    relationship_lists: list[list[ExtractedRelationship]],
+) -> list[ExtractedRelationship]:
+    """Union relationships across passes, averaging confidence for duplicates."""
+    seen: dict[str, list[ExtractedRelationship]] = {}
+    for rel_list in relationship_lists:
+        for rel in rel_list:
+            key = _relationship_key(rel)
+            seen.setdefault(key, []).append(rel)
+
+    merged: list[ExtractedRelationship] = []
+    for _key, rels in seen.items():
+        best = max(rels, key=lambda r: len(r.description))
+        avg_confidence = sum(_clamp_confidence(r.confidence) for r in rels) / len(rels)
+        merged.append(
+            ExtractedRelationship(
+                uri=best.uri,
+                label=best.label,
+                description=best.description,
+                target_class_uri=best.target_class_uri,
+                confidence=round(_clamp_confidence(avg_confidence), 3),
+            )
+        )
+    return merged
+
+
+def _convert_properties_to_pgt(
+    properties: list[ExtractedProperty],
+) -> tuple[list[ExtractedAttribute], list[ExtractedRelationship]]:
+    """Convert legacy ExtractedProperty list to PGT-aligned attributes and relationships.
+
+    Uses a simple heuristic: property_type == "object", or range starts with
+    "http", or range contains "#" → relationship.  Everything else → attribute.
+    """
+    attributes: list[ExtractedAttribute] = []
+    relationships: list[ExtractedRelationship] = []
+    for prop in properties:
+        is_object = (
+            prop.property_type == "object"
+            or prop.range.startswith("http")
+            or "#" in prop.range
+        )
+        if is_object:
+            relationships.append(ExtractedRelationship(
+                uri=prop.uri,
+                label=prop.label,
+                description=prop.description,
+                target_class_uri=prop.range,
+                confidence=prop.confidence,
+            ))
+        else:
+            attributes.append(ExtractedAttribute(
+                uri=prop.uri,
+                label=prop.label,
+                description=prop.description,
+                range_datatype=prop.range,
+                confidence=prop.confidence,
+            ))
+    return attributes, relationships
 
 
 def consistency_checker_node(state: ExtractionPipelineState) -> dict:
@@ -130,13 +233,43 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
         descriptions = [v.description for v in variants]
         merged_desc = _merge_descriptions(descriptions)
 
+        # Collect PGT-aligned attributes/relationships per variant,
+        # converting legacy properties when the new fields are absent.
+        all_attribute_lists: list[list[ExtractedAttribute]] = []
+        all_relationship_lists: list[list[ExtractedRelationship]] = []
+        for v in variants:
+            if v.attributes or v.relationships:
+                all_attribute_lists.append(v.attributes)
+                all_relationship_lists.append(v.relationships)
+            elif v.properties:
+                attrs, rels = _convert_properties_to_pgt(v.properties)
+                all_attribute_lists.append(attrs)
+                all_relationship_lists.append(rels)
+            else:
+                all_attribute_lists.append([])
+                all_relationship_lists.append([])
+
+        merged_attributes = _merge_attributes(all_attribute_lists)
+        merged_relationships = _merge_relationships(all_relationship_lists)
+
+        # Keep legacy merged properties for backward compat
         all_property_lists = [v.properties for v in variants]
         merged_props = _merge_properties(all_property_lists)
 
-        prop_uris_per_pass: list[set[str]] = [
-            {_property_key(p) for p in v.properties} for v in variants
+        # Per-type agreement scores (Jaccard of URIs across passes)
+        attr_uris_per_pass = [
+            {_attribute_key(a) for a in attrs} for attrs in all_attribute_lists
         ]
-        prop_agreement = round(_property_agreement_score(prop_uris_per_pass), 3)
+        rel_uris_per_pass = [
+            {_relationship_key(r) for r in rels} for rels in all_relationship_lists
+        ]
+        combined_uris_per_pass = [
+            au | ru for au, ru in zip(attr_uris_per_pass, rel_uris_per_pass)
+        ]
+
+        attr_agreement = round(_property_agreement_score(attr_uris_per_pass), 3)
+        rel_agreement = round(_property_agreement_score(rel_uris_per_pass), 3)
+        prop_agreement = round(_property_agreement_score(combined_uris_per_pass), 3)
 
         best_variant = max(variants, key=lambda v: len(v.description))
         parent_uris = [v.parent_uri for v in variants if v.parent_uri]
@@ -159,7 +292,11 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
                 confidence=round(agreement_ratio, 3),
                 llm_confidence=round(_clamp_confidence(avg_llm_confidence), 3),
                 property_agreement=round(_clamp_confidence(prop_agreement), 3),
+                attribute_agreement=round(_clamp_confidence(attr_agreement), 3),
+                relationship_agreement=round(_clamp_confidence(rel_agreement), 3),
                 properties=merged_props,
+                attributes=merged_attributes,
+                relationships=merged_relationships,
             )
         )
 

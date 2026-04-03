@@ -223,7 +223,8 @@ async def execute_run(
         consistency = final_state.get("consistency_result")
         classes_extracted = len(consistency.classes) if consistency else 0
         properties_extracted = (
-            sum(len(c.properties) for c in consistency.classes) if consistency else 0
+            sum(_count_class_properties(c) for c in consistency.classes)
+            if consistency else 0
         )
         pass_results = final_state.get("extraction_passes", [])
         pass_agreement_rate = _compute_agreement_rate(pass_results) if pass_results else 0.0
@@ -637,6 +638,23 @@ def _store_results(
 
 NEVER_EXPIRES: int = sys.maxsize
 
+
+def _count_class_properties(cls: Any) -> int:
+    """Count total properties (attributes + relationships), with legacy fallback."""
+    if hasattr(cls, "attributes"):
+        n = len(cls.attributes) + len(cls.relationships)
+        if n > 0:
+            return n
+        return len(cls.properties)
+    if isinstance(cls, dict):
+        attrs = cls.get("attributes", [])
+        rels = cls.get("relationships", [])
+        if attrs or rels:
+            return len(attrs) + len(rels)
+        return len(cls.get("properties", []))
+    return 0
+
+
 _XSD_TYPES = {
     "xsd:string", "xsd:integer", "xsd:int", "xsd:decimal", "xsd:float",
     "xsd:double", "xsd:boolean", "xsd:date", "xsd:dateTime", "xsd:time",
@@ -692,27 +710,40 @@ def _materialize_to_graph(
     faithfulness_scores: dict[str, float] | None = None,
     validity_scores: dict[str, float] | None = None,
 ) -> None:
-    """Write extracted classes/properties into graph collections with edges."""
+    """Write extracted classes/properties into PGT-aligned graph collections.
+
+    Attributes  → ``ontology_datatype_properties`` + ``rdfs_domain`` edges
+    Relationships → ``ontology_object_properties`` + ``rdfs_domain`` + ``rdfs_range_class`` edges
+
+    Backward compat: if a class has only legacy ``properties`` (no ``attributes``
+    / ``relationships``), they are split using ``_is_object_property()``.
+    """
     now = time.time()
     classes = result.classes if hasattr(result, "classes") else result.get("classes", [])
 
-    edge_collections = ("has_property", "subclass_of", "related_to",
-                         "extracted_from", "has_chunk", "produced_by")
-    for col_name in ("ontology_classes", "ontology_properties", *edge_collections):
+    vertex_collections = (
+        "ontology_classes", "ontology_datatype_properties", "ontology_object_properties",
+    )
+    edge_collections = (
+        "rdfs_domain", "rdfs_range_class", "subclass_of",
+        "extracted_from", "has_chunk", "produced_by",
+    )
+    for col_name in (*vertex_collections, *edge_collections):
         if not db.has_collection(col_name):
             db.create_collection(col_name, edge=(col_name in edge_collections))
 
     cls_col = db.collection("ontology_classes")
-    prop_col = db.collection("ontology_properties")
-    has_prop_col = db.collection("has_property")
+    dt_prop_col = db.collection("ontology_datatype_properties")
+    obj_prop_col = db.collection("ontology_object_properties")
+    rdfs_domain_col = db.collection("rdfs_domain")
+    rdfs_range_col = db.collection("rdfs_range_class")
     extracted_col = db.collection("extracted_from")
     subclass_col = db.collection("subclass_of")
-    related_col = db.collection("related_to")
 
     class_keys: dict[str, str] = {}
     uri_to_key: dict[str, str] = {}
     class_parent_uris: list[tuple[str, str]] = []
-    deferred_relationships: list[tuple[str, str, str, str]] = []
+    deferred_rels: list[dict[str, Any]] = []
 
     for cls in classes:
         cls_data = cls.model_dump() if hasattr(cls, "model_dump") else dict(cls)
@@ -745,46 +776,82 @@ def _materialize_to_graph(
         if parent_uri:
             class_parent_uris.append((key, parent_uri))
 
-        props = cls_data.get("properties", [])
-        for prop in props:
-            prop_label = prop.get("label", "unknown_prop")
-            prop_key = f"{key}_{prop_label.replace(' ', '_').lower()}"
+        # --- PGT-aligned property handling ---
+        attributes: list[dict[str, Any]] = cls_data.get("attributes", [])
+        relationships: list[dict[str, Any]] = cls_data.get("relationships", [])
+
+        # Backward compat: split legacy properties when PGT fields are absent
+        if not attributes and not relationships:
+            for prop in cls_data.get("properties", []):
+                prop_range = prop.get("range", "xsd:string")
+                prop_type = prop.get("property_type", "")
+                if _is_object_property(prop_range, prop_type, uri_to_key, class_keys):
+                    relationships.append({
+                        "uri": prop.get("uri", ""),
+                        "label": prop.get("label", ""),
+                        "description": prop.get("description", ""),
+                        "target_class_uri": prop_range,
+                        "confidence": prop.get("confidence", 0.0),
+                    })
+                else:
+                    attributes.append({
+                        "uri": prop.get("uri", ""),
+                        "label": prop.get("label", ""),
+                        "description": prop.get("description", ""),
+                        "range_datatype": prop_range,
+                        "confidence": prop.get("confidence", 0.0),
+                    })
+
+        # Attributes → ontology_datatype_properties + rdfs_domain
+        for attr in attributes:
+            attr_label = attr.get("label", "unknown_attr")
+            prop_key = f"{key}_{attr_label.replace(' ', '_').lower()}"
+            attr_uri = (
+                attr.get("uri")
+                or f"{uri.rsplit('#', 1)[0]}#{attr_label.replace(' ', '')}"
+            )
             prop_doc = {
                 "_key": prop_key,
-                "label": prop_label,
-                "uri": f"{uri.rsplit('#', 1)[0]}#{prop_label.replace(' ', '')}",
-                "description": prop.get("description", ""),
-                "domain_class": key,
-                "range": prop.get("range", "xsd:string"),
+                "uri": attr_uri,
+                "label": attr_label,
+                "description": attr.get("description", ""),
+                "range_datatype": attr.get("range_datatype", "xsd:string"),
                 "ontology_id": ontology_id,
-                "confidence": prop.get("confidence", 0.0),
-                "rdf_type": _infer_property_type(
-                    prop.get("range", ""),
-                    prop.get("property_type", ""),
-                    uri_to_key,
-                    class_keys,
-                ),
+                "confidence": attr.get("confidence", 0.0),
                 "created": now,
                 "expired": NEVER_EXPIRES,
             }
             try:
-                prop_col.insert(prop_doc, overwrite=True)
+                dt_prop_col.insert(prop_doc, overwrite=True)
             except Exception as exc:
-                log.warning("property insert failed for %s: %s", prop_key, exc)
+                log.warning("datatype property insert failed for %s: %s", prop_key, exc)
 
             with contextlib.suppress(Exception):
-                has_prop_col.insert({
-                    "_from": f"ontology_classes/{key}",
-                    "_to": f"ontology_properties/{prop_key}",
+                rdfs_domain_col.insert({
+                    "_from": f"ontology_datatype_properties/{prop_key}",
+                    "_to": f"ontology_classes/{key}",
                     "ontology_id": ontology_id,
                     "created": now,
                     "expired": NEVER_EXPIRES,
                 })
 
-            prop_range = prop.get("range", "")
-            prop_type = prop.get("property_type", "")
-            if _is_object_property(prop_range, prop_type, uri_to_key, class_keys):
-                deferred_relationships.append((key, prop_label, prop_key, prop_range))
+        # Collect relationships for deferred processing (need all class_keys first)
+        for rel in relationships:
+            rel_label = rel.get("label", "unknown_rel")
+            prop_key = f"{key}_{rel_label.replace(' ', '_').lower()}"
+            rel_uri = (
+                rel.get("uri")
+                or f"{uri.rsplit('#', 1)[0]}#{rel_label.replace(' ', '')}"
+            )
+            deferred_rels.append({
+                "domain_key": key,
+                "prop_key": prop_key,
+                "uri": rel_uri,
+                "label": rel_label,
+                "description": rel.get("description", ""),
+                "target_class_uri": rel.get("target_class_uri", ""),
+                "confidence": rel.get("confidence", 0.0),
+            })
 
         with contextlib.suppress(Exception):
             extracted_col.insert({
@@ -796,6 +863,7 @@ def _materialize_to_graph(
                 "expired": NEVER_EXPIRES,
             })
 
+    # subclass_of edges
     for child_key, parent_uri in class_parent_uris:
         parent_key = uri_to_key.get(parent_uri)
         if not parent_key:
@@ -813,26 +881,57 @@ def _materialize_to_graph(
         elif parent_key == child_key:
             log.warning("skipping self-referential subclass_of: %s", child_key)
 
-    for domain_key, prop_label, prop_key, prop_range in deferred_relationships:
-        range_frag = prop_range.split("#")[-1].split("/")[-1]
+    # Deferred relationships → ontology_object_properties + rdfs_domain + rdfs_range_class
+    for rel in deferred_rels:
+        target_uri = rel["target_class_uri"]
+        range_frag = target_uri.split("#")[-1].split("/")[-1]
         range_class_key = (
-            uri_to_key.get(prop_range)
+            uri_to_key.get(target_uri)
             or class_keys.get(range_frag)
-            or class_keys.get(prop_range)
+            or class_keys.get(target_uri)
         )
-        if range_class_key and range_class_key != domain_key:
+
+        prop_key = rel["prop_key"]
+        prop_doc = {
+            "_key": prop_key,
+            "uri": rel["uri"],
+            "label": rel["label"],
+            "description": rel["description"],
+            "ontology_id": ontology_id,
+            "confidence": rel["confidence"],
+            "created": now,
+            "expired": NEVER_EXPIRES,
+        }
+        try:
+            obj_prop_col.insert(prop_doc, overwrite=True)
+        except Exception as exc:
+            log.warning("object property insert failed for %s: %s", prop_key, exc)
+
+        domain_key = rel["domain_key"]
+        with contextlib.suppress(Exception):
+            rdfs_domain_col.insert({
+                "_from": f"ontology_object_properties/{prop_key}",
+                "_to": f"ontology_classes/{domain_key}",
+                "ontology_id": ontology_id,
+                "created": now,
+                "expired": NEVER_EXPIRES,
+            })
+
+        if range_class_key:
             with contextlib.suppress(Exception):
-                related_col.insert({
-                    "_from": f"ontology_classes/{domain_key}",
+                rdfs_range_col.insert({
+                    "_from": f"ontology_object_properties/{prop_key}",
                     "_to": f"ontology_classes/{range_class_key}",
-                    "label": prop_label,
-                    "property_key": prop_key,
                     "ontology_id": ontology_id,
                     "created": now,
                     "expired": NEVER_EXPIRES,
                 })
 
-    has_chunk_col = db.collection("has_chunk")
+    # has_chunk edges
+    if db.has_collection("has_chunk"):
+        has_chunk_col = db.collection("has_chunk")
+    else:
+        has_chunk_col = db.create_collection("has_chunk", edge=True)
     if db.has_collection("chunks"):
         chunk_docs = list(run_aql(db,
             "FOR c IN chunks FILTER c.doc_id == @doc_id RETURN c._key",
@@ -881,16 +980,9 @@ def _recompute_multi_signal_confidence(
     Runs AFTER all classes, properties, and edges have been materialized so
     that structural connectivity is fully available.
 
-    Parameters
-    ----------
-    faithfulness_scores:
-        Per-class URI → faithfulness score from the LLM judge. Defaults to
-        the class's ``llm_confidence`` when not available.
-    validity_scores:
-        Per-class URI → semantic validity score from the validator.
-    property_agreement_scores:
-        Per-class URI → cross-pass property agreement (Jaccard). Falls back
-        to the ``property_agreement`` field on the class model.
+    Uses ``rdfs_domain`` to count properties per class (split by source
+    collection) and ``rdfs_range_class`` / ``extends_domain`` for lateral
+    connectivity.
     """
     if faithfulness_scores is None:
         faithfulness_scores = {}
@@ -900,12 +992,11 @@ def _recompute_multi_signal_confidence(
         property_agreement_scores = {}
 
     cls_col = db.collection("ontology_classes")
-    db.collection("ontology_properties")
-    has_prop_col = db.collection("has_property")
     subclass_col = db.collection("subclass_of")
     extracted_col = db.collection("extracted_from")
 
-    has_related = db.has_collection("related_to")
+    has_rdfs_domain = db.has_collection("rdfs_domain")
+    has_rdfs_range = db.has_collection("rdfs_range_class")
     has_extends = db.has_collection("extends_domain")
 
     all_descriptions: list[str] = []
@@ -933,26 +1024,26 @@ def _recompute_multi_signal_confidence(
             uri, cls_data.get("property_agreement", 1.0),
         )
 
-        prop_type_counts = list(run_aql(db,
-            "FOR e IN @@hp FILTER e._from == @cls_id AND e.ontology_id == @oid "
-            "LET prop = DOCUMENT(e._to) "
-            "COLLECT rdf = prop.rdf_type WITH COUNT INTO cnt "
-            "RETURN {rdf, cnt}",
-            bind_vars={
-                "@hp": has_prop_col.name,
-                "cls_id": class_id,
-                "oid": ontology_id,
-            },
-        ))
+        # Count properties via rdfs_domain edges pointing TO this class,
+        # grouped by source collection (datatype vs object).
         datatype_count = 0
         object_count = 0
-        for row in prop_type_counts:
-            rdf = row.get("rdf", "")
-            cnt = row.get("cnt", 0)
-            if rdf == "owl:ObjectProperty":
-                object_count += cnt
-            else:
-                datatype_count += cnt
+        if has_rdfs_domain:
+            prop_type_counts = list(run_aql(db,
+                "FOR e IN rdfs_domain "
+                "FILTER e._to == @cls_id AND e.ontology_id == @oid "
+                "LET col = PARSE_IDENTIFIER(e._from).collection "
+                "COLLECT type = col WITH COUNT INTO cnt "
+                "RETURN {type, cnt}",
+                bind_vars={"cls_id": class_id, "oid": ontology_id},
+            ))
+            for row in prop_type_counts:
+                t = row.get("type", "")
+                cnt = row.get("cnt", 0)
+                if t == "ontology_object_properties":
+                    object_count += cnt
+                elif t == "ontology_datatype_properties":
+                    datatype_count += cnt
 
         has_parent = bool(list(run_aql(db,
             "FOR e IN @@col FILTER e._from == @cls_id AND e.ontology_id == @oid "
@@ -974,12 +1065,13 @@ def _recompute_multi_signal_confidence(
             },
         )))
 
-        has_lateral = False
-        if has_related:
+        # Lateral connectivity: class is domain of an object property, or
+        # range of one, or linked via extends_domain.
+        has_lateral = object_count > 0
+        if not has_lateral and has_rdfs_range:
             has_lateral = bool(list(run_aql(db,
-                "FOR e IN related_to "
-                "FILTER (e._from == @cls_id OR e._to == @cls_id) "
-                "AND e.ontology_id == @oid "
+                "FOR e IN rdfs_range_class "
+                "FILTER e._to == @cls_id AND e.ontology_id == @oid "
                 "LIMIT 1 RETURN true",
                 bind_vars={"cls_id": class_id, "oid": ontology_id},
             )))
@@ -1080,10 +1172,7 @@ def _update_existing_ontology(
 
         classes = result.classes if hasattr(result, "classes") else result.get("classes", [])
         new_class_count = len(classes)
-        new_prop_count = sum(
-            len(c.properties if hasattr(c, "properties") else c.get("properties", []))
-            for c in classes
-        )
+        new_prop_count = sum(_count_class_properties(c) for c in classes)
 
         registry_repo.update_registry_entry(ontology_id, {
             "class_count": entry.get("class_count", 0) + new_class_count,
@@ -1128,10 +1217,7 @@ def _auto_register_ontology(
             "source_document_id": document_id,
             "extraction_run_id": run_id,
             "class_count": class_count,
-            "property_count": sum(
-                len(c.properties if hasattr(c, "properties") else c.get("properties", []))
-                for c in classes
-            ),
+            "property_count": sum(_count_class_properties(c) for c in classes),
             "namespace": "http://example.org/ontology#",
         })
         ontology_id = entry.get("_key", run_id)

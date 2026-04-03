@@ -40,13 +40,21 @@ You MUST output valid JSON matching the following schema exactly:
       "parent_domain_uri": "string | null (domain class URI for EXTENSION entities)",
       "classification": "existing | extension | new",
       "confidence": 0.0-1.0,
-      "properties": [
+      "attributes": [
         {{
-          "uri": "string (namespace#propertyName)",
+          "uri": "string (namespace#attributeName)",
           "label": "string",
           "description": "string",
-          "property_type": "datatype | object",
-          "range": "string (target class URI or XSD datatype)",
+          "range_datatype": "string (XSD type: xsd:string, xsd:integer, xsd:date, xsd:boolean, xsd:decimal, xsd:dateTime, xsd:float, xsd:anyURI)",
+          "confidence": 0.0-1.0
+        }}
+      ],
+      "relationships": [
+        {{
+          "uri": "string (namespace#relationshipName)",
+          "label": "string (verb phrase, e.g., 'holds', 'contains', 'is managed by')",
+          "description": "string",
+          "target_class_uri": "string (MUST be the URI of another class in this response)",
           "confidence": 0.0-1.0
         }}
       ]
@@ -58,11 +66,17 @@ You MUST output valid JSON matching the following schema exactly:
 
 Guidelines:
 - EXISTING entities: set classification to "existing", set parent_domain_uri \
-to the matching domain class URI. Only extract if the text adds new properties.
+to the matching domain class URI. Only extract if the text adds new attributes \
+or relationships.
 - EXTENSION entities: set classification to "extension", set parent_domain_uri \
 to the domain class being specialized. Set parent_uri to the same if it's a \
 direct subclass.
 - NEW entities: set classification to "new", parent_domain_uri should be null.
+- Extract ATTRIBUTES and RELATIONSHIPS separately for each class:
+  * "attributes" = owl:DatatypeProperty — scalar values like name, date, amount. \
+    The range_datatype is always an XSD type
+  * "relationships" = owl:ObjectProperty — connections between classes. The \
+    target_class_uri MUST be the URI of another class in this response
 - Prefer reusing domain concepts over creating new ones.
 - Use consistent URI namespaces (e.g., http://example.org/local#ClassName).
 - Assign confidence: 1.0 for explicitly stated, lower for inferred."""

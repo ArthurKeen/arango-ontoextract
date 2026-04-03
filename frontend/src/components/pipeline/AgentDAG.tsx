@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect, useRef } from "react";
 import ReactFlow, {
   type Node,
   type Edge,
   type NodeProps,
+  type ReactFlowInstance,
   Position,
   Handle,
   Background,
@@ -163,9 +164,18 @@ export default function AgentDAG({ steps }: AgentDAGProps) {
     return { nodes: flowNodes, edges: flowEdges };
   }, [steps]);
 
-  const onInit = useCallback((instance: { fitView: (opts?: Record<string, unknown>) => void }) => {
+  const rfInstance = useRef<ReactFlowInstance | null>(null);
+
+  const onInit = useCallback((instance: ReactFlowInstance) => {
+    rfInstance.current = instance;
     setTimeout(() => instance.fitView({ padding: 0.15 }), 50);
   }, []);
+
+  useEffect(() => {
+    if (rfInstance.current) {
+      setTimeout(() => rfInstance.current?.fitView({ padding: 0.15 }), 100);
+    }
+  }, [nodes]);
 
   return (
     <div className="w-full h-[580px]" data-testid="agent-dag">

@@ -1094,6 +1094,7 @@ This evolution should be planned as a separate phase after the current extractio
 | FR-4.14 | Context-menu driven architecture | All entity actions MUST be accessible via right-click context menus (`onContextMenu` events), eliminating the need to navigate to side panels or separate pages. Right-click on Class Node → [Edit Metadata, Approve/Reject, Create Relationship, Merge, View History]. Right-click on Edge → [Change Type, Reverse Direction, Delete, Approve]. Right-click on Canvas → [Add New Class, Add Document, Center View]. Right-click on Document (asset explorer) → [Extract to New Ontology, View Chunks, Delete]. |
 | FR-4.15 | Viewport lenses (display modes) | Instead of separate modes or tabs for curation vs. viewing, the central canvas supports instant toggleable "Lenses" that change node/edge styling dynamically: **Semantic Lens** (default, colors by OWL type), **Confidence Lens** (traffic-light by multi-signal score), **Curation Lens** (highlights staging/unapproved with pulsing borders), **Diff Lens** (green additions, red removals based on VCR position), **Source Lens** (colors by source_type: extraction/import/manual/foundation). |
 | FR-4.16 | Single-page workspace | All curation, editing, viewing, and quality workflows occur within a single unified workspace (`/workspace`) without page-to-page navigation. The graph canvas, asset explorer, detail panel, and VCR timeline are persistent zones. See §7.8 for full specification. |
+| FR-4.17 | Concurrent editing safety | Optimistic concurrency control: all write endpoints on versioned entities include a `version` field in the request. If the server's current version doesn't match, the request is rejected with `409 Conflict` and the response includes the current version. The UI detects conflicts and offers the user choices: reload (discard local changes), force overwrite, or merge. When two users have the same ontology open in the workspace, WebSocket broadcasts notify the other user of changes in real-time (entity_updated events). |
 
 ### 6.5 Temporal Time Travel & VCR Timeline (Ontology History)
 
@@ -2611,6 +2612,38 @@ The previous multi-page routes redirect to the workspace with appropriate contex
 | Audit logging | All curation decisions, promotions, and deletions logged with user + timestamp |
 | Data encryption | TLS in transit; ArangoDB encryption at rest |
 
+#### 8.3.1 Tenant Isolation (Multi-Tenancy)
+
+Every data collection MUST include an `org_id` field. All repository-layer queries MUST filter by `org_id` to prevent cross-tenant data leakage. Collections requiring `org_id` enforcement:
+
+| Collection | Current Status | Action Required |
+|-----------|---------------|-----------------|
+| `documents`, `chunks` | Has `org_id` | ✅ Enforced |
+| `ontology_classes` | Has `org_id` | ✅ Enforced |
+| `extraction_runs` | **Missing** `org_id` | Add field; filter all queries |
+| `curation_decisions` | **Missing** `org_id` | Add field; filter all queries |
+| `ontology_constraints` | **Missing** `org_id` | Add field; filter all queries |
+| `ontology_releases` | **Missing** `org_id` | Add field; filter all queries |
+| `quality_history` | **Missing** `org_id` | Add field; filter all queries |
+| `ontology_registry` | **Missing** `org_id` | Add field; filter all queries |
+
+**Tier 1 Domain Ontology Visibility:** Shared domain ontologies (Tier 1) have `visibility: "public"` and are readable by all orgs. Only users with `tier1_curator` permission can modify them. Tier 2 local ontologies have `visibility: "org-private"` and are isolated by `org_id`.
+
+**Enforcement:** A middleware or repository-layer decorator injects `org_id` from the authenticated user's JWT claims into every query. Direct AQL queries that bypass the repository layer MUST include an `org_id` filter or be explicitly marked as cross-tenant (e.g., admin endpoints).
+
+#### 8.3.2 Prompt Injection Defense
+
+Uploaded document content is sent to LLMs as part of extraction prompts. Maliciously crafted documents could contain prompt injection payloads.
+
+| Defense Layer | Implementation |
+|--------------|----------------|
+| Input delimitation | User-provided content always placed inside clearly delimited markers (`--- TEXT CHUNKS ---` / `--- END TEXT CHUNKS ---`) in prompts |
+| Output validation | LLM responses validated against Pydantic schemas (FR-11.4); responses that don't parse as valid JSON are rejected and retried |
+| Canary detection | If the LLM response contains suspicious patterns (e.g., includes text from the system prompt, references internal instructions), flag the extraction run for manual review |
+| Content scanning | Optional: pre-scan uploaded documents for known injection patterns before sending to LLM |
+
+This is documented as risk Q12 in §13.
+
 ### 8.4 Reliability
 
 | Requirement | Target |
@@ -2619,6 +2652,27 @@ The previous multi-page routes redirect to the workspace with appropriate contex
 | Data durability | ArangoDB replication factor ≥ 2 |
 | Pipeline failure recovery | Failed extraction runs retryable; partial results preserved |
 | Backup frequency | Daily automated backups with 30-day retention |
+
+#### 8.4.1 LLM Provider Resilience
+
+| Scenario | Response |
+|----------|----------|
+| Primary LLM returns error | Retry with exponential backoff (1s, 2s, 4s, max 3 retries) |
+| Primary LLM returns 5 consecutive errors | Circuit breaker opens; failover to secondary provider (GPT-4o ↔ Claude) |
+| Circuit breaker open duration | 60 seconds before half-open probe |
+| Full LLM outage (both providers) | Extraction requests queued with "LLM unavailable" status; UI shows degraded state banner; existing ontologies remain accessible |
+| Upstream rate limit (429) | Respect `Retry-After` header; queue subsequent requests; show "Rate limited" status on pipeline runs |
+| LLM model deprecation | `LLM_EXTRACTION_MODEL` config allows switching without code change; model version logged on every extraction run for reproducibility |
+
+#### 8.4.2 Cost Governance
+
+| Requirement | Implementation |
+|-------------|----------------|
+| Per-org monthly LLM budget | Configurable via admin API (`PUT /api/v1/orgs/{org_id}/budget`) with `monthly_llm_budget_usd` field |
+| Budget tracking | Running total of LLM costs per org per calendar month, computed from `extraction_runs.stats.token_usage` |
+| Alert at 80% | Notification sent to org admins when 80% of monthly budget consumed |
+| Hard cap at 100% | New extraction requests blocked with 402 Payment Required when budget exhausted; admin can override |
+| Budget dashboard | Budget usage displayed in pipeline monitor and admin settings |
 
 ### 8.5 Observability
 
@@ -2629,6 +2683,22 @@ The previous multi-page routes redirect to the workspace with appropriate contex
 | Tracing | OpenTelemetry spans across ingestion → extraction → storage |
 | Alerting | Alerts on: extraction failure rate > 10%, API error rate > 1%, queue backlog > 100 |
 | Health checks | `/health` and `/ready` endpoints |
+
+#### 8.5.1 Data Retention Policy
+
+| Collection | Retention | Rationale |
+|-----------|-----------|-----------|
+| `ontology_classes`, `ontology_object_properties`, `ontology_datatype_properties` (current versions) | Indefinite | Core data |
+| Historical versions (expired entities) | 90 days (configurable via `TEMPORAL_RETENTION_DAYS`) | TTL aging via `ttlExpireAt` field |
+| `curation_decisions` | Indefinite | Audit trail — regulatory requirement |
+| `extraction_runs` | 1 year, then archive to cold storage | Run metadata preserved; full `stats` blob archived |
+| `notifications` | 30 days for read notifications; 7 days for dismissed | TTL index on `read_at` |
+| `quality_history` | 1 year | Sufficient for trend analysis |
+| `similarTo` edges (ER) | Cleanup after merge decisions finalized | Batch cleanup job |
+| `golden_records` (ER) | Indefinite | Merge audit trail |
+| `documents`, `chunks` | Indefinite (user-managed via DELETE API) | Source material |
+
+A scheduled job (`RETENTION_CLEANUP_CRON`, default: daily at 02:00 UTC) enforces these policies.
 
 ### 8.6 Deployment & Infrastructure
 
@@ -3310,3 +3380,24 @@ A feature is not complete until:
 | **Cursor-Based Pagination** | Pagination using opaque cursors (tokens) rather than page numbers; more efficient for large result sets and concurrent inserts |
 | **Schema Migration** | A versioned, forward-only script that modifies the ArangoDB schema (adding collections, indexes, fields); tracked via `_system_meta` |
 | **ConfigurableERPipeline** | The main entry point of the `arango-entity-resolution` library — a config-driven pipeline with pluggable blocking, scoring, clustering, and merging stages |
+
+---
+
+## 13. Open Questions & Future Work
+
+Items identified during quality review that are not launch blockers but should be addressed for production maturity:
+
+| ID | Topic | Priority | Description |
+|----|-------|----------|-------------|
+| Q1 | MCP Authentication Model | High | API key issuance, rotation, revocation, org-scoping, and per-key rate limiting need detailed design. Current placeholder auth is insufficient for production MCP server exposure. |
+| Q2 | Curation → Extraction Feedback Loop | Medium | Curation decisions (accept/reject patterns) should feed back to improve future extraction quality — via prompt tuning recommendations, few-shot example injection, or strategy selector learning. Currently no closed loop exists. |
+| Q3 | WCAG 2.1 Accessibility | Medium | Graph visualization with color-coded nodes needs secondary indicators (icons, patterns) for colorblind users. All context menu actions need keyboard alternatives. ARIA attributes needed on interactive components. |
+| Q4 | Webhook / External Event API | Medium | External systems need to subscribe to AOE events (ontology published, extraction completed). Configurable webhook URLs with HMAC signing and retry logic. Enables CI/CD and Slack/Teams integration. |
+| Q5 | Internationalization (i18n) | Medium | Multi-language `rdfs:label` support for imported ontologies. Non-English document extraction. UI language selection. ArangoSearch multi-language analyzers. |
+| Q6 | Document Upload Limits | Medium | Max file size (100MB suggested), max page count, virus/malware scanning (ClamAV), per-org storage quota. |
+| Q7 | SPARQL Endpoint | Low | Read-only SPARQL endpoint for standard RDF tooling (Protégé, reasoners). Possible via Oxigraph sidecar or ArangoDB RDF adapter. |
+| Q8 | Git-Based Ontology Sync | Low | Export releases to Git repos for ontology-as-code workflows. Enable PR-based review on ontology changes. |
+| Q9 | Privacy / GDPR Compliance | Low | Right to erasure, data processing agreements with LLM providers, data residency requirements. User data deletion cascade through curation_decisions and notifications. |
+| Q10 | Tier 1 Governance Model | Medium | Formalize who can create/modify shared domain ontologies. Visibility model (`public` vs `org-private`). Deduplication of standard ontology imports across orgs. |
+| Q11 | Database Maintenance | Low | Periodic RocksDB compaction, WAL cleanup, storage monitoring. Heavy temporal versioning increases write amplification. |
+| Q12 | Prompt Injection Risk | High | Documented defense layers (input delimitation, output validation, canary detection) but no active scanning of uploaded documents for injection patterns. See §8.3.2. |

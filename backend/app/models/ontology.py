@@ -72,7 +72,10 @@ class CreatePropertyRequest(BaseModel):
 class CreateEdgeRequest(BaseModel):
     """Request body for creating or updating an edge between classes (K.5)."""
 
-    edge_type: Literal["subclass_of", "related_to", "extends_domain"]
+    edge_type: Literal[
+        "subclass_of", "related_to", "extends_domain",
+        "rdfs_domain", "rdfs_range_class",
+    ]
     from_key: str
     to_key: str
     label: str | None = None

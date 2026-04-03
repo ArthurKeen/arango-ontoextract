@@ -73,7 +73,10 @@ async def list_ontology_library(
             entry.setdefault("last_updated", entry.get("updated_at") or entry.get("created_at"))
             try:
                 edge_count = 0
-                for edge_col in ("subclass_of", "has_property", "related_to"):
+                for edge_col in (
+                    "subclass_of", "rdfs_domain", "rdfs_range_class",
+                    "has_property", "related_to",
+                ):
                     if db.has_collection(edge_col):
                         result = list(run_aql(db,
                             f"FOR e IN {edge_col} FILTER e.ontology_id == @oid "
@@ -229,7 +232,11 @@ async def delete_ontology(
 
     expired_counts: dict[str, int] = {}
 
-    for col_name in ("ontology_classes", "ontology_properties", "ontology_constraints"):
+    for col_name in (
+        "ontology_classes", "ontology_properties",
+        "ontology_object_properties", "ontology_datatype_properties",
+        "ontology_constraints",
+    ):
         if db.has_collection(col_name):
             result = list(
                 run_aql(db,
@@ -246,6 +253,7 @@ async def delete_ontology(
         "subclass_of", "has_property", "has_constraint", "related_to",
         "equivalent_class", "extracted_from", "extends_domain",
         "has_chunk", "produced_by",
+        "rdfs_domain", "rdfs_range_class",
     ):
         if db.has_collection(edge_col):
             result = list(
@@ -334,16 +342,21 @@ async def get_ontology_detail(ontology_id: str) -> dict:
                 )
             )
             class_count = result[0] if result else 0
-        if db.has_collection("ontology_properties"):
-            result = list(
-                run_aql(db,
-                    "FOR p IN ontology_properties FILTER p.ontology_id == @oid "
-                    "AND p.expired == @never "
-                    "COLLECT WITH COUNT INTO cnt RETURN cnt",
-                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+        for prop_col in (
+            "ontology_datatype_properties",
+            "ontology_object_properties",
+            "ontology_properties",
+        ):
+            if db.has_collection(prop_col):
+                result = list(
+                    run_aql(db,
+                        f"FOR p IN {prop_col} FILTER p.ontology_id == @oid "
+                        "AND p.expired == @never "
+                        "COLLECT WITH COUNT INTO cnt RETURN cnt",
+                        bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+                    )
                 )
-            )
-            property_count = result[0] if result else 0
+                property_count += result[0] if result else 0
     except Exception:
         log.warning("Could not fetch graph stats for ontology %s", ontology_id, exc_info=True)
 
@@ -684,7 +697,10 @@ async def get_domain_ontology(
     class_ids = {c["_id"] for c in classes}
 
     edges: list[dict] = []
-    for edge_col in ("subclass_of", "has_property"):
+    for edge_col in (
+        "subclass_of", "rdfs_domain", "rdfs_range_class",
+        "has_property",
+    ):
         if not db.has_collection(edge_col):
             continue
         result = list(run_aql(db,
@@ -852,7 +868,10 @@ async def get_local_ontology(
     class_ids = {c["_id"] for c in classes}
 
     edges: list[dict] = []
-    for edge_col in ("subclass_of", "has_property", "related_to", "extends_domain"):
+    for edge_col in (
+        "subclass_of", "rdfs_domain", "rdfs_range_class",
+        "extends_domain", "has_property", "related_to",
+    ):
         if not db.has_collection(edge_col):
             continue
         result = list(run_aql(db,
@@ -917,18 +936,28 @@ async def get_staging(run_id: str) -> dict:
         ))
 
     properties: list[dict] = []
-    if db.has_collection("ontology_properties"):
-        properties = list(run_aql(db,
-            "FOR p IN ontology_properties "
-            "FILTER p.ontology_id == @oid AND p.expired == @never "
-            "SORT p.label ASC RETURN p",
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-        ))
+    for prop_col in (
+        "ontology_datatype_properties",
+        "ontology_object_properties",
+        "ontology_properties",
+    ):
+        if db.has_collection(prop_col):
+            properties.extend(run_aql(db,
+                f"FOR p IN {prop_col} "
+                "FILTER p.ontology_id == @oid AND p.expired == @never "
+                "SORT p.label ASC RETURN p",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            ))
 
     edges: list[dict] = []
     for edge_col in (
-        "subclass_of", "has_property", "related_to",
-        "equivalent_class", "extracted_from",
+        "subclass_of",
+        "rdfs_domain",
+        "rdfs_range_class",
+        "equivalent_class",
+        "extracted_from",
+        "has_property",
+        "related_to",
     ):
         if db.has_collection(edge_col):
             result = list(run_aql(db,
@@ -994,6 +1023,80 @@ async def list_ontology_classes(ontology_id: str) -> dict:
     return {"data": classes}
 
 
+@router.get("/{ontology_id}/classes/{class_key}")
+async def get_class_detail(ontology_id: str, class_key: str) -> dict:
+    """Get class detail with properties resolved via rdfs_domain traversal (ADR-006).
+
+    Returns the class document plus ``attributes`` (datatype properties) and
+    ``relationships`` (object properties with resolved range class).  Falls
+    back to legacy ``has_property`` edges when no PGT-aligned data exists.
+    """
+    db = get_db()
+
+    cls = ontology_repo.get_class(db, key=class_key)
+    if cls is None:
+        raise NotFoundError(f"Class '{class_key}' not found")
+    if cls.get("ontology_id") != ontology_id:
+        raise NotFoundError(
+            f"Class '{class_key}' not found in ontology '{ontology_id}'"
+        )
+
+    class_id = cls["_id"]
+
+    attributes: list[dict] = []
+    relationships: list[dict] = []
+
+    if db.has_collection("rdfs_domain") and db.has_collection("ontology_datatype_properties"):
+        attributes = list(run_aql(db,
+            "FOR e IN rdfs_domain "
+            "FILTER e._to == @cid AND e.expired == @never "
+            "FOR p IN ontology_datatype_properties "
+            "FILTER p._id == e._from AND p.expired == @never "
+            "RETURN p",
+            bind_vars={"cid": class_id, "never": NEVER_EXPIRES},
+        ))
+
+    if db.has_collection("rdfs_domain") and db.has_collection("ontology_object_properties"):
+        range_sub = "RETURN p"
+        if db.has_collection("rdfs_range_class"):
+            range_sub = (
+                "LET target = FIRST("
+                "  FOR re IN rdfs_range_class "
+                "  FILTER re._from == p._id AND re.expired == @never "
+                "  LET t = DOCUMENT(re._to) "
+                "  RETURN {_key: t._key, label: t.label, _id: t._id}"
+                ") "
+                "RETURN MERGE(p, {target_class: target})"
+            )
+        relationships = list(run_aql(db,
+            "FOR e IN rdfs_domain "
+            "FILTER e._to == @cid AND e.expired == @never "
+            "FOR p IN ontology_object_properties "
+            f"FILTER p._id == e._from AND p.expired == @never "
+            f"{range_sub}",
+            bind_vars={"cid": class_id, "never": NEVER_EXPIRES},
+        ))
+
+    legacy_properties: list[dict] = []
+    if not attributes and not relationships:
+        if db.has_collection("has_property") and db.has_collection("ontology_properties"):
+            legacy_properties = list(run_aql(db,
+                "FOR e IN has_property "
+                "FILTER e._from == @cid AND e.expired == @never "
+                "LET prop = DOCUMENT(e._to) "
+                "FILTER prop != null AND prop.expired == @never "
+                "RETURN prop",
+                bind_vars={"cid": class_id, "never": NEVER_EXPIRES},
+            ))
+
+    return {
+        **cls,
+        "attributes": attributes,
+        "relationships": relationships,
+        "legacy_properties": legacy_properties,
+    }
+
+
 @router.get("/{ontology_id}/properties")
 async def list_ontology_properties(
     ontology_id: str,
@@ -1001,37 +1104,51 @@ async def list_ontology_properties(
 ) -> dict:
     """List properties for an ontology, optionally filtered by comma-separated keys."""
     db = get_db()
-    if not db.has_collection("ontology_properties"):
-        return {"data": []}
-    if keys:
-        key_list = [k.strip() for k in keys.split(",") if k.strip()]
-        props = list(run_aql(db,
-            "FOR p IN ontology_properties "
-            "FILTER p.ontology_id == @oid AND p._key IN @keys "
-            "AND p.expired == @never "
-            "SORT p.label ASC RETURN p",
-            bind_vars={
-                "oid": ontology_id, "keys": key_list,
-                "never": NEVER_EXPIRES,
-            },
-        ))
-    else:
-        props = list(run_aql(db,
-            "FOR p IN ontology_properties "
-            "FILTER p.ontology_id == @oid "
-            "AND p.expired == @never "
-            "SORT p.label ASC RETURN p",
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-        ))
+    props: list[dict] = []
+    key_list = [k.strip() for k in keys.split(",") if k.strip()] if keys else None
+
+    for prop_col in (
+        "ontology_datatype_properties",
+        "ontology_object_properties",
+        "ontology_properties",
+    ):
+        if not db.has_collection(prop_col):
+            continue
+        if key_list:
+            props.extend(run_aql(db,
+                f"FOR p IN {prop_col} "
+                "FILTER p.ontology_id == @oid AND p._key IN @keys "
+                "AND p.expired == @never "
+                "SORT p.label ASC RETURN p",
+                bind_vars={
+                    "oid": ontology_id, "keys": key_list,
+                    "never": NEVER_EXPIRES,
+                },
+            ))
+        else:
+            props.extend(run_aql(db,
+                f"FOR p IN {prop_col} "
+                "FILTER p.ontology_id == @oid "
+                "AND p.expired == @never "
+                "SORT p.label ASC RETURN p",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            ))
     return {"data": props}
 
 
 @router.get("/{ontology_id}/edges")
 async def list_ontology_edges(ontology_id: str) -> dict:
-    """List all edges (subclass_of, has_property, related_to) for an ontology."""
+    """List all edges for an ontology (PGT-aligned + legacy fallback)."""
     db = get_db()
     edges: list[dict] = []
-    for edge_col in ("subclass_of", "has_property", "related_to", "equivalent_class"):
+    for edge_col in (
+        "subclass_of",
+        "rdfs_domain",
+        "rdfs_range_class",
+        "equivalent_class",
+        "has_property",
+        "related_to",
+    ):
         if db.has_collection(edge_col):
             query = (
                 f"FOR e IN {edge_col} FILTER e.ontology_id == @oid "
@@ -1139,11 +1256,16 @@ async def create_class(ontology_id: str, body: CreateClassRequest) -> dict:
 
 @router.post("/{ontology_id}/properties", status_code=201)
 async def create_property(ontology_id: str, body: CreatePropertyRequest) -> dict:
-    """Create a new ontology property with a ``has_property`` edge (K.4)."""
+    """Create a new ontology property with PGT-aligned edges (K.4 / ADR-006)."""
     db = get_db()
     _ensure_collection(db, "ontology_classes")
-    _ensure_collection(db, "ontology_properties")
-    _ensure_collection(db, "has_property", edge=True)
+
+    is_object = body.property_type == "object"
+    target_col = "ontology_object_properties" if is_object else "ontology_datatype_properties"
+    _ensure_collection(db, target_col)
+    _ensure_collection(db, "rdfs_domain", edge=True)
+    if is_object:
+        _ensure_collection(db, "rdfs_range_class", edge=True)
 
     domain_cls = ontology_repo.get_class(db, key=body.domain_class_key)
     if domain_cls is None:
@@ -1160,23 +1282,27 @@ async def create_property(ontology_id: str, body: CreatePropertyRequest) -> dict
         "uri": uri,
         "label": body.label,
         "description": body.description or "",
-        "domain_class": body.domain_class_key,
         "range": body.range,
         "property_type": body.property_type,
+        "rdf_type": "owl:ObjectProperty" if is_object else "owl:DatatypeProperty",
         "source_type": "manual",
         "confidence": 1.0,
         "status": "approved",
     }
+    if not is_object:
+        data["range_datatype"] = body.range
 
     try:
         prop_doc = ontology_repo.create_property(
-            db, ontology_id=ontology_id, data=data, created_by="manual"
+            db, ontology_id=ontology_id, data=data, created_by="manual",
+            collection=target_col,
         )
     except Exception as exc:
         if "unique constraint" in str(exc).lower() or "1210" in str(exc):
             data["_key"] = f"{prop_key}_{int(time.time()) % 100000}"
             prop_doc = ontology_repo.create_property(
-                db, ontology_id=ontology_id, data=data, created_by="manual"
+                db, ontology_id=ontology_id, data=data, created_by="manual",
+                collection=target_col,
             )
         else:
             log.exception("Failed to create property")
@@ -1184,11 +1310,22 @@ async def create_property(ontology_id: str, body: CreatePropertyRequest) -> dict
 
     ontology_repo.create_edge(
         db,
-        edge_collection="has_property",
-        from_id=domain_cls["_id"],
-        to_id=prop_doc["_id"],
+        edge_collection="rdfs_domain",
+        from_id=prop_doc["_id"],
+        to_id=domain_cls["_id"],
         data={"ontology_id": ontology_id},
     )
+
+    if is_object and body.range:
+        range_cls = ontology_repo.get_class(db, key=body.range)
+        if range_cls:
+            ontology_repo.create_edge(
+                db,
+                edge_collection="rdfs_range_class",
+                from_id=prop_doc["_id"],
+                to_id=range_cls["_id"],
+                data={"ontology_id": ontology_id},
+            )
 
     return prop_doc
 

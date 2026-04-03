@@ -16,6 +16,8 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 ONTOLOGY_COLLECTIONS = [
     "ontology_classes",
     "ontology_properties",
+    "ontology_object_properties",
+    "ontology_datatype_properties",
     "ontology_constraints",
     "subclass_of",
     "has_property",
@@ -23,6 +25,8 @@ ONTOLOGY_COLLECTIONS = [
     "extracted_from",
     "extends_domain",
     "related_to",
+    "rdfs_domain",
+    "rdfs_range_class",
     "imports",
     "has_chunk",
     "produced_by",

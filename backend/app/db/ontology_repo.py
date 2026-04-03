@@ -22,6 +22,8 @@ _ONTOLOGY_EDGE_COLLECTIONS = [
     "equivalent_class",
     "extends_domain",
     "related_to",
+    "rdfs_domain",
+    "rdfs_range_class",
 ]
 
 
@@ -139,8 +141,14 @@ def create_property(
     ontology_id: str,
     data: dict[str, Any],
     created_by: str = "system",
+    collection: str = "ontology_properties",
 ) -> dict[str, Any]:
-    """Create a new ontology property with temporal versioning."""
+    """Create a new ontology property with temporal versioning.
+
+    ``collection`` defaults to ``"ontology_properties"`` for backward compat.
+    Callers should pass ``"ontology_object_properties"`` or
+    ``"ontology_datatype_properties"`` for PGT-aligned storage.
+    """
     if db is None:
         db = get_db()
 
@@ -152,7 +160,7 @@ def create_property(
 
     return create_version(
         db,
-        collection="ontology_properties",
+        collection=collection,
         data=doc,
         created_by=created_by,
         change_type="initial",
@@ -160,30 +168,41 @@ def create_property(
     )
 
 
+_PROPERTY_COLLECTIONS = [
+    "ontology_properties",
+    "ontology_object_properties",
+    "ontology_datatype_properties",
+]
+
+
 def get_property(
     db: StandardDatabase | None = None,
     *,
     key: str,
 ) -> dict[str, Any] | None:
-    """Get the current version of an ontology property by ``_key``."""
+    """Get the current version of an ontology property by ``_key``.
+
+    Searches ``ontology_properties`` (legacy), ``ontology_object_properties``,
+    and ``ontology_datatype_properties`` in that order.
+    """
     if db is None:
         db = get_db()
 
-    query = """\
-FOR prop IN ontology_properties
-  FILTER prop._key == @key
-  FILTER prop.expired == @never
-  LIMIT 1
-  RETURN prop"""
-
-    results = list(
-        run_aql(
-            db,
-            query,
-            bind_vars={"key": key, "never": NEVER_EXPIRES},
+    for col_name in _PROPERTY_COLLECTIONS:
+        if not db.has_collection(col_name):
+            continue
+        results = list(
+            run_aql(
+                db,
+                f"FOR prop IN {col_name} "
+                "FILTER prop._key == @key AND prop.expired == @never "
+                "LIMIT 1 RETURN prop",
+                bind_vars={"key": key, "never": NEVER_EXPIRES},
+            )
         )
-    )
-    return results[0] if results else None
+        if results:
+            return results[0]
+    return None
 
 
 def list_properties(
@@ -191,24 +210,48 @@ def list_properties(
     *,
     ontology_id: str,
 ) -> list[dict[str, Any]]:
-    """List current ontology properties for a given ontology."""
+    """List current ontology properties for a given ontology.
+
+    Unions across legacy ``ontology_properties``, ``ontology_object_properties``,
+    and ``ontology_datatype_properties``.
+    """
     if db is None:
         db = get_db()
 
-    query = """\
-FOR prop IN ontology_properties
-  FILTER prop.ontology_id == @oid
-  FILTER prop.expired == @never
-  SORT prop.label ASC
-  RETURN prop"""
-
-    return list(
-        run_aql(
-            db,
-            query,
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+    all_props: list[dict[str, Any]] = []
+    for col_name in _PROPERTY_COLLECTIONS:
+        if not db.has_collection(col_name):
+            continue
+        all_props.extend(
+            run_aql(
+                db,
+                f"FOR prop IN {col_name} "
+                "FILTER prop.ontology_id == @oid AND prop.expired == @never "
+                "SORT prop.label ASC RETURN prop",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            )
         )
-    )
+
+    all_props.sort(key=lambda p: (p.get("label") or "").lower())
+    return all_props
+
+
+def _resolve_property_collection(db: StandardDatabase, key: str) -> str:
+    """Determine which property collection holds the current version of ``key``."""
+    for col_name in _PROPERTY_COLLECTIONS:
+        if not db.has_collection(col_name):
+            continue
+        hits = list(
+            run_aql(
+                db,
+                f"FOR p IN {col_name} FILTER p._key == @key AND p.expired == @never "
+                "LIMIT 1 RETURN 1",
+                bind_vars={"key": key, "never": NEVER_EXPIRES},
+            )
+        )
+        if hits:
+            return col_name
+    return "ontology_properties"
 
 
 def update_property(
@@ -223,9 +266,11 @@ def update_property(
     if db is None:
         db = get_db()
 
+    collection = _resolve_property_collection(db, key)
+
     return update_entity(
         db,
-        collection="ontology_properties",
+        collection=collection,
         key=key,
         new_data=data,
         created_by=created_by,

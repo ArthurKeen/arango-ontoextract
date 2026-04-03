@@ -4,6 +4,8 @@ export type EdgeType =
   | "subclass_of"
   | "equivalent_class"
   | "has_property"
+  | "rdfs_domain"
+  | "rdfs_range_class"
   | "extends_domain"
   | "related_to"
   | "extracted_from"

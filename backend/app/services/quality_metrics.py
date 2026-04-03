@@ -65,7 +65,33 @@ def compute_ontology_quality(
             avg_faithfulness = rows[0].get("avg_faith")
             avg_semantic_validity = rows[0].get("avg_sem")
 
-    if _has(db, "ontology_properties"):
+    _use_pgt = (
+        _has(db, "ontology_datatype_properties")
+        or _has(db, "ontology_object_properties")
+    )
+
+    datatype_property_count = 0
+    object_property_count = 0
+
+    if _use_pgt:
+        if _has(db, "ontology_datatype_properties"):
+            rows = list(run_aql(db,
+                "FOR p IN ontology_datatype_properties "
+                "FILTER p.ontology_id == @oid AND p.expired == @never "
+                "COLLECT WITH COUNT INTO cnt RETURN cnt",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            ))
+            datatype_property_count = rows[0] if rows else 0
+        if _has(db, "ontology_object_properties"):
+            rows = list(run_aql(db,
+                "FOR p IN ontology_object_properties "
+                "FILTER p.ontology_id == @oid AND p.expired == @never "
+                "COLLECT WITH COUNT INTO cnt RETURN cnt",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            ))
+            object_property_count = rows[0] if rows else 0
+        property_count = datatype_property_count + object_property_count
+    elif _has(db, "ontology_properties"):
         rows = list(run_aql(db,
             "FOR p IN ontology_properties "
             "FILTER p.ontology_id == @oid AND p.expired == @never "
@@ -75,16 +101,27 @@ def compute_ontology_quality(
         property_count = rows[0] if rows else 0
 
     classes_with_props = 0
-    if class_count > 0 and _has(db, "has_property"):
-        rows = list(run_aql(db,
-            "FOR e IN has_property "
-            "FILTER e.ontology_id == @oid AND e.expired == @never "
-            "COLLECT from_id = e._from "
-            "COLLECT WITH COUNT INTO cnt "
-            "RETURN cnt",
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-        ))
-        classes_with_props = rows[0] if rows else 0
+    if class_count > 0:
+        if _use_pgt and _has(db, "rdfs_domain"):
+            rows = list(run_aql(db,
+                "FOR e IN rdfs_domain "
+                "FILTER e.ontology_id == @oid AND e.expired == @never "
+                "COLLECT to_class = e._to "
+                "COLLECT WITH COUNT INTO cnt "
+                "RETURN cnt",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            ))
+            classes_with_props = rows[0] if rows else 0
+        elif _has(db, "has_property"):
+            rows = list(run_aql(db,
+                "FOR e IN has_property "
+                "FILTER e.ontology_id == @oid AND e.expired == @never "
+                "COLLECT from_id = e._from "
+                "COLLECT WITH COUNT INTO cnt "
+                "RETURN cnt",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            ))
+            classes_with_props = rows[0] if rows else 0
 
     completeness = (
         (classes_with_props / class_count * 100) if class_count > 0 else 0.0
@@ -96,23 +133,49 @@ def compute_ontology_quality(
 
     relationship_count = 0
     classes_with_relationships = 0
-    if class_count > 0 and _has(db, "related_to"):
-        rows = list(run_aql(db,
-            "FOR e IN related_to "
-            "FILTER e.ontology_id == @oid AND e.expired == @never "
-            "COLLECT WITH COUNT INTO cnt RETURN cnt",
-            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-        ))
-        relationship_count = rows[0] if rows else 0
-        if relationship_count > 0:
-            rows2 = list(run_aql(db,
-                "FOR e IN related_to "
+    if class_count > 0:
+        if _use_pgt and _has(db, "rdfs_range_class"):
+            rows = list(run_aql(db,
+                "FOR e IN rdfs_range_class "
                 "FILTER e.ontology_id == @oid AND e.expired == @never "
-                "COLLECT from_id = e._from "
                 "COLLECT WITH COUNT INTO cnt RETURN cnt",
                 bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
             ))
-            classes_with_relationships = rows2[0] if rows2 else 0
+            relationship_count = rows[0] if rows else 0
+            if relationship_count > 0 and _has(db, "rdfs_domain"):
+                rows2 = list(run_aql(db,
+                    "LET domain_classes = ("
+                    "  FOR e IN rdfs_domain "
+                    "  FILTER e.ontology_id == @oid AND e.expired == @never "
+                    "  FILTER STARTS_WITH(e._from, 'ontology_object_properties/') "
+                    "  RETURN DISTINCT e._to"
+                    ") "
+                    "LET range_classes = ("
+                    "  FOR e IN rdfs_range_class "
+                    "  FILTER e.ontology_id == @oid AND e.expired == @never "
+                    "  RETURN DISTINCT e._to"
+                    ") "
+                    "RETURN LENGTH(UNION_DISTINCT(domain_classes, range_classes))",
+                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+                ))
+                classes_with_relationships = rows2[0] if rows2 else 0
+        elif _has(db, "related_to"):
+            rows = list(run_aql(db,
+                "FOR e IN related_to "
+                "FILTER e.ontology_id == @oid AND e.expired == @never "
+                "COLLECT WITH COUNT INTO cnt RETURN cnt",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            ))
+            relationship_count = rows[0] if rows else 0
+            if relationship_count > 0:
+                rows2 = list(run_aql(db,
+                    "FOR e IN related_to "
+                    "FILTER e.ontology_id == @oid AND e.expired == @never "
+                    "COLLECT from_id = e._from "
+                    "COLLECT WITH COUNT INTO cnt RETURN cnt",
+                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+                ))
+                classes_with_relationships = rows2[0] if rows2 else 0
 
     connectivity = (
         (classes_with_relationships / class_count * 100) if class_count > 0 else 0.0
@@ -131,6 +194,7 @@ def compute_ontology_quality(
     schema_metrics = _compute_schema_metrics(
         db, ontology_id, class_count, property_count,
         relationship_count, subclass_edge_count=_count_edges(db, "subclass_of", ontology_id),
+        attribute_count=datatype_property_count if _use_pgt else None,
     )
 
     health_score: int | None = None
@@ -217,15 +281,22 @@ def _compute_schema_metrics(
     property_count: int,
     relationship_count: int,
     subclass_edge_count: int,
+    *,
+    attribute_count: int | None = None,
 ) -> dict[str, Any]:
-    """Compute OntoQA/OQuaRE-aligned schema metrics."""
+    """Compute OntoQA/OQuaRE-aligned schema metrics.
+
+    When *attribute_count* is provided (PGT mode), ``attribute_richness``
+    uses datatype-property count instead of total property count.
+    """
     total_edges = subclass_edge_count + relationship_count
     relationship_richness = (
         (relationship_count / total_edges) if total_edges > 0 else 0.0
     )
 
+    attr_numerator = attribute_count if attribute_count is not None else property_count
     attribute_richness = (
-        (property_count / class_count) if class_count > 0 else 0.0
+        (attr_numerator / class_count) if class_count > 0 else 0.0
     )
 
     max_depth = 0

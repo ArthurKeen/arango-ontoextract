@@ -48,6 +48,19 @@ class TestEnsureOntologyGraph:
         db = MagicMock()
         db.has_graph.return_value = False
         db.has_collection.return_value = True
+        db.collections.return_value = [
+            {"name": col, "system": False}
+            for col in [
+                "ontology_classes",
+                "ontology_object_properties",
+                "ontology_datatype_properties",
+                "subclass_of",
+                "rdfs_domain",
+                "rdfs_range_class",
+                "extracted_from",
+                "documents",
+            ]
+        ]
 
         col = MagicMock()
         col.has.return_value = True

@@ -120,11 +120,15 @@ def _ensure_import_collections(db: StandardDatabase) -> None:
     for name, edge in (
         ("ontology_classes", False),
         ("ontology_properties", False),
+        ("ontology_object_properties", False),
+        ("ontology_datatype_properties", False),
         ("ontology_constraints", False),
         ("subclass_of", True),
         ("has_property", True),
         ("equivalent_class", True),
         ("related_to", True),
+        ("rdfs_domain", True),
+        ("rdfs_range_class", True),
     ):
         if not db.has_collection(name):
             db.create_collection(name, edge=edge)
@@ -148,7 +152,13 @@ def _import_with_rdflib_fallback(
     rdf_graph: RDFGraph,
     ontology_id: str,
 ) -> None:
-    """Minimal OWL importer used when ``arango_rdf`` is unavailable."""
+    """Minimal OWL importer used when ``arango_rdf`` is unavailable.
+
+    Writes ``owl:ObjectProperty`` instances to ``ontology_object_properties``
+    and ``owl:DatatypeProperty`` instances to ``ontology_datatype_properties``.
+    Creates ``rdfs_domain`` edges (property → domain class) and
+    ``rdfs_range_class`` edges (object property → range class) per ADR-006.
+    """
     _ensure_import_collections(db)
 
     class_ids: dict[str, str] = {}
@@ -169,31 +179,50 @@ def _import_with_rdflib_fallback(
         )
         class_ids[class_uri] = doc["_id"]
 
+    _PROP_TYPE_MAP: dict[str, tuple[str, str]] = {
+        "object": ("ontology_object_properties", "owl:ObjectProperty"),
+        "datatype": ("ontology_datatype_properties", "owl:DatatypeProperty"),
+    }
+
     property_ids: dict[str, str] = {}
-    property_specs: list[tuple[str, str | None]] = []
-    for property_type, property_kind in (
+    property_meta: list[dict] = []
+
+    for rdf_type, property_kind in (
         (OWL.ObjectProperty, "object"),
         (OWL.DatatypeProperty, "datatype"),
     ):
-        for prop_uri in sorted({str(s) for s in rdf_graph.subjects(RDF.type, property_type)}):
+        target_col, rdf_type_label = _PROP_TYPE_MAP[property_kind]
+        for prop_uri in sorted({str(s) for s in rdf_graph.subjects(RDF.type, rdf_type)}):
             domain = rdf_graph.value(URIRef(prop_uri), RDFS.domain)
             range_value = rdf_graph.value(URIRef(prop_uri), RDFS.range)
+
+            prop_data: dict = {
+                "uri": prop_uri,
+                "label": _label_for(rdf_graph, URIRef(prop_uri)),
+                "description": _comment_for(rdf_graph, URIRef(prop_uri)),
+                "property_type": property_kind,
+                "rdf_type": rdf_type_label,
+                "status": "approved",
+            }
+            if property_kind == "datatype" and range_value:
+                prop_data["range_datatype"] = str(range_value)
+            if range_value:
+                prop_data["range"] = str(range_value)
+
             doc = create_property(
                 db,
                 ontology_id=ontology_id,
-                data={
-                    "uri": prop_uri,
-                    "label": _label_for(rdf_graph, URIRef(prop_uri)),
-                    "description": _comment_for(rdf_graph, URIRef(prop_uri)),
-                    "property_type": property_kind,
-                    "domain_class": str(domain) if domain else "",
-                    "range": str(range_value) if range_value else "",
-                    "status": "approved",
-                },
+                data=prop_data,
                 created_by="import",
+                collection=target_col,
             )
             property_ids[prop_uri] = doc["_id"]
-            property_specs.append((prop_uri, str(domain) if domain else None))
+            property_meta.append({
+                "uri": prop_uri,
+                "kind": property_kind,
+                "domain": str(domain) if domain else None,
+                "range": str(range_value) if range_value else None,
+            })
 
     for child, parent in rdf_graph.subject_objects(RDFS.subClassOf):
         child_id = class_ids.get(str(child))
@@ -207,17 +236,27 @@ def _import_with_rdflib_fallback(
                 data={"ontology_id": ontology_id},
             )
 
-    for prop_uri, domain_uri in property_specs:
-        domain_id = class_ids.get(domain_uri or "")
-        prop_id = property_ids.get(prop_uri)
-        if domain_id and prop_id:
+    for meta in property_meta:
+        prop_id = property_ids.get(meta["uri"])
+        domain_id = class_ids.get(meta["domain"] or "")
+        if prop_id and domain_id:
             create_edge(
                 db,
-                edge_collection="has_property",
-                from_id=domain_id,
-                to_id=prop_id,
+                edge_collection="rdfs_domain",
+                from_id=prop_id,
+                to_id=domain_id,
                 data={"ontology_id": ontology_id},
             )
+        if meta["kind"] == "object" and prop_id:
+            range_id = class_ids.get(meta["range"] or "")
+            if range_id:
+                create_edge(
+                    db,
+                    edge_collection="rdfs_range_class",
+                    from_id=prop_id,
+                    to_id=range_id,
+                    data={"ontology_id": ontology_id},
+                )
 
 
 def _tag_documents_with_ontology_id(
@@ -232,7 +271,13 @@ def _tag_documents_with_ontology_id(
     Queries documents that lack an ontology_id and match the graph's collections.
     """
     tagged = 0
-    vertex_collections = ["ontology_classes", "ontology_properties", "ontology_constraints"]
+    vertex_collections = [
+        "ontology_classes",
+        "ontology_properties",
+        "ontology_object_properties",
+        "ontology_datatype_properties",
+        "ontology_constraints",
+    ]
 
     for col_name in vertex_collections:
         if not db.has_collection(col_name):
@@ -268,7 +313,13 @@ def _ensure_named_graph(db: StandardDatabase, *, graph_name: str) -> None:
     if db.has_graph(full_name):
         return
 
-    vertex_cols = ["ontology_classes", "ontology_properties", "ontology_constraints"]
+    vertex_cols = [
+        "ontology_classes",
+        "ontology_properties",
+        "ontology_object_properties",
+        "ontology_datatype_properties",
+        "ontology_constraints",
+    ]
     edge_definitions = [
         {
             "edge_collection": "subclass_of",
@@ -276,14 +327,28 @@ def _ensure_named_graph(db: StandardDatabase, *, graph_name: str) -> None:
             "to_vertex_collections": ["ontology_classes"],
         },
         {
-            "edge_collection": "has_property",
-            "from_vertex_collections": ["ontology_classes"],
-            "to_vertex_collections": ["ontology_properties"],
+            "edge_collection": "rdfs_domain",
+            "from_vertex_collections": [
+                "ontology_object_properties",
+                "ontology_datatype_properties",
+            ],
+            "to_vertex_collections": ["ontology_classes"],
+        },
+        {
+            "edge_collection": "rdfs_range_class",
+            "from_vertex_collections": ["ontology_object_properties"],
+            "to_vertex_collections": ["ontology_classes"],
         },
         {
             "edge_collection": "equivalent_class",
             "from_vertex_collections": ["ontology_classes"],
             "to_vertex_collections": ["ontology_classes"],
+        },
+        # Backward compat: include legacy edges if they exist
+        {
+            "edge_collection": "has_property",
+            "from_vertex_collections": ["ontology_classes"],
+            "to_vertex_collections": ["ontology_properties"],
         },
         {
             "edge_collection": "related_to",

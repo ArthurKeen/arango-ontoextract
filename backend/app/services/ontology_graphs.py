@@ -5,9 +5,10 @@ independently in the ArangoDB Graph Visualizer. The graph name follows
 the pattern ``ontology_{ontology_id}``.
 
 All per-ontology graphs share the same underlying edge and vertex
-collections (ontology_classes, ontology_properties, etc.) — the
-separation is purely at the ArangoDB named-graph level for visual
-exploration. Data isolation is achieved by filtering on ``ontology_id``.
+collections (ontology_classes, ontology_object_properties,
+ontology_datatype_properties, etc.) — the separation is purely at the
+ArangoDB named-graph level for visual exploration. Data isolation is
+achieved by filtering on ``ontology_id``.
 """
 
 from __future__ import annotations
@@ -30,13 +31,16 @@ PER_ONTOLOGY_EDGE_DEFINITIONS = [
         "to_vertex_collections": ["ontology_classes"],
     },
     {
-        "edge_collection": "has_property",
-        "from_vertex_collections": ["ontology_classes"],
-        "to_vertex_collections": ["ontology_properties"],
+        "edge_collection": "rdfs_domain",
+        "from_vertex_collections": [
+            "ontology_object_properties",
+            "ontology_datatype_properties",
+        ],
+        "to_vertex_collections": ["ontology_classes"],
     },
     {
-        "edge_collection": "related_to",
-        "from_vertex_collections": ["ontology_classes"],
+        "edge_collection": "rdfs_range_class",
+        "from_vertex_collections": ["ontology_object_properties"],
         "to_vertex_collections": ["ontology_classes"],
     },
     {
@@ -90,9 +94,16 @@ def ensure_ontology_graph(
         log.debug("per-ontology graph %s already exists", graph_name)
         return graph_name
 
+    cols = cast("list[dict[str, Any]]", db.collections())
+    existing_cols = {c["name"] for c in cols if not c["system"]}
+    edge_defs_to_use = [
+        ed for ed in PER_ONTOLOGY_EDGE_DEFINITIONS
+        if ed["edge_collection"] in existing_cols
+    ]
+
     db.create_graph(
         graph_name,
-        edge_definitions=PER_ONTOLOGY_EDGE_DEFINITIONS,
+        edge_definitions=edge_defs_to_use,
     )
     log.info(
         "created per-ontology graph %s for ontology '%s' (%s)",

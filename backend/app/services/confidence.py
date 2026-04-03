@@ -140,7 +140,7 @@ def compute_class_confidence(
     has_children:
         Whether a subclass_of edge exists TO this class.
     has_lateral_edges:
-        Whether related_to or extends_domain edges exist.
+        Whether rdfs_range_class or extends_domain edges connect this class.
     description:
         The merged class description text.
     all_descriptions:

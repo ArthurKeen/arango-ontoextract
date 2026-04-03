@@ -32,9 +32,13 @@ def _mock_db(
         "extraction_runs",
         "ontology_classes",
         "ontology_properties",
+        "ontology_object_properties",
+        "ontology_datatype_properties",
         "has_property",
         "subclass_of",
         "related_to",
+        "rdfs_domain",
+        "rdfs_range_class",
         "extracted_from",
         "has_chunk",
         "produced_by",
@@ -1001,13 +1005,13 @@ class TestMaterializeToGraph:
         assert cls_doc["semantic_validity_score"] == 0.77
         assert cls_doc["expired"] == NEVER_EXPIRES
 
-        # Two properties inserted
-        prop_col = cols["ontology_properties"]
-        assert prop_col.insert.call_count == 2
+        # Datatype property inserted ("species" → xsd:string)
+        dt_col = cols["ontology_datatype_properties"]
+        assert dt_col.insert.call_count == 1
 
-        # has_property edges
-        hp_col = cols["has_property"]
-        assert hp_col.insert.call_count == 2
+        # rdfs_domain edges (one for the datatype property)
+        rd_col = cols["rdfs_domain"]
+        assert rd_col.insert.call_count >= 1
 
         # extracted_from edge
         ef_col = cols["extracted_from"]
@@ -1095,8 +1099,10 @@ class TestMaterializeToGraph:
         # Should have called create_collection for each missing collection
         created = {c[0][0] for c in mock_db.create_collection.call_args_list}
         assert "ontology_classes" in created
-        assert "ontology_properties" in created
-        assert "has_property" in created
+        assert "ontology_datatype_properties" in created
+        assert "ontology_object_properties" in created
+        assert "rdfs_domain" in created
+        assert "rdfs_range_class" in created
 
     def test_property_rdf_type_object_vs_datatype(self):
         from app.services.extraction import _materialize_to_graph
@@ -1124,13 +1130,15 @@ class TestMaterializeToGraph:
             result=result,
         )
 
-        prop_col = cols["ontology_properties"]
-        inserts = [c[0][0] for c in prop_col.insert.call_args_list]
-        name_prop = next(p for p in inserts if p["label"] == "name")
-        related_prop = next(p for p in inserts if p["label"] == "relatedTo")
+        dt_col = cols["ontology_datatype_properties"]
+        dt_inserts = [c[0][0] for c in dt_col.insert.call_args_list]
+        name_prop = next(p for p in dt_inserts if p["label"] == "name")
+        assert name_prop["range_datatype"] == "xsd:string"
 
-        assert name_prop["rdf_type"] == "owl:DatatypeProperty"
-        assert related_prop["rdf_type"] == "owl:ObjectProperty"
+        obj_col = cols["ontology_object_properties"]
+        obj_inserts = [c[0][0] for c in obj_col.insert.call_args_list]
+        related_prop = next(p for p in obj_inserts if p["label"] == "relatedTo")
+        assert related_prop["label"] == "relatedTo"
 
     def test_has_chunk_edges_created(self):
         from app.services.extraction import _materialize_to_graph
@@ -1160,9 +1168,13 @@ class TestMaterializeToGraph:
             existing_collections={
                 "ontology_classes",
                 "ontology_properties",
+                "ontology_object_properties",
+                "ontology_datatype_properties",
                 "has_property",
                 "subclass_of",
                 "related_to",
+                "rdfs_domain",
+                "rdfs_range_class",
                 "extracted_from",
                 "has_chunk",
                 "produced_by",
@@ -1194,16 +1206,19 @@ class TestRecomputeMultiSignalConfidence:
 
         mock_db, cols = _mock_db()
         # Return values for each run_aql call per class:
-        # 1. prop_type_counts, 2. has_parent, 3. has_children,
-        # 4. related_to probe, 5. provenance_count
+        # 1. rdfs_domain prop_type_counts, 2. has_parent, 3. has_children,
+        # 4. rdfs_range_class lateral, 5. provenance_count
         mock_run_aql.side_effect = [
-            [{"rdf": "owl:DatatypeProperty", "cnt": 2}],  # prop types
+            [{"type": "ontology_datatype_properties", "cnt": 2}],  # prop types
             [],  # has_parent: no
             [True],  # has_children: yes
-            [],  # has_lateral via related_to: no
+            [],  # rdfs_range_class lateral: no
             [1],  # provenance_count
         ]
-        mock_db.has_collection.side_effect = lambda name: name != "extends_domain"
+        mock_db.has_collection.side_effect = lambda name: name in {
+            "rdfs_domain", "rdfs_range_class",
+            "ontology_classes", "subclass_of", "extracted_from",
+        }
 
         classes = [
             MagicMock(
@@ -1278,29 +1293,27 @@ class TestRecomputeMultiSignalConfidence:
 
     @patch("app.services.extraction.compute_class_confidence", return_value=0.6)
     @patch("app.services.extraction.run_aql")
-    def test_checks_related_to_and_extends_domain(self, mock_run_aql, mock_compute):
+    def test_checks_rdfs_range_and_extends_domain(self, mock_run_aql, mock_compute):
         from app.services.extraction import _recompute_multi_signal_confidence
 
         mock_db, _cols = _mock_db()
-        # related_to and extends_domain both exist
         mock_db.has_collection.side_effect = lambda n: (
             n
             in {
-                "related_to",
+                "rdfs_domain",
+                "rdfs_range_class",
                 "extends_domain",
                 "ontology_classes",
-                "ontology_properties",
-                "has_property",
                 "subclass_of",
                 "extracted_from",
             }
         )
 
         mock_run_aql.side_effect = [
-            [],  # prop_type_counts
+            [],  # rdfs_domain prop_type_counts (no properties)
             [],  # has_parent
             [],  # has_children
-            [True],  # related_to lateral
+            [True],  # rdfs_range_class lateral
             [1],  # provenance
         ]
 

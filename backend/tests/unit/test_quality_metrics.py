@@ -24,23 +24,54 @@ def _mock_db(aql_results: dict | None = None):
     return db
 
 
+def _mock_db_selective(collections: set[str], aql_results: dict | None = None):
+    """Create a mock DB where only *collections* exist."""
+    db = MagicMock()
+    db.has_collection.side_effect = lambda name: name in collections
+
+    _results = aql_results or {}
+    call_count = {"n": 0}
+
+    def execute_side_effect(query, bind_vars=None, **kwargs):
+        key = call_count["n"]
+        call_count["n"] += 1
+        if key in _results:
+            return iter(_results[key])
+        return iter([])
+
+    db.aql.execute.side_effect = execute_side_effect
+    return db
+
+
 class TestComputeOntologyQuality:
     """Tests for compute_ontology_quality."""
 
-    def test_returns_metrics_for_populated_ontology(self):
+    def test_returns_metrics_for_populated_ontology_pgt(self):
+        """PGT path: uses rdfs_domain / rdfs_range_class / split property collections."""
         from app.services.quality_metrics import compute_ontology_quality
 
+        # Query order with PGT (all collections present):
+        # 0: class stats
+        # 1: datatype property count
+        # 2: object property count
+        # 3: completeness (rdfs_domain distinct _to classes)
+        # 4: orphan count
+        # 5: cycle check
+        # 6: relationship count (rdfs_range_class)
+        # 7: classes with relationships (UNION_DISTINCT)
+        # 8: chunk count
+        # 9: subclass_of edge count
         db = _mock_db({
-            0: [{"cnt": 5, "avg_conf": 0.85, "avg_faith": 0.8, "avg_sem": 0.9}],  # class stats
-            1: [3],                                 # property count
-            2: [4],                                 # classes with props
-            3: [0],                                 # orphan query
-            4: [],                                  # cycle check
-            5: [2],                                 # related_to count
-            6: [3],                                 # classes_with_relationships
-            7: [2],                                 # chunk count
-            8: [0],                                 # _count_edges (subclass_of)
-            # _compute_schema_metrics queries follow (all default to 0/empty)
+            0: [{"cnt": 5, "avg_conf": 0.85, "avg_faith": 0.8, "avg_sem": 0.9}],
+            1: [2],     # datatype properties
+            2: [1],     # object properties
+            3: [4],     # classes with ≥1 rdfs_domain edge
+            4: [0],     # orphan count
+            5: [],      # cycle check (no cycles)
+            6: [2],     # rdfs_range_class edges
+            7: [3],     # classes involved in relationships
+            8: [2],     # chunk count
+            9: [0],     # subclass_of edge count
         })
 
         result = compute_ontology_quality(db, "onto_1")
@@ -48,13 +79,52 @@ class TestComputeOntologyQuality:
         assert result["ontology_id"] == "onto_1"
         assert result["avg_confidence"] == 0.85
         assert result["class_count"] == 5
-        assert result["property_count"] == 3
-        assert result["completeness"] == 80.0
+        assert result["property_count"] == 3   # 2 dt + 1 obj
+        assert result["completeness"] == 80.0   # 4/5 * 100
         assert result["classes_without_properties"] == 1
-        assert result["connectivity"] == 60.0  # 3/5 * 100
+        assert result["connectivity"] == 60.0   # 3/5 * 100
         assert result["schema_metrics"] is not None
         assert result["health_score"] is not None
         assert 0 <= result["health_score"] <= 100
+
+    def test_backward_compat_uses_old_collections(self):
+        """When PGT collections are absent, falls back to has_property / related_to."""
+        from app.services.quality_metrics import compute_ontology_quality
+
+        old_collections = {
+            "ontology_classes", "ontology_properties",
+            "has_property", "related_to",
+            "subclass_of", "has_chunk",
+            "ontology_registry", "extraction_runs",
+        }
+        # Query order for legacy path:
+        # 0: class stats
+        # 1: property count (ontology_properties)
+        # 2: classes with props (has_property)
+        # 3: orphan count
+        # 4: cycle check
+        # 5: related_to count
+        # 6: classes_with_relationships
+        # 7: chunk count
+        # 8: subclass_of edge count
+        db = _mock_db_selective(old_collections, {
+            0: [{"cnt": 5, "avg_conf": 0.85, "avg_faith": 0.8, "avg_sem": 0.9}],
+            1: [3],     # property count
+            2: [4],     # classes with props
+            3: [0],     # orphan count
+            4: [],      # cycle check
+            5: [2],     # related_to count
+            6: [3],     # classes_with_relationships
+            7: [2],     # chunk count
+            8: [0],     # subclass_of edge count
+        })
+
+        result = compute_ontology_quality(db, "onto_1")
+
+        assert result["class_count"] == 5
+        assert result["property_count"] == 3
+        assert result["completeness"] == 80.0
+        assert result["connectivity"] == 60.0
 
     def test_empty_ontology(self):
         from app.services.quality_metrics import compute_ontology_quality
@@ -89,17 +159,26 @@ class TestComputeOntologyQuality:
 
         mock_get_run_cost = MagicMock(return_value={"estimated_cost": 1.234567})
 
+        # PGT path, class_count=0 → completeness/connectivity skipped
+        # 0: class stats (cnt=0)
+        # 1: dt prop count
+        # 2: obj prop count
+        # 3: orphan query
+        # 4: cycle check
+        # 5: chunk count
+        # 6: subclass_of edge count
+        # 7: registry lookup
         db = _mock_db({
             0: [{"cnt": 0, "avg_conf": None, "avg_faith": None, "avg_sem": None}],
-            1: [0],
-            2: [0],
-            3: [],
-            4: [0],
-            5: [0],   # _count_edges (subclass_of)
-            6: [{"run_id": "run_1", "name": "Ontology 1", "tier": "domain"}],
+            1: [0],     # dt prop count
+            2: [0],     # obj prop count
+            3: [0],     # orphan count
+            4: [],      # cycle check
+            5: [0],     # chunk count
+            6: [0],     # subclass_of edge count
+            7: [{"run_id": "run_1", "name": "Ontology 1", "tier": "domain"}],
         })
 
-        # Patch at the call site inside the lazy import
         import sys
         fake_extraction = MagicMock()
         fake_extraction.get_run_cost = mock_get_run_cost

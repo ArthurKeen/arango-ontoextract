@@ -70,9 +70,9 @@ class TestTagDocuments:
             db, ontology_id="onto1", ontology_uri_prefix=None, graph_name="g1"
         )
 
-        # 3 vertex collections x 3 docs each = 9
-        assert count == 9
-        assert mock_aql.call_count == 3
+        # 5 vertex collections x 3 docs each = 15
+        assert count == 15
+        assert mock_aql.call_count == 5
 
     @patch("app.services.arangordf_bridge.run_aql")
     def test_skips_missing_collections(self, mock_aql):
@@ -256,12 +256,12 @@ class TestFallbackImporter:
         db = MagicMock()
         db.has_collection.return_value = False
         mock_create_class.side_effect = [
-            {"_id": "ontology_classes/org"},
             {"_id": "ontology_classes/dept"},
+            {"_id": "ontology_classes/org"},
         ]
         mock_create_property.side_effect = [
-            {"_id": "ontology_properties/has_department"},
-            {"_id": "ontology_properties/name"},
+            {"_id": "ontology_object_properties/has_department"},
+            {"_id": "ontology_datatype_properties/name"},
         ]
 
         ttl = """
@@ -290,14 +290,24 @@ class TestFallbackImporter:
         assert db.create_collection.call_count >= 4
         assert mock_create_class.call_count == 2
         assert mock_create_property.call_count == 2
-        assert mock_create_edge.call_count == 3
+        # 1 subclass_of + 2 rdfs_domain + 1 rdfs_range_class = 4
+        assert mock_create_edge.call_count == 4
 
         first_class = mock_create_class.call_args_list[0].kwargs["data"]
         assert first_class["rdf_type"] == "owl:Class"
 
-        first_property = mock_create_property.call_args_list[0].kwargs["data"]
-        assert first_property["property_type"] == "object"
-        assert first_property["domain_class"] == "http://example.org/Organization"
+        obj_prop_call = mock_create_property.call_args_list[0]
+        assert obj_prop_call.kwargs["data"]["property_type"] == "object"
+        assert obj_prop_call.kwargs["collection"] == "ontology_object_properties"
+
+        dt_prop_call = mock_create_property.call_args_list[1]
+        assert dt_prop_call.kwargs["data"]["property_type"] == "datatype"
+        assert dt_prop_call.kwargs["collection"] == "ontology_datatype_properties"
+
+        edge_calls = [c.kwargs["edge_collection"] for c in mock_create_edge.call_args_list]
+        assert "rdfs_domain" in edge_calls
+        assert "rdfs_range_class" in edge_calls
+        assert "subclass_of" in edge_calls
 
 
 # ---------------------------------------------------------------------------

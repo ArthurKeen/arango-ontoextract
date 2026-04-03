@@ -25,6 +25,14 @@ import type {
   MergeCandidate,
   ExtractionClassification,
 } from "@/types/entity-resolution";
+import {
+  FILTERED_FROM_CLASS_GRAPH,
+  getEdgeType,
+  documentKey,
+  isRelationshipEdgeStyle,
+  buildSyntheticRdfsRangeClassEdges,
+  RDFS_RANGE_CLASS_LABEL_FALLBACK,
+} from "./graphCanvasEdges";
 
 // --- Confidence-based color helpers ---
 
@@ -180,12 +188,14 @@ const nodeTypes = { ontologyNode: OntologyNode };
 
 // --- Edge label config ---
 
+// rdfs_domain / has_property are filtered (property↔class); not used for stroke.
 const EDGE_COLORS: Record<string, string> = {
   subclass_of: "#6366f1",
   equivalent_class: "#8b5cf6",
   has_property: "#0891b2",
   extends_domain: "#d97706",
   related_to: "#2563eb",
+  rdfs_range_class: "#2563eb",
   extracted_from: "#059669",
   imports: "#e11d48",
 };
@@ -346,53 +356,82 @@ export default function GraphCanvas({
     });
 
     const classKeySet = new Set(classes.map((c) => c._key));
-    const fe: Edge[] = edges
-      .filter((edge) => {
-        const fromKey = edge._from.split("/").pop() ?? edge._from;
-        const toKey = edge._to.split("/").pop() ?? edge._to;
-        return classKeySet.has(fromKey) && classKeySet.has(toKey);
-      })
-      .map((edge) => {
-        const fromKey = edge._from.split("/").pop() ?? edge._from;
-        const toKey = edge._to.split("/").pop() ?? edge._to;
-        const edgeType = ((edge as unknown as Record<string, unknown>).edge_type ?? edge.type) as string;
-        const isExtendsDomain = edgeType === "extends_domain";
-        const isHierarchy = edgeType === "subclass_of" || edgeType === "extends_domain";
+    const fe: Edge[] = [];
 
-        const OWL_LABELS: Record<string, string> = {
-          subclass_of: "rdfs:subClassOf",
-          extends_domain: "aoe:extendsDomain",
-          related_to: "owl:relatedTo",
-        };
-        const displayLabel = edge.label || OWL_LABELS[edgeType] || edgeType;
+    const OWL_LABELS: Record<string, string> = {
+      subclass_of: "rdfs:subClassOf",
+      extends_domain: "aoe:extendsDomain",
+      rdfs_range_class: RDFS_RANGE_CLASS_LABEL_FALLBACK,
+    };
 
-        return {
-          id: edge._key,
-          source: isHierarchy ? toKey : fromKey,
-          target: isHierarchy ? fromKey : toKey,
-          label: displayLabel,
-          type: "default",
-          ...(isHierarchy
-            ? { markerStart: { type: MarkerType.ArrowClosed } }
-            : { markerEnd: { type: MarkerType.ArrowClosed } }),
-          style: {
-            stroke: EDGE_COLORS[edgeType] ?? "#94a3b8",
-            strokeWidth: edgeType === "related_to" ? 2.5 : 2,
-            strokeDasharray: isExtendsDomain ? "6 3" : undefined,
-          },
-          labelStyle: {
-            fill: edgeType === "related_to" ? "#1d4ed8" : isExtendsDomain ? "#7c3aed" : "#64748b",
-            fontSize: edgeType === "related_to" ? 12 : 11,
-            fontWeight: edgeType === "related_to" ? 600 : 500,
-          },
-          labelBgStyle: {
-            fill: edgeType === "related_to" ? "#eff6ff" : "#f8fafc",
-            fillOpacity: 0.95,
-          },
-          labelBgPadding: [4, 2] as [number, number],
-          data: { edgeKey: edge._key },
-        };
+    for (const syn of buildSyntheticRdfsRangeClassEdges(edges, classKeySet)) {
+      fe.push({
+        id: syn.edgeKey,
+        source: syn.sourceClassKey,
+        target: syn.targetClassKey,
+        label: syn.label || OWL_LABELS.rdfs_range_class,
+        type: "default",
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: {
+          stroke: EDGE_COLORS.rdfs_range_class ?? "#2563eb",
+          strokeWidth: 2.5,
+          strokeDasharray: undefined,
+        },
+        labelStyle: {
+          fill: "#1d4ed8",
+          fontSize: 12,
+          fontWeight: 600,
+        },
+        labelBgStyle: {
+          fill: "#eff6ff",
+          fillOpacity: 0.95,
+        },
+        labelBgPadding: [4, 2] as [number, number],
+        data: { edgeKey: syn.edgeKey },
       });
+    }
+
+    for (const edge of edges) {
+      const edgeType = getEdgeType(edge);
+      if (FILTERED_FROM_CLASS_GRAPH.has(edgeType)) continue;
+      if (edgeType === "rdfs_range_class") continue;
+
+      const fromKey = documentKey(edge._from);
+      const toKey = documentKey(edge._to);
+      if (!classKeySet.has(fromKey) || !classKeySet.has(toKey)) continue;
+
+      const isExtendsDomain = edgeType === "extends_domain";
+      const isHierarchy = edgeType === "subclass_of" || edgeType === "extends_domain";
+      const relStyle = isRelationshipEdgeStyle(edgeType);
+      const displayLabel = edge.label || OWL_LABELS[edgeType] || edgeType;
+
+      fe.push({
+        id: edge._key,
+        source: isHierarchy ? toKey : fromKey,
+        target: isHierarchy ? fromKey : toKey,
+        label: displayLabel,
+        type: "default",
+        ...(isHierarchy
+          ? { markerStart: { type: MarkerType.ArrowClosed } }
+          : { markerEnd: { type: MarkerType.ArrowClosed } }),
+        style: {
+          stroke: EDGE_COLORS[edgeType] ?? "#94a3b8",
+          strokeWidth: relStyle ? 2.5 : 2,
+          strokeDasharray: isExtendsDomain ? "6 3" : undefined,
+        },
+        labelStyle: {
+          fill: relStyle ? "#1d4ed8" : isExtendsDomain ? "#7c3aed" : "#64748b",
+          fontSize: relStyle ? 12 : 11,
+          fontWeight: relStyle ? 600 : 500,
+        },
+        labelBgStyle: {
+          fill: relStyle ? "#eff6ff" : "#f8fafc",
+          fillOpacity: 0.95,
+        },
+        labelBgPadding: [4, 2] as [number, number],
+        data: { edgeKey: edge._key },
+      });
+    }
 
     if (showMergeCandidates && mergeCandidates.length > 0) {
       for (const mc of mergeCandidates) {

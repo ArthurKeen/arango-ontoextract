@@ -77,6 +77,84 @@ def _prop_doc(key="Person_name", label="name", ontology_id="test_onto"):
     }
 
 
+class TestGetClassDetail:
+    def test_returns_class_with_attributes_and_relationships(self, client, _mock_db):
+        cls = _class_doc()
+        attr = {
+            "_key": "Person_name", "_id": "ontology_datatype_properties/Person_name",
+            "label": "name", "range_datatype": "xsd:string",
+            "expired": NEVER_EXPIRES,
+        }
+        rel = {
+            "_key": "Person_knows", "_id": "ontology_object_properties/Person_knows",
+            "label": "knows", "expired": NEVER_EXPIRES,
+            "target_class": {"_key": "Org", "label": "Organization", "_id": "ontology_classes/Org"},
+        }
+
+        call_counter = {"n": 0}
+
+        def _mock_aql(db, query, bind_vars=None):
+            call_counter["n"] += 1
+            if "ontology_datatype_properties" in query:
+                return iter([attr])
+            if "ontology_object_properties" in query:
+                return iter([rel])
+            return iter([])
+
+        with patch("app.api.ontology.ontology_repo") as repo:
+            repo.get_class.return_value = cls
+            with patch("app.api.ontology.run_aql", side_effect=_mock_aql):
+                resp = client.get("/api/v1/ontology/test_onto/classes/Person")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["label"] == "Person"
+        assert len(data["attributes"]) == 1
+        assert data["attributes"][0]["label"] == "name"
+        assert len(data["relationships"]) == 1
+        assert data["relationships"][0]["label"] == "knows"
+
+    def test_class_not_found_returns_404(self, client, _mock_db):
+        with patch("app.api.ontology.ontology_repo") as repo:
+            repo.get_class.return_value = None
+            resp = client.get("/api/v1/ontology/test_onto/classes/missing")
+        assert resp.status_code == 404
+
+    def test_class_wrong_ontology_returns_404(self, client, _mock_db):
+        cls = _class_doc(ontology_id="other_onto")
+        with patch("app.api.ontology.ontology_repo") as repo:
+            repo.get_class.return_value = cls
+            resp = client.get("/api/v1/ontology/test_onto/classes/Person")
+        assert resp.status_code == 404
+
+    def test_legacy_fallback_when_no_pgt_data(self, client, _mock_db):
+        cls = _class_doc()
+        _mock_db.has_collection.side_effect = lambda name: name in {
+            "ontology_classes", "has_property", "ontology_properties",
+        }
+        legacy_prop = {
+            "_key": "Person_email", "_id": "ontology_properties/Person_email",
+            "label": "email", "expired": NEVER_EXPIRES,
+        }
+
+        def _mock_aql(db, query, bind_vars=None):
+            if "has_property" in query:
+                return iter([legacy_prop])
+            return iter([])
+
+        with patch("app.api.ontology.ontology_repo") as repo:
+            repo.get_class.return_value = cls
+            with patch("app.api.ontology.run_aql", side_effect=_mock_aql):
+                resp = client.get("/api/v1/ontology/test_onto/classes/Person")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["attributes"] == []
+        assert data["relationships"] == []
+        assert len(data["legacy_properties"]) == 1
+        assert data["legacy_properties"][0]["label"] == "email"
+
+
 class TestCreateClass:
     def test_creates_class_returns_201(self, client, _mock_db):
         created = _class_doc()
@@ -136,7 +214,7 @@ class TestCreateProperty:
         with patch("app.api.ontology.ontology_repo") as repo:
             repo.get_class.return_value = domain
             repo.create_property.return_value = created
-            repo.create_edge.return_value = {"_key": "edge_hp"}
+            repo.create_edge.return_value = {"_key": "edge_rd"}
             resp = client.post(
                 "/api/v1/ontology/test_onto/properties",
                 json={
@@ -149,7 +227,7 @@ class TestCreateProperty:
         assert resp.status_code == 201
         assert resp.json()["label"] == "name"
         repo.create_edge.assert_called_once()
-        assert repo.create_edge.call_args.kwargs["edge_collection"] == "has_property"
+        assert repo.create_edge.call_args.kwargs["edge_collection"] == "rdfs_domain"
 
     def test_missing_domain_class_returns_404(self, client, _mock_db):
         with patch("app.api.ontology.ontology_repo") as repo:

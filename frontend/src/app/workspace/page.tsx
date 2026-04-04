@@ -14,6 +14,7 @@ import type {
   OntologyProperty,
   OntologyEdge,
 } from "@/types/curation";
+import type { SigmaViewportApi } from "@/components/workspace/SigmaCanvas";
 
 const SigmaCanvas = dynamic(() => import("@/components/workspace/SigmaCanvas"), {
   ssr: false,
@@ -66,6 +67,11 @@ export default function WorkspacePage() {
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(DEFAULT_PANEL_WIDTH);
+  const viewportApiRef = useRef<SigmaViewportApi | null>(null);
+
+  const handleViewportApi = useCallback((api: SigmaViewportApi | null) => {
+    viewportApiRef.current = api;
+  }, []);
 
   useEffect(() => {
     if (!selectedOntologyId) {
@@ -227,8 +233,7 @@ export default function WorkspacePage() {
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   function triggerRelayout() {
-    const fn = (window as unknown as Record<string, unknown>).__sigmaRelayout;
-    if (typeof fn === "function") (fn as () => void)();
+    viewportApiRef.current?.relayout();
   }
 
   function getContextMenuItems(): ContextMenuItem[] {
@@ -297,9 +302,23 @@ export default function WorkspacePage() {
             })),
           },
           { label: "separator2", separator: true },
-          { label: "Fit All Nodes", icon: "⬜", onClick: () => {} },
-          { label: "Re-layout (ForceAtlas2)", icon: "🔄", onClick: triggerRelayout },
-          { label: "Center View", icon: "🎯", onClick: () => {} },
+          {
+            label: "Fit All Nodes",
+            icon: "⬜",
+            onClick: () => {
+              closeContextMenu();
+              viewportApiRef.current?.fitAll();
+            },
+          },
+          { label: "Re-layout (ForceAtlas2)", icon: "🔄", onClick: () => { closeContextMenu(); triggerRelayout(); } },
+          {
+            label: "Center View",
+            icon: "🎯",
+            onClick: () => {
+              closeContextMenu();
+              viewportApiRef.current?.centerView();
+            },
+          },
         ];
       default:
         return [];
@@ -375,6 +394,7 @@ export default function WorkspacePage() {
                   onNodeSelect={handleNodeSelect}
                   onEdgeSelect={handleEdgeSelect}
                   onContextMenu={handleSigmaContextMenu}
+                  onViewportApi={handleViewportApi}
                 />
               )
             ) : (

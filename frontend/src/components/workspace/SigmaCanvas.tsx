@@ -72,7 +72,8 @@ export interface SigmaCanvasProps {
     type: "node" | "edge" | "canvas",
     data?: Record<string, unknown>,
   ) => void;
-  onRelayout?: () => void;
+  /** Called when Sigma is ready or torn down (null on unmount). */
+  onViewportApi?: (api: SigmaViewportApi | null) => void;
 }
 
 /* ── Build graphology Graph from domain data ─────────── */
@@ -190,6 +191,29 @@ function fitCameraToGraph(sigma: Sigma): void {
   sigma.refresh();
 }
 
+/** Pan camera to graph centroid without changing zoom (current ratio preserved). */
+function centerCameraOnGraph(sigma: Sigma): void {
+  const bbox = sigma.getBBox();
+  const cx = (bbox.x[0] + bbox.x[1]) / 2;
+  const cy = (bbox.y[0] + bbox.y[1]) / 2;
+  const cam = sigma.getCamera();
+  const prev = cam.getState();
+  cam.setState({
+    x: cx,
+    y: cy,
+    ratio: prev.ratio,
+    angle: prev.angle,
+  });
+  sigma.refresh();
+}
+
+/** Imperative controls for parent (workspace context menu, shortcuts). */
+export interface SigmaViewportApi {
+  fitAll: () => void;
+  centerView: () => void;
+  relayout: () => void;
+}
+
 /* ── Component ────────────────────────────────────────── */
 
 export default function SigmaCanvas({
@@ -199,6 +223,7 @@ export default function SigmaCanvas({
   onNodeSelect,
   onEdgeSelect,
   onContextMenu,
+  onViewportApi,
 }: SigmaCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -375,12 +400,32 @@ export default function SigmaCanvas({
     }
   }, []);
 
+  const fitAll = useCallback(() => {
+    const s = sigmaRef.current;
+    if (!s) return;
+    s.resize();
+    s.refresh();
+    fitCameraToGraph(s);
+  }, []);
+
+  const centerView = useCallback(() => {
+    const s = sigmaRef.current;
+    if (!s) return;
+    centerCameraOnGraph(s);
+  }, []);
+
   useEffect(() => {
-    (window as unknown as Record<string, unknown>).__sigmaRelayout = handleRelayout;
-    return () => {
-      delete (window as unknown as Record<string, unknown>).__sigmaRelayout;
+    if (!onViewportApi) return;
+    const api: SigmaViewportApi = {
+      fitAll,
+      centerView,
+      relayout: handleRelayout,
     };
-  }, [handleRelayout]);
+    onViewportApi(api);
+    return () => {
+      onViewportApi(null);
+    };
+  }, [onViewportApi, fitAll, centerView, handleRelayout]);
 
   if (classes.length === 0) {
     return (

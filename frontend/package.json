@@ -14,14 +14,20 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@react-sigma/core": "^5.0.6",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/dagre": "^0.7.54",
     "dagre": "^0.8.5",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "graphology-layout-noverlap": "^0.4.2",
+    "graphology-types": "^0.24.8",
     "next": "^15",
     "react": "^18",
     "react-dom": "^18",
     "reactflow": "^11",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "sigma": "^3.0.2"
   },
   "overrides": {
     "@tootallnate/once": ">=3.0.1"

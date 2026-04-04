@@ -15,11 +15,11 @@ import type {
   OntologyEdge,
 } from "@/types/curation";
 
-const GraphCanvas = dynamic(() => import("@/components/graph/GraphCanvas"), {
+const SigmaCanvas = dynamic(() => import("@/components/workspace/SigmaCanvas"), {
   ssr: false,
   loading: () => (
-    <div className="h-full flex items-center justify-center">
-      <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+    <div className="h-full flex items-center justify-center bg-[#1a1a2e]">
+      <div className="animate-spin h-8 w-8 border-2 border-indigo-400 border-t-transparent rounded-full" />
     </div>
   ),
 });
@@ -38,6 +38,14 @@ interface ContextMenuState {
 const MIN_PANEL_WIDTH = 200;
 const MAX_PANEL_WIDTH = 480;
 const DEFAULT_PANEL_WIDTH = 280;
+
+const LENS_OPTIONS: { id: LensType; label: string }[] = [
+  { id: "semantic", label: "Semantic" },
+  { id: "confidence", label: "Confidence" },
+  { id: "curation", label: "Curation Status" },
+  { id: "diff", label: "Diff (vs timeline)" },
+  { id: "source", label: "Source Type" },
+];
 
 export default function WorkspacePage() {
   const [selectedOntologyId, setSelectedOntologyId] = useState<string | null>(null);
@@ -59,7 +67,6 @@ export default function WorkspacePage() {
   const startXRef = useRef(0);
   const startWidthRef = useRef(DEFAULT_PANEL_WIDTH);
 
-  // Fetch ontology name when selection changes
   useEffect(() => {
     if (!selectedOntologyId) {
       setOntologyName(null);
@@ -121,7 +128,6 @@ export default function WorkspacePage() {
     fetchGraphData(selectedOntologyId);
   }, [selectedOntologyId, fetchGraphData]);
 
-  // Keyboard shortcuts for lens switching
   useEffect(() => {
     const lensKeys: Record<string, LensType> = {
       "1": "semantic",
@@ -148,7 +154,6 @@ export default function WorkspacePage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedOntologyId]);
 
-  // Resize drag handlers
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     resizingRef.current = true;
@@ -203,7 +208,7 @@ export default function WorkspacePage() {
     // Future: show run details in overlay
   }, []);
 
-  const handleContextMenu = useCallback(
+  const handleAssetContextMenu = useCallback(
     (e: React.MouseEvent, type: string, data: unknown) => {
       e.preventDefault();
       setContextMenu({ x: e.clientX, y: e.clientY, type, data: data as Record<string, unknown> });
@@ -211,32 +216,19 @@ export default function WorkspacePage() {
     [],
   );
 
-  const handleCanvasContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const target = e.target as HTMLElement;
-
-      const nodeEl = target.closest("[data-testid^='graph-node-']");
-      if (nodeEl) {
-        const testId = nodeEl.getAttribute("data-testid") ?? "";
-        const classKey = testId.replace("graph-node-", "");
-        if (classKey) {
-          setContextMenu({ x: e.clientX, y: e.clientY, type: "class", data: { _key: classKey } });
-          return;
-        }
-      }
-
-      setContextMenu({ x: e.clientX, y: e.clientY, type: "canvas", data: {} });
+  const handleSigmaContextMenu = useCallback(
+    (e: MouseEvent, type: "node" | "edge" | "canvas", data?: Record<string, unknown>) => {
+      const cmType = type === "node" ? "class" : type;
+      setContextMenu({ x: e.clientX, y: e.clientY, type: cmType, data: data ?? {} });
     },
     [],
   );
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
-  function lensToColorMode(lens: LensType): "confidence" | "status" {
-    if (lens === "curation") return "status";
-    if (lens === "confidence") return "confidence";
-    return "confidence";
+  function triggerRelayout() {
+    const fn = (window as unknown as Record<string, unknown>).__sigmaRelayout;
+    if (typeof fn === "function") (fn as () => void)();
   }
 
   function getContextMenuItems(): ContextMenuItem[] {
@@ -248,8 +240,23 @@ export default function WorkspacePage() {
       case "class":
         return [
           { label: "Edit Metadata", icon: "✏️", onClick: () => {} },
-          { label: "View Provenance", icon: "🔍", onClick: () => {} },
+          { label: "Approve", icon: "✅", onClick: () => {} },
+          { label: "Reject", icon: "❌", onClick: () => {} },
+          { label: "separator", separator: true },
+          { label: "Create Relationship", icon: "🔗", onClick: () => {} },
+          { label: "Merge", icon: "🔀", onClick: () => {} },
+          { label: "separator2", separator: true },
           { label: "View History", icon: "📜", onClick: () => {} },
+          { label: "View Provenance", icon: "🔍", onClick: () => {} },
+          { label: "separator3", separator: true },
+          { label: "Delete", icon: "🗑️", onClick: () => {}, danger: true },
+        ];
+      case "edge":
+        return [
+          { label: "Change Type", icon: "🔄", onClick: () => {} },
+          { label: "Reverse Direction", icon: "↔️", onClick: () => {} },
+          { label: "Approve", icon: "✅", onClick: () => {} },
+          { label: "separator", separator: true },
           { label: "Delete", icon: "🗑️", onClick: () => {}, danger: true },
         ];
       case "document":
@@ -278,9 +285,21 @@ export default function WorkspacePage() {
       case "canvas":
         return [
           { label: "Add New Class", icon: "➕", onClick: () => {} },
-          { label: "Add Document", icon: "📄", onClick: () => {} },
+          { label: "Import Document", icon: "📄", onClick: () => {} },
+          { label: "separator1", separator: true },
+          {
+            label: "View As",
+            icon: "👁",
+            submenu: LENS_OPTIONS.map((opt) => ({
+              label: opt.label,
+              checked: activeLens === opt.id,
+              onClick: () => setActiveLens(opt.id),
+            })),
+          },
+          { label: "separator2", separator: true },
+          { label: "Fit All Nodes", icon: "⬜", onClick: () => {} },
+          { label: "Re-layout (ForceAtlas2)", icon: "🔄", onClick: triggerRelayout },
           { label: "Center View", icon: "🎯", onClick: () => {} },
-          { label: "Fit All", icon: "⬜", onClick: () => {} },
         ];
       default:
         return [];
@@ -288,8 +307,8 @@ export default function WorkspacePage() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-gray-50">
-      {/* Top Bar: Lens toolbar */}
+    <div className="h-screen flex flex-col overflow-hidden bg-[#12121f]">
+      {/* Top Bar: minimal toolbar */}
       <LensToolbar
         activeLens={activeLens}
         onLensChange={setActiveLens}
@@ -301,20 +320,20 @@ export default function WorkspacePage() {
         {/* Left: Asset Explorer */}
         <aside
           style={{ width: assetExplorerWidth }}
-          className="border-r border-gray-200 flex-shrink-0 overflow-hidden"
+          className="border-r border-gray-800 flex-shrink-0 overflow-hidden bg-[#16162a]"
         >
           <AssetExplorer
             onSelectOntology={handleSelectOntology}
             onSelectDocument={handleSelectDocument}
             onSelectRun={handleSelectRun}
             selectedOntologyId={selectedOntologyId}
-            onContextMenu={handleContextMenu}
+            onContextMenu={handleAssetContextMenu}
           />
         </aside>
 
         {/* Resize handle */}
         <div
-          className="w-1 cursor-col-resize hover:bg-blue-400 active:bg-blue-500 transition-colors flex-shrink-0"
+          className="w-1 cursor-col-resize hover:bg-indigo-500 active:bg-indigo-400 transition-colors flex-shrink-0"
           onMouseDown={handleResizeStart}
           role="separator"
           aria-orientation="vertical"
@@ -324,42 +343,38 @@ export default function WorkspacePage() {
         {/* Center: Canvas + VCR */}
         <main className="flex-1 flex flex-col relative min-w-0">
           {/* Graph Canvas area */}
-          <div
-            className="flex-1 relative overflow-hidden"
-            onContextMenu={selectedOntologyId ? handleCanvasContextMenu : undefined}
-          >
+          <div className="flex-1 relative overflow-hidden">
             {selectedOntologyId ? (
               graphLoading ? (
-                <div className="h-full flex flex-col items-center justify-center gap-3">
-                  <div className="animate-spin h-10 w-10 border-3 border-blue-500 border-t-transparent rounded-full" />
-                  <p className="text-sm text-gray-500">
-                    Loading {ontologyName ?? selectedOntologyId}...
+                <div className="h-full flex flex-col items-center justify-center gap-3 bg-[#1a1a2e]">
+                  <div className="animate-spin h-10 w-10 border-3 border-indigo-400 border-t-transparent rounded-full" />
+                  <p className="text-sm text-gray-400">
+                    Loading {ontologyName ?? selectedOntologyId}…
                   </p>
                 </div>
               ) : graphError ? (
-                <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8">
-                  <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8 bg-[#1a1a2e]">
+                  <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center">
                     <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                     </svg>
                   </div>
-                  <p className="text-sm text-red-600 font-medium">{graphError}</p>
+                  <p className="text-sm text-red-400 font-medium">{graphError}</p>
                   <button
                     onClick={() => selectedOntologyId && fetchGraphData(selectedOntologyId)}
-                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                    className="text-xs text-indigo-400 hover:text-indigo-300 underline"
                   >
                     Retry
                   </button>
                 </div>
               ) : (
-                <GraphCanvas
+                <SigmaCanvas
                   classes={classes}
-                  properties={properties}
                   edges={edges}
+                  activeLens={activeLens}
                   onNodeSelect={handleNodeSelect}
                   onEdgeSelect={handleEdgeSelect}
-                  colorMode={lensToColorMode(activeLens)}
-                  className="h-full"
+                  onContextMenu={handleSigmaContextMenu}
                 />
               )
             ) : (
@@ -388,7 +403,7 @@ export default function WorkspacePage() {
 
           {/* Bottom: VCR Timeline */}
           {selectedOntologyId && (
-            <div className="h-auto min-h-[56px] border-t border-gray-200 bg-white px-4 py-2 flex-shrink-0">
+            <div className="h-auto min-h-[56px] border-t border-gray-800 bg-[#16162a] px-4 py-2 flex-shrink-0">
               <VCRTimeline ontologyId={selectedOntologyId} />
             </div>
           )}

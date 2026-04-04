@@ -15,7 +15,7 @@ alwaysApply: true
 
 4. **DRAG AND DROP.** Favor drag-and-drop interactions (e.g., dropping a document onto the canvas to trigger extraction, dragging a class onto another for reparenting) over multi-step form wizards.
 
-5. **GRAPH LENSES, NOT TABS.** Instead of separate modes/tabs for confidence, curation status, diff, etc., use togglable "Lenses" that change node/edge styling dynamically on the same canvas.
+5. **GRAPH LENSES VIA CONTEXT MENU, NOT TOOLBAR TABS.** Instead of toolbar tabs or mode switchers, lenses are accessed via right-click on the canvas background → "View As" submenu. The active lens name appears subtly in the canvas corner, not as a persistent toolbar element. No global navigation widgets.
 
 6. **RIGHT-CLICK MENUS.** Implement rich context menus:
    - Right-click on Class Node → [Edit Metadata, Approve/Reject, Create Relationship, Merge, View History, View Provenance, Delete]

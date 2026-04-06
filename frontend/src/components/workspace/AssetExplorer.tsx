@@ -119,9 +119,6 @@ export default function AssetExplorer({
   /** Increment to re-run the core documents + ontology fetch (retry). */
   const [reloadEpoch, setReloadEpoch] = useState(0);
 
-  /** Bumps on each effect run + cleanup so stale async work does not clear loading flags. */
-  const loadSeqRef = useRef(0);
-
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const toggleSection = useCallback((id: SectionId) => {
@@ -146,10 +143,13 @@ export default function AssetExplorer({
     }
   }, []);
 
-  /** Load documents + ontology library together. Timeout + seq guard so we never spin forever on hung API/DB. */
+  /**
+   * Load documents + ontology library. Uses the standard React `cancelled` flag (not request ids):
+   * stale async work must not apply data or clear loading; the newest effect always owns loading.
+   */
   useEffect(() => {
     const ac = new AbortController();
-    const seq = ++loadSeqRef.current;
+    let cancelled = false;
     let timedOut = false;
 
     const timeoutId = window.setTimeout(() => {
@@ -176,7 +176,7 @@ export default function AssetExplorer({
             { signal: ac.signal },
           ),
         ]);
-        if (seq !== loadSeqRef.current) return;
+        if (cancelled) return;
 
         if (docOutcome.status === "fulfilled") {
           setDocuments(unwrapPaginatedList<DocumentEntry>(docOutcome.value));
@@ -202,7 +202,7 @@ export default function AssetExplorer({
           setOntError(timeoutMsg);
         }
       } catch (err) {
-        if (seq !== loadSeqRef.current) return;
+        if (cancelled) return;
         if (isAbortError(err) && timedOut) {
           setDocsError(timeoutMsg);
           setOntError(timeoutMsg);
@@ -211,7 +211,7 @@ export default function AssetExplorer({
           setOntError("Failed to load ontologies");
         }
       } finally {
-        if (seq === loadSeqRef.current) {
+        if (!cancelled) {
           setDocsLoading(false);
           setOntLoading(false);
         }
@@ -220,9 +220,9 @@ export default function AssetExplorer({
 
     loadCoreAssets();
     return () => {
+      cancelled = true;
       window.clearTimeout(timeoutId);
       ac.abort();
-      loadSeqRef.current += 1;
     };
   }, [reloadEpoch]);
 

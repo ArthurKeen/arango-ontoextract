@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock, patch
 
+from app.models.ontology import ExtractedClass
 from app.services.er import (
     ERFieldConfig,
     ERPipelineConfig,
@@ -19,6 +20,7 @@ from app.services.er import (
     explain_match,
     get_config,
     run_er_pipeline,
+    score_existing_class_vs_extracted,
     update_config,
 )
 
@@ -205,6 +207,43 @@ class TestBlockingTokens:
         assert "customer" in tokens
         assert "accounts" in tokens
         assert "account" in tokens
+
+
+class TestScoreExistingClassVsExtracted:
+    def test_high_score_when_label_uri_match(self):
+        db = MagicMock()
+        db.has_collection.return_value = True
+        ext = ExtractedClass(
+            uri="http://ex.org#Customer",
+            label="Customer",
+            description="A customer entity",
+            confidence=0.9,
+        )
+        with patch("app.services.er._get_class_doc") as mock_get:
+            mock_get.return_value = {
+                "_key": "c1",
+                "label": "Customer",
+                "description": "A customer entity",
+                "uri": "http://ex.org#Customer",
+            }
+            result = score_existing_class_vs_extracted(
+                db, existing_class_key="c1", extracted=ext
+            )
+        assert result["combined_score"] >= 0.85
+        assert "field_scores" in result
+
+    def test_missing_existing_returns_zero(self):
+        db = MagicMock()
+        with patch("app.services.er._get_class_doc", return_value=None):
+            result = score_existing_class_vs_extracted(
+                db,
+                existing_class_key="missing",
+                extracted=ExtractedClass(
+                    uri="u", label="L", description="d", confidence=0.5
+                ),
+            )
+        assert result["combined_score"] == 0.0
+        assert result.get("error") == "existing_class_not_found"
 
 
 class TestExplainMatch:

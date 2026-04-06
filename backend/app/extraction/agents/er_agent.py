@@ -98,7 +98,7 @@ def _run_er_matching(
     ontology_id: str,
 ) -> dict[str, Any]:
     """Run ER matching for extracted classes against existing ontology."""
-    from app.services.er import explain_match
+    from app.services.er import score_existing_class_vs_extracted
 
     candidates: list[dict[str, Any]] = []
 
@@ -128,8 +128,10 @@ FOR cls IN ontology_classes
         for extracted in extracted_classes:
             for existing in existing_classes:
                 try:
-                    match = explain_match(
-                        db, key1=existing["key"], key2=extracted.uri
+                    match = score_existing_class_vs_extracted(
+                        db,
+                        existing_class_key=existing["key"],
+                        extracted=extracted,
                     )
                     score = match.get("combined_score", 0.0)
                     if score >= settings.er_vector_similarity_threshold:

@@ -178,12 +178,12 @@ class TestRunERMatching:
         mock_temporal_module = MagicMock()
         mock_temporal_module.NEVER_EXPIRES = "9999-12-31T00:00:00Z"
 
-        mock_explain = MagicMock(return_value={
+        mock_score = MagicMock(return_value={
             "combined_score": 0.95,
             "field_scores": {"label": 0.9},
         })
         mock_er_module = MagicMock()
-        mock_er_module.explain_match = mock_explain
+        mock_er_module.score_existing_class_vs_extracted = mock_score
 
         with (
             patch.dict(sys.modules, {

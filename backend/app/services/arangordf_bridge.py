@@ -21,6 +21,7 @@ from app.db.client import get_db
 from app.db.ontology_repo import create_class, create_edge, create_property
 from app.db.registry_repo import create_registry_entry
 from app.db.utils import run_aql
+from app.services.temporal import NEVER_EXPIRES
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +117,110 @@ def import_owl_to_graph(
     return stats
 
 
+def _find_registry_key_for_import_iri(
+    db: StandardDatabase,
+    imported_iri: str,
+) -> str | None:
+    """Resolve an ``owl:imports`` target IRI to an ``ontology_registry`` ``_key``."""
+    if not db.has_collection("ontology_registry"):
+        return None
+    rows = list(
+        run_aql(
+            db,
+            """
+            FOR o IN ontology_registry
+              FILTER o.uri != null AND o.uri != ""
+              FILTER o.status == null OR o.status != "deprecated"
+              LET u = o.uri
+              FILTER u == @iri OR STARTS_WITH(@iri, u) OR STARTS_WITH(u, @iri)
+              SORT LENGTH(u) DESC
+              LIMIT 1
+              RETURN o._key
+            """,
+            bind_vars={"iri": imported_iri},
+        )
+    )
+    if not rows:
+        return None
+    key = rows[0]
+    return str(key) if key is not None else None
+
+
+def sync_owl_imports_edges(
+    db: StandardDatabase,
+    rdf_graph: RDFGraph,
+    importer_registry_key: str,
+) -> dict[str, Any]:
+    """Wire ``owl:imports`` IRIs to ``imports`` edges between registry documents.
+
+    Edges run ``ontology_registry/{importer}`` → ``ontology_registry/{imported}`` when the
+    imported IRI matches another registry document's ``uri`` (exact or prefix). Targets not
+    in the library are logged as warnings (PGT.7 / PRD imports graph).
+    """
+    if not db.has_collection("imports"):
+        return {"created": 0, "skipped": 0, "warnings": []}
+
+    from_id = f"ontology_registry/{importer_registry_key}"
+    imported_iris: set[str] = set()
+    for _subj, obj in rdf_graph.subject_objects(OWL.imports):
+        o_str = str(obj)
+        if o_str:
+            imported_iris.add(o_str)
+
+    warnings: list[str] = []
+    created = 0
+    skipped = 0
+
+    for iri in sorted(imported_iris):
+        target_key = _find_registry_key_for_import_iri(db, iri)
+        if target_key is None:
+            warnings.append(f"No registry entry for owl:imports target {iri!r}")
+            continue
+        if target_key == importer_registry_key:
+            skipped += 1
+            continue
+        to_id = f"ontology_registry/{target_key}"
+        dup = list(
+            run_aql(
+                db,
+                """
+                FOR e IN imports
+                  FILTER e._from == @fr AND e._to == @to AND e.expired == @never
+                  LIMIT 1
+                  RETURN 1
+                """,
+                bind_vars={
+                    "fr": from_id,
+                    "to": to_id,
+                    "never": NEVER_EXPIRES,
+                },
+            )
+        )
+        if dup:
+            skipped += 1
+            continue
+        create_edge(
+            db,
+            edge_collection="imports",
+            from_id=from_id,
+            to_id=to_id,
+            data={"import_iri": iri},
+        )
+        created += 1
+
+    if warnings:
+        log.warning(
+            "owl:imports targets missing from ontology_registry",
+            extra={"importer": importer_registry_key, "warnings": warnings},
+        )
+
+    return {
+        "created": created,
+        "skipped": skipped,
+        "warnings": warnings,
+    }
+
+
 def _ensure_import_collections(db: StandardDatabase) -> None:
     for name, edge in (
         ("ontology_classes", False),
@@ -179,7 +284,7 @@ def _import_with_rdflib_fallback(
         )
         class_ids[class_uri] = doc["_id"]
 
-    _PROP_TYPE_MAP: dict[str, tuple[str, str]] = {
+    prop_type_map: dict[str, tuple[str, str]] = {
         "object": ("ontology_object_properties", "owl:ObjectProperty"),
         "datatype": ("ontology_datatype_properties", "owl:DatatypeProperty"),
     }
@@ -191,7 +296,7 @@ def _import_with_rdflib_fallback(
         (OWL.ObjectProperty, "object"),
         (OWL.DatatypeProperty, "datatype"),
     ):
-        target_col, rdf_type_label = _PROP_TYPE_MAP[property_kind]
+        target_col, rdf_type_label = prop_type_map[property_kind]
         for prop_uri in sorted({str(s) for s in rdf_graph.subjects(RDF.type, rdf_type)}):
             domain = rdf_graph.value(URIRef(prop_uri), RDFS.domain)
             range_value = rdf_graph.value(URIRef(prop_uri), RDFS.range)
@@ -438,8 +543,6 @@ def import_from_file(
     fmt = _detect_format(filename)
     text = file_content.decode("utf-8")
 
-    from rdflib import Graph as RDFGraph
-
     rdf_graph = RDFGraph()
     rdf_graph.parse(data=text, format=fmt)
     triple_count = len(rdf_graph)
@@ -472,6 +575,8 @@ def import_from_file(
         db=db,
     )
 
+    imports_sync = sync_owl_imports_edges(db, rdf_graph, ontology_id)
+
     log.info(
         "file import completed",
         extra={
@@ -480,6 +585,7 @@ def import_from_file(
             "format": fmt,
             "triple_count": triple_count,
             "registry_key": registry_entry["_key"],
+            "imports_edges_created": imports_sync.get("created", 0),
         },
     )
 
@@ -489,6 +595,7 @@ def import_from_file(
         "filename": filename,
         "format": fmt,
         "registry_key": registry_entry["_key"],
+        "imports_sync": imports_sync,
     }
 
 

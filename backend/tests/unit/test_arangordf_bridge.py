@@ -9,11 +9,13 @@ import pytest
 from app.services.arangordf_bridge import (
     _detect_format,
     _ensure_named_graph,
+    _find_registry_key_for_import_iri,
     _import_with_rdflib_fallback,
     _tag_documents_with_ontology_id,
     import_from_file,
     import_from_url,
     import_owl_to_graph,
+    sync_owl_imports_edges,
 )
 
 # ---------------------------------------------------------------------------
@@ -311,14 +313,73 @@ class TestFallbackImporter:
 
 
 # ---------------------------------------------------------------------------
+# sync_owl_imports_edges
+# ---------------------------------------------------------------------------
+
+
+class TestSyncOwlImportsEdges:
+    def test_creates_imports_edge_when_target_in_registry(self):
+        from rdflib import OWL, URIRef
+
+        from rdflib import Graph as RDFGraph
+
+        g = RDFGraph()
+        g.add((URIRef("http://ex.org/A"), OWL.imports, URIRef("http://ex.org/B#Ont")))
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+
+        with (
+            patch("app.services.arangordf_bridge.run_aql") as mock_aql,
+            patch("app.services.arangordf_bridge.create_edge") as mock_edge,
+        ):
+            mock_aql.side_effect = [
+                ["dep_onto"],
+                [],
+            ]
+            out = sync_owl_imports_edges(db, g, "importer_onto")
+
+        assert out["created"] == 1
+        assert out["warnings"] == []
+        mock_edge.assert_called_once()
+        assert mock_edge.call_args.kwargs["from_id"] == "ontology_registry/importer_onto"
+        assert mock_edge.call_args.kwargs["to_id"] == "ontology_registry/dep_onto"
+
+    def test_warns_when_import_target_not_in_registry(self):
+        from rdflib import OWL, URIRef
+
+        from rdflib import Graph as RDFGraph
+
+        g = RDFGraph()
+        g.add((URIRef("http://ex.org/A"), OWL.imports, URIRef("http://missing.org/")))
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+
+        with patch("app.services.arangordf_bridge.run_aql", return_value=[]):
+            out = sync_owl_imports_edges(db, g, "importer_onto")
+
+        assert out["created"] == 0
+        assert len(out["warnings"]) == 1
+
+
+class TestFindRegistryKeyForImportIri:
+    def test_returns_none_without_collection(self):
+        db = MagicMock()
+        db.has_collection.return_value = False
+        assert _find_registry_key_for_import_iri(db, "http://x.org/") is None
+
+
+# ---------------------------------------------------------------------------
 # import_from_file
 # ---------------------------------------------------------------------------
 
 
 class TestImportFromFile:
+    @patch("app.services.arangordf_bridge.sync_owl_imports_edges")
     @patch("app.services.arangordf_bridge.create_registry_entry")
     @patch("app.services.arangordf_bridge.import_owl_to_graph")
-    def test_imports_turtle_file(self, mock_import, mock_registry):
+    def test_imports_turtle_file(self, mock_import, mock_registry, mock_sync_imports):
         db = MagicMock()
         mock_import.return_value = {
             "graph_name": "my_onto",
@@ -327,6 +388,7 @@ class TestImportFromFile:
             "imported": True,
         }
         mock_registry.return_value = {"_key": "my_onto"}
+        mock_sync_imports.return_value = {"created": 0, "skipped": 0, "warnings": []}
 
         ttl = (
             '@prefix owl: <http://www.w3.org/2002/07/owl#> .\n'
@@ -345,9 +407,40 @@ class TestImportFromFile:
         assert result["filename"] == "schema.ttl"
         assert result["format"] == "turtle"
         assert result["registry_key"] == "my_onto"
+        assert result["imports_sync"] == mock_sync_imports.return_value
         mock_import.assert_called_once()
         mock_registry.assert_called_once()
         assert mock_registry.call_args.kwargs["db"] is db
+        mock_sync_imports.assert_called_once()
+        assert mock_sync_imports.call_args[0][0] is db
+        assert mock_sync_imports.call_args[0][2] == "my_onto"
+
+    @patch("app.services.arangordf_bridge.create_registry_entry")
+    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    def test_import_from_file_calls_sync_owl_imports(self, mock_import, mock_registry):
+        """After registry entry, owl:imports is synced against ontology_registry."""
+        db = MagicMock()
+        mock_import.return_value = {"imported": True, "ontology_id": "a", "graph_name": "a"}
+        mock_registry.return_value = {"_key": "a"}
+
+        ttl = (
+            '@prefix owl: <http://www.w3.org/2002/07/owl#> .\n'
+            '@prefix ex: <http://example.org/> .\n'
+            "ex:MyOnto a owl:Ontology ; owl:imports ex:OtherOnto .\n"
+            "ex:OtherOnto a owl:Ontology .\n"
+        )
+
+        with patch("app.services.arangordf_bridge.sync_owl_imports_edges") as mock_sync:
+            mock_sync.return_value = {"created": 1, "skipped": 0, "warnings": []}
+            result = import_from_file(
+                file_content=ttl.encode("utf-8"),
+                filename="schema.ttl",
+                ontology_id="a",
+                db=db,
+            )
+
+        assert result["imports_sync"]["created"] == 1
+        mock_sync.assert_called_once()
 
     @patch("app.services.arangordf_bridge.create_registry_entry")
     @patch("app.services.arangordf_bridge.import_owl_to_graph")

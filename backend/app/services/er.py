@@ -18,6 +18,7 @@ from arango.database import StandardDatabase
 
 from app.db.client import get_db
 from app.db.utils import run_aql
+from app.models.ontology import ExtractedClass
 from app.services.er_topology import compute_topological_similarity
 from app.services.temporal import NEVER_EXPIRES
 
@@ -148,7 +149,12 @@ def configure_blocking(config: ERPipelineConfig) -> dict[str, Any]:
         elif strategy_name == "graph_traversal":
             strategies.append({
                 "type": "GraphTraversalBlockingStrategy",
-                "edge_collections": ["subclass_of", "has_property"],
+                "edge_collections": [
+                    "subclass_of",
+                    "has_property",
+                    "rdfs_domain",
+                    "rdfs_range_class",
+                ],
                 "max_depth": 2,
             })
 
@@ -316,6 +322,56 @@ FOR cluster IN entity_clusters
             bind_vars={"oid": ontology_id},
         )
     )
+
+
+def score_existing_class_vs_extracted(
+    db: StandardDatabase | None = None,
+    *,
+    existing_class_key: str,
+    extracted: ExtractedClass,
+) -> dict[str, Any]:
+    """Score similarity between a persisted class and an in-memory extracted class.
+
+    Used during extraction when the new class is not yet materialized, so
+    ``explain_match`` (two DB keys) does not apply.
+    """
+    if db is None:
+        db = get_db()
+
+    c1 = _get_class_doc(db, existing_class_key)
+    if not c1:
+        return {
+            "combined_score": 0.0,
+            "field_scores": {},
+            "error": "existing_class_not_found",
+        }
+
+    label_1 = str(c1.get("label", ""))
+    label_2 = extracted.label
+    desc_1 = str(c1.get("description", ""))
+    desc_2 = extracted.description
+    uri_1 = str(c1.get("uri", ""))
+    uri_2 = extracted.uri
+
+    field_scores: dict[str, float] = {}
+    field_scores["label_jaro_winkler"] = _jaro_winkler_sim(label_1, label_2)
+    field_scores["description_token_overlap"] = _token_overlap(desc_1, desc_2)
+    field_scores["uri_exact"] = 1.0 if uri_1 == uri_2 else 0.0
+    field_scores["topological"] = 0.0
+
+    combined = (
+        0.4 * field_scores["label_jaro_winkler"]
+        + 0.3 * field_scores["description_token_overlap"]
+        + 0.2 * field_scores["uri_exact"]
+        + 0.1 * field_scores["topological"]
+    )
+
+    return {
+        "key1": existing_class_key,
+        "key2": None,
+        "combined_score": round(combined, 4),
+        "field_scores": field_scores,
+    }
 
 
 def explain_match(

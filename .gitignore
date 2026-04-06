@@ -1,6 +1,9 @@
 # Agent rules (managed outside git)
 .agent/rules/
 
+# Object-centric workspace UI rules (local / team-specific)
+.cursor/rules/ui-architecture.mdc
+
 # Python
 __pycache__/
 *.py[cod]

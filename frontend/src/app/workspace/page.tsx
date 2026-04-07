@@ -9,6 +9,7 @@ import EmptyCanvasState from "@/components/workspace/EmptyCanvasState";
 import FloatingDetailPanel from "@/components/workspace/FloatingDetailPanel";
 import ContextMenu, { type ContextMenuItem } from "@/components/workspace/ContextMenu";
 import { api, ApiError, type PaginatedResponse } from "@/lib/api-client";
+import { useExtractionSocket } from "@/lib/use-websocket";
 import type {
   OntologyRegistryEntry,
   OntologyClass,
@@ -28,6 +29,15 @@ const SigmaCanvas = dynamic(() => import("@/components/workspace/SigmaCanvas"), 
 
 const VCRTimeline = dynamic(() => import("@/components/timeline/VCRTimeline"), {
   ssr: false,
+});
+
+const AgentDAG = dynamic(() => import("@/components/pipeline/AgentDAG"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full flex items-center justify-center text-gray-400 animate-pulse">
+      Loading pipeline graph…
+    </div>
+  ),
 });
 
 interface ContextMenuState {
@@ -74,6 +84,9 @@ function WorkspacePageInner() {
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [timelineVisibleKeys, setTimelineVisibleKeys] = useState<Set<string> | null>(null);
+
+  const [pipelineRunId, setPipelineRunId] = useState<string | null>(null);
+  const { steps: pipelineSteps } = useExtractionSocket(pipelineRunId);
 
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
@@ -214,6 +227,7 @@ function WorkspacePageInner() {
     setDetailPanelOpen(false);
     setGraphError(null);
     setInfoPanelItem(null);
+    setPipelineRunId(null);
     if (ontologyId === selectedOntologyId) {
       fetchGraphData(ontologyId);
     } else {
@@ -247,6 +261,7 @@ function WorkspacePageInner() {
   }, []);
 
   const handleSelectRun = useCallback(async (runId: string) => {
+    setPipelineRunId(runId);
     try {
       const run = await api.get<Record<string, unknown>>(`/api/v1/extraction/runs/${runId}`);
       setInfoPanelItem({ type: "run", data: run });
@@ -551,7 +566,27 @@ function WorkspacePageInner() {
         <main className="flex-1 flex flex-col relative min-w-0 min-h-0">
           {/* Graph Canvas area */}
           <div className="flex-1 relative overflow-hidden min-h-0">
-            {selectedOntologyId ? (
+            {pipelineRunId && !graphLoading ? (
+              <div className="h-full flex flex-col bg-white">
+                <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 font-medium">
+                      Pipeline
+                    </span>
+                    <span className="text-xs text-gray-500 font-mono">{pipelineRunId}</span>
+                  </div>
+                  <button
+                    onClick={() => { setPipelineRunId(null); setInfoPanelItem(null); }}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    &times; Close
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0">
+                  <AgentDAG steps={pipelineSteps} />
+                </div>
+              </div>
+            ) : selectedOntologyId ? (
               graphLoading ? (
                 <div className="h-full flex flex-col items-center justify-center gap-3 bg-[#111118]">
                   <div className="animate-spin h-10 w-10 border-3 border-indigo-400 border-t-transparent rounded-full" />

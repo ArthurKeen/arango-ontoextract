@@ -293,13 +293,26 @@ export default function OntologyEditorPage() {
               )}
             </div>
 
-            {/* Back to Library */}
-            <a
-              href="/library"
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              &larr; Library
-            </a>
+            <div className="flex items-center gap-3">
+              <a
+                href={`/workspace?ontologyId=${ontologyId}`}
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+              >
+                Open in Workspace
+              </a>
+              <a
+                href="/library"
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                &larr; Library
+              </a>
+              <a
+                href="/"
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Home
+              </a>
+            </div>
           </div>
         </div>
       </header>

@@ -208,10 +208,16 @@ function PipelineMonitorInner() {
                         {selectedRunId}
                       </span>
                       <a
-                        href={`/curation/${selectedRunId}`}
-                        className="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        href={`/workspace?ontologyId=${selectedRunId}`}
+                        className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                       >
-                        Curate
+                        Open in Workspace
+                      </a>
+                      <a
+                        href={`/curation/${selectedRunId}`}
+                        className="text-xs px-3 py-1 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Curate (Legacy)
                       </a>
                     </div>
                   </div>

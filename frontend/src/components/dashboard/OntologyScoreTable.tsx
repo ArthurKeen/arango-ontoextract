@@ -95,6 +95,9 @@ export default function OntologyScoreTable({ ontologies, selectedId, onSelect }:
                   )}
                 </th>
               ))}
+              <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide text-center whitespace-nowrap">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -141,11 +144,20 @@ export default function OntologyScoreTable({ ontologies, selectedId, onSelect }:
                 <td className="px-3 py-2.5 text-right text-gray-600 font-mono text-xs">
                   {o.estimated_cost !== null ? `$${o.estimated_cost.toFixed(4)}` : "-"}
                 </td>
+                <td className="px-3 py-2.5 text-center">
+                  <a
+                    href={`/workspace?ontologyId=${o.ontology_id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-xs px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-md transition-colors font-medium"
+                  >
+                    Workspace
+                  </a>
+                </td>
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-8 text-center text-gray-400 text-sm">
+                <td colSpan={COLUMNS.length + 1} className="px-3 py-8 text-center text-gray-400 text-sm">
                   No ontologies found
                 </td>
               </tr>

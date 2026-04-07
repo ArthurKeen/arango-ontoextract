@@ -529,20 +529,16 @@ export default function LibraryPage() {
                   {/* Action buttons */}
                   <div className="flex gap-2 mb-3">
                     <a
-                      href={`/ontology/${selectedOntology._key}/edit`}
-                      className="flex-1 text-center text-xs px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+                      href={`/workspace?ontologyId=${selectedOntology._key}`}
+                      className="flex-1 text-center text-xs px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium"
                     >
-                      Edit Graph
+                      Open in Workspace
                     </a>
                     <a
-                      href={
-                        selectedOntology.extraction_run_id
-                          ? `/curation/${selectedOntology.extraction_run_id}`
-                          : `/ontology/${selectedOntology._key}/edit`
-                      }
+                      href={`/ontology/${selectedOntology._key}/edit`}
                       className="flex-1 text-center text-xs px-3 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors font-medium"
                     >
-                      {selectedOntology.extraction_run_id ? "Curate" : "Edit"}
+                      Edit (Legacy)
                     </a>
                     <div className="relative">
                       <button
@@ -716,14 +712,10 @@ export default function LibraryPage() {
 
                     {/* Class-level actions */}
                     <a
-                      href={
-                        selectedOntology.extraction_run_id
-                          ? `/curation/${selectedOntology.extraction_run_id}?focus=${selectedClass._key}`
-                          : `/ontology/${selectedOntology._key}/edit`
-                      }
-                      className="block w-full text-center text-xs px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors font-medium"
+                      href={`/workspace?ontologyId=${selectedOntology._key}`}
+                      className="block w-full text-center text-xs px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors font-medium"
                     >
-                      {selectedOntology.extraction_run_id ? "View in Curation Dashboard" : "View in Editor"}
+                      View in Workspace
                     </a>
                   </div>
                 )}

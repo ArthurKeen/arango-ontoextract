@@ -451,22 +451,8 @@ function WorkspacePageInner() {
         const runKey = (data._key) as string;
         return [
           {
-            label: "View Details", icon: "🔍",
-            onClick: () => { setInfoPanelItem({ type: "run", data }); },
-          },
-          {
-            label: "Open Ontology", icon: "🔷",
-            disabled: !data.ontology_id && !data.target_ontology_id,
-            onClick: () => {
-              const oid = (data.ontology_id ?? data.target_ontology_id) as string | undefined;
-              if (oid) handleSelectOntology(oid);
-            },
-          },
-          {
-            label: "View Pipeline Metrics", icon: "⚡",
-            onClick: () => {
-              handleSelectRun(runKey);
-            },
+            label: "View Pipeline & Metrics", icon: "⚡",
+            onClick: () => { handleSelectRun(runKey); },
           },
           { label: "separator", separator: true },
           {

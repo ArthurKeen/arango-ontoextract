@@ -206,12 +206,17 @@ export default function WorkspacePage() {
     setSelectedNodeKey(null);
   }, []);
 
-  const handleSelectDocument = useCallback((_docId: string) => {
-    // Future: show document in a panel or trigger extraction
+  const [infoPanelItem, setInfoPanelItem] = useState<{
+    type: "document" | "ontology" | "run";
+    data: Record<string, unknown>;
+  } | null>(null);
+
+  const handleSelectDocument = useCallback((docId: string) => {
+    setInfoPanelItem({ type: "document", data: { _key: docId } });
   }, []);
 
-  const handleSelectRun = useCallback((_runId: string) => {
-    // Future: show run details in overlay
+  const handleSelectRun = useCallback((runId: string) => {
+    setInfoPanelItem({ type: "run", data: { _key: runId } });
   }, []);
 
   const handleAssetContextMenu = useCallback(
@@ -236,61 +241,184 @@ export default function WorkspacePage() {
     viewportApiRef.current?.relayout();
   }
 
+  const refreshGraph = useCallback(() => {
+    if (selectedOntologyId) fetchGraphData(selectedOntologyId);
+  }, [selectedOntologyId, fetchGraphData]);
+
+  const approveClass = useCallback(async (key: string) => {
+    if (!selectedOntologyId) return;
+    try {
+      await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status: "approved" });
+      refreshGraph();
+    } catch (err) {
+      console.error("Failed to approve class", err);
+    }
+  }, [selectedOntologyId, refreshGraph]);
+
+  const rejectClass = useCallback(async (key: string) => {
+    if (!selectedOntologyId) return;
+    try {
+      await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status: "rejected" });
+      refreshGraph();
+    } catch (err) {
+      console.error("Failed to reject class", err);
+    }
+  }, [selectedOntologyId, refreshGraph]);
+
+  const deleteClass = useCallback(async (key: string) => {
+    if (!selectedOntologyId) return;
+    try {
+      await api.del(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`);
+      refreshGraph();
+    } catch (err) {
+      console.error("Failed to delete class", err);
+    }
+  }, [selectedOntologyId, refreshGraph]);
+
+  const deleteOntology = useCallback(async (key: string) => {
+    try {
+      await api.del(`/api/v1/ontology/library/${key}?confirm=true`);
+      if (selectedOntologyId === key) {
+        setSelectedOntologyId(null);
+        setClasses([]);
+        setEdges([]);
+      }
+    } catch (err) {
+      console.error("Failed to delete ontology", err);
+    }
+  }, [selectedOntologyId]);
+
+  const deleteDocument = useCallback(async (key: string) => {
+    try {
+      await api.del(`/api/v1/documents/${key}`);
+    } catch (err) {
+      console.error("Failed to delete document", err);
+    }
+  }, []);
+
+  const exportOntology = useCallback(async (key: string, format: string) => {
+    try {
+      const url = `/api/v1/ontology/${key}/export?format=${format}`;
+      window.open(`${window.location.origin}${url}`, "_blank");
+    } catch (err) {
+      console.error("Failed to export ontology", err);
+    }
+  }, []);
+
+  const retryRun = useCallback(async (key: string) => {
+    try {
+      await api.post(`/api/v1/extraction/runs/${key}/retry`);
+    } catch (err) {
+      console.error("Failed to retry run", err);
+    }
+  }, []);
+
   function getContextMenuItems(): ContextMenuItem[] {
     if (!contextMenu) return [];
 
     const { type, data } = contextMenu;
 
     switch (type) {
-      case "class":
+      case "class": {
+        const classKey = (data._key ?? data.key) as string;
         return [
-          { label: "Edit Metadata", icon: "✏️", onClick: () => {} },
-          { label: "Approve", icon: "✅", onClick: () => {} },
-          { label: "Reject", icon: "❌", onClick: () => {} },
-          { label: "separator", separator: true },
-          { label: "Create Relationship", icon: "🔗", onClick: () => {} },
-          { label: "Merge", icon: "🔀", onClick: () => {} },
-          { label: "separator2", separator: true },
-          { label: "View History", icon: "📜", onClick: () => {} },
-          { label: "View Provenance", icon: "🔍", onClick: () => {} },
-          { label: "separator3", separator: true },
-          { label: "Delete", icon: "🗑️", onClick: () => {}, danger: true },
+          {
+            label: "View Details", icon: "🔍",
+            onClick: () => { handleNodeSelect(classKey); },
+          },
+          { label: "separator0", separator: true },
+          {
+            label: "Approve", icon: "✅",
+            onClick: () => { approveClass(classKey); },
+          },
+          {
+            label: "Reject", icon: "❌",
+            onClick: () => { rejectClass(classKey); },
+          },
+          { label: "separator1", separator: true },
+          {
+            label: "Delete", icon: "🗑️", danger: true,
+            onClick: () => { deleteClass(classKey); },
+          },
         ];
+      }
       case "edge":
         return [
-          { label: "Change Type", icon: "🔄", onClick: () => {} },
-          { label: "Reverse Direction", icon: "↔️", onClick: () => {} },
-          { label: "Approve", icon: "✅", onClick: () => {} },
+          {
+            label: "View Details", icon: "🔍",
+            onClick: () => {
+              const edgeKey = (data._key ?? data.key) as string;
+              handleEdgeSelect(edgeKey);
+              setDetailPanelOpen(true);
+            },
+          },
           { label: "separator", separator: true },
-          { label: "Delete", icon: "🗑️", onClick: () => {}, danger: true },
+          { label: "Delete", icon: "🗑️", danger: true, disabled: true },
         ];
-      case "document":
+      case "document": {
+        const docKey = (data._key) as string;
         return [
-          { label: "Extract to New Ontology", icon: "🔷", onClick: () => {} },
-          { label: "Extract to Selected Ontology", icon: "➕", onClick: () => {}, disabled: !selectedOntologyId },
-          { label: "View Chunks", icon: "📋", onClick: () => {} },
-          { label: "Rename", icon: "✏️", onClick: () => {} },
-          { label: "Delete", icon: "🗑️", onClick: () => {}, danger: true },
+          {
+            label: "View Info", icon: "📋",
+            onClick: () => { setInfoPanelItem({ type: "document", data }); },
+          },
+          { label: "separator1", separator: true },
+          {
+            label: "Delete", icon: "🗑️", danger: true,
+            onClick: () => { deleteDocument(docKey); },
+          },
         ];
-      case "ontology":
+      }
+      case "ontology": {
+        const ontKey = (data._key) as string;
         return [
-          { label: "Open in Canvas", icon: "🔷", onClick: () => handleSelectOntology(data._key as string) },
-          { label: "Edit Metadata", icon: "✏️", onClick: () => {} },
-          { label: "Export", icon: "📤", onClick: () => {} },
-          { label: "Add Document", icon: "📄", onClick: () => {} },
-          { label: "View Quality", icon: "📊", onClick: () => {} },
-          { label: "Delete", icon: "🗑️", onClick: () => {}, danger: true },
+          {
+            label: "Open in Canvas", icon: "🔷",
+            onClick: () => handleSelectOntology(ontKey),
+          },
+          {
+            label: "View Info", icon: "📊",
+            onClick: () => { setInfoPanelItem({ type: "ontology", data }); },
+          },
+          {
+            label: "Export",
+            icon: "📤",
+            submenu: [
+              { label: "Turtle (.ttl)", onClick: () => { exportOntology(ontKey, "turtle"); } },
+              { label: "JSON-LD", onClick: () => { exportOntology(ontKey, "jsonld"); } },
+              { label: "CSV", onClick: () => { exportOntology(ontKey, "csv"); } },
+            ],
+          },
+          { label: "separator1", separator: true },
+          {
+            label: "Delete", icon: "🗑️", danger: true,
+            onClick: () => { deleteOntology(ontKey); },
+          },
         ];
-      case "run":
+      }
+      case "run": {
+        const runKey = (data._key) as string;
         return [
-          { label: "View Details", icon: "🔍", onClick: () => {} },
-          { label: "Open Ontology", icon: "🔷", onClick: () => {}, disabled: !data.ontology_id },
-          { label: "Retry Run", icon: "🔄", onClick: () => {} },
+          {
+            label: "View Details", icon: "🔍",
+            onClick: () => { setInfoPanelItem({ type: "run", data }); },
+          },
+          {
+            label: "Open Ontology", icon: "🔷",
+            disabled: !data.ontology_id,
+            onClick: () => {
+              if (data.ontology_id) handleSelectOntology(data.ontology_id as string);
+            },
+          },
+          { label: "separator", separator: true },
+          {
+            label: "Retry Run", icon: "🔄",
+            onClick: () => { retryRun(runKey); },
+          },
         ];
+      }
       case "canvas":
         return [
-          { label: "Add New Class", icon: "➕", onClick: () => {} },
-          { label: "Import Document", icon: "📄", onClick: () => {} },
           { label: "separator1", separator: true },
           {
             label: "View As",
@@ -310,7 +438,10 @@ export default function WorkspacePage() {
               viewportApiRef.current?.fitAll();
             },
           },
-          { label: "Re-layout (ForceAtlas2)", icon: "🔄", onClick: () => { closeContextMenu(); triggerRelayout(); } },
+          {
+            label: "Re-layout (ForceAtlas2)", icon: "🔄",
+            onClick: () => { closeContextMenu(); triggerRelayout(); },
+          },
           {
             label: "Center View",
             icon: "🎯",
@@ -419,6 +550,19 @@ export default function WorkspacePage() {
                 onClose={() => setDetailPanelOpen(false)}
               />
             )}
+
+            {/* Asset info panel (left-click on document / run) */}
+            {infoPanelItem && (
+              <AssetInfoPanel
+                type={infoPanelItem.type}
+                data={infoPanelItem.data}
+                onClose={() => setInfoPanelItem(null)}
+                onOpenOntology={(key) => {
+                  setInfoPanelItem(null);
+                  handleSelectOntology(key);
+                }}
+              />
+            )}
           </div>
 
           {/* Bottom: VCR Timeline */}
@@ -438,6 +582,110 @@ export default function WorkspacePage() {
           items={getContextMenuItems()}
           onClose={closeContextMenu}
         />
+      )}
+    </div>
+  );
+}
+
+/* ── Asset info panel (left-click detail overlay) ───── */
+
+function AssetInfoPanel({
+  type,
+  data,
+  onClose,
+  onOpenOntology,
+}: {
+  type: "document" | "ontology" | "run";
+  data: Record<string, unknown>;
+  onClose: () => void;
+  onOpenOntology: (key: string) => void;
+}) {
+  const titleMap: Record<string, string> = {
+    document: "Document",
+    ontology: "Ontology",
+    run: "Pipeline Run",
+  };
+
+  const rows: { label: string; value: string | number | undefined }[] = [];
+
+  if (type === "document") {
+    rows.push(
+      { label: "Filename", value: data.filename as string },
+      { label: "MIME Type", value: data.mime_type as string },
+      { label: "Chunks", value: data.chunk_count as number },
+      { label: "Status", value: data.status as string },
+      { label: "Uploaded", value: data.upload_date as string },
+    );
+  } else if (type === "ontology") {
+    rows.push(
+      { label: "Name", value: data.name as string },
+      { label: "Description", value: data.description as string },
+      { label: "Status", value: data.status as string },
+      { label: "Classes", value: data.class_count as number },
+      { label: "Properties", value: data.property_count as number },
+      { label: "Edges", value: data.edge_count as number },
+      { label: "Health Score", value: data.health_score != null ? `${Math.round((data.health_score as number) * 100)}%` : undefined },
+      { label: "Created", value: data.created_at as string },
+    );
+  } else if (type === "run") {
+    rows.push(
+      { label: "Document", value: data.document_name as string },
+      { label: "Status", value: data.status as string },
+      { label: "Current Step", value: data.current_step as string },
+      { label: "Classes Extracted", value: data.classes_extracted as number },
+      { label: "Properties Extracted", value: data.properties_extracted as number },
+      { label: "Duration", value: data.duration_ms != null ? `${Math.round((data.duration_ms as number) / 1000)}s` : undefined },
+      { label: "Model", value: data.model as string },
+      { label: "Created", value: data.created_at as string },
+    );
+  }
+
+  const filteredRows = rows.filter((r) => r.value != null && r.value !== "");
+
+  return (
+    <div
+      className="absolute top-4 right-4 w-[360px] max-h-[70vh] bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden flex flex-col z-50"
+      role="dialog"
+      aria-label={`${titleMap[type]} info panel`}
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium flex-shrink-0">
+            {titleMap[type]}
+          </span>
+          <span className="text-sm font-semibold text-gray-800 truncate">
+            {(data.name ?? data.filename ?? data.document_name ?? data._key) as string}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-gray-400 hover:text-gray-600 text-lg leading-none ml-2 flex-shrink-0"
+          aria-label="Close info panel"
+        >
+          &times;
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {filteredRows.map((row) => (
+          <div key={row.label}>
+            <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">
+              {row.label}
+            </dt>
+            <dd className="text-sm text-gray-700">{String(row.value)}</dd>
+          </div>
+        ))}
+      </div>
+
+      {type === "ontology" && typeof data._key === "string" && (
+        <div className="px-4 py-3 border-t border-gray-100 flex-shrink-0">
+          <button
+            onClick={() => onOpenOntology(data._key as string)}
+            className="w-full px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition-colors"
+          >
+            Open in Canvas
+          </button>
+        </div>
       )}
     </div>
   );

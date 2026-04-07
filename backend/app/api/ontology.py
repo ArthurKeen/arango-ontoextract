@@ -1402,6 +1402,7 @@ async def update_class_endpoint(
             "label": body.label,
             "description": body.description,
             "uri": body.uri,
+            "status": body.status,
         }.items()
         if v is not None
     }

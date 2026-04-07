@@ -87,6 +87,7 @@ class UpdateClassRequest(BaseModel):
     label: str | None = None
     description: str | None = None
     uri: str | None = None
+    status: str | None = None
 
 
 class UpdatePropertyRequest(BaseModel):

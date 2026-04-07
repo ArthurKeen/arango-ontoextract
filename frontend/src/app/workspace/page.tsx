@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import LensToolbar, { type LensType } from "@/components/workspace/LensToolbar";
 import AssetExplorer from "@/components/workspace/AssetExplorer";
@@ -49,6 +50,15 @@ const LENS_OPTIONS: { id: LensType; label: string }[] = [
 ];
 
 export default function WorkspacePage() {
+  return (
+    <Suspense>
+      <WorkspacePageInner />
+    </Suspense>
+  );
+}
+
+function WorkspacePageInner() {
+  const searchParams = useSearchParams();
   const [selectedOntologyId, setSelectedOntologyId] = useState<string | null>(null);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
@@ -68,6 +78,16 @@ export default function WorkspacePage() {
   const startXRef = useRef(0);
   const startWidthRef = useRef(DEFAULT_PANEL_WIDTH);
   const viewportApiRef = useRef<SigmaViewportApi | null>(null);
+  const didReadUrlParam = useRef(false);
+
+  useEffect(() => {
+    if (didReadUrlParam.current) return;
+    didReadUrlParam.current = true;
+    const ontologyParam = searchParams.get("ontologyId");
+    if (ontologyParam && !selectedOntologyId) {
+      setSelectedOntologyId(ontologyParam);
+    }
+  }, [searchParams, selectedOntologyId]);
 
   const handleViewportApi = useCallback((api: SigmaViewportApi | null) => {
     viewportApiRef.current = api;
@@ -428,7 +448,7 @@ export default function WorkspacePage() {
           },
           {
             label: "Open in Pipeline Monitor", icon: "⚡",
-            onClick: () => { window.location.href = `/pipeline?run=${runKey}`; },
+            onClick: () => { window.location.href = `/pipeline?runId=${runKey}`; },
           },
           { label: "separator", separator: true },
           {

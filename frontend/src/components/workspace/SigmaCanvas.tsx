@@ -301,13 +301,18 @@ export default function SigmaCanvas({
     sigmaRef.current = renderer;
 
     let killed = false;
+    let retryCount = 0;
+    const MAX_RETRIES = 30;
 
     const afterLayout = () => {
       if (killed) return;
       renderer.resize();
       const dims = renderer.getDimensions();
       if (dims.width === 0 || dims.height === 0) {
-        setTimeout(afterLayout, 100);
+        retryCount++;
+        if (retryCount < MAX_RETRIES) {
+          setTimeout(afterLayout, 100);
+        }
         return;
       }
       renderer.refresh();

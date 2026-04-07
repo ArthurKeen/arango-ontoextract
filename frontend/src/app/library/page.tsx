@@ -335,6 +335,12 @@ export default function LibraryPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link
+              href="/workspace"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+            >
+              Workspace
+            </Link>
+            <Link
               href="/dashboard"
               className="text-sm text-gray-500 hover:text-gray-700"
             >

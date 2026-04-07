@@ -118,7 +118,13 @@ export default function Home() {
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
             Quick Actions
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <ActionCard
+              title="Workspace"
+              description="Unified graph canvas for viewing, editing, and curating ontologies."
+              href="/workspace"
+              accentColor="bg-indigo-600"
+            />
             <ActionCard
               title="Upload Document"
               description="Ingest a PDF, DOCX, or Markdown file for ontology extraction."

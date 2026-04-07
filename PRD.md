@@ -151,7 +151,7 @@ This section defines the end-to-end workflows performed by each role. These work
 
 ### Use Case Catalog
 
-> **Note on routes:** The use cases below describe logical workflows. References to routes like `/upload`, `/library`, `/curation/[runId]` describe the v1 multi-page UI. In the target object-centric workspace (§7.8), all these workflows occur within the unified `/workspace` route via the Asset Explorer, Canvas, and context menus. Legacy routes redirect to the workspace with appropriate context.
+> **Note on routes:** The use cases below describe logical workflows. References to routes like `/upload`, `/library`, `/curation/[runId]` describe the v1 multi-page UI. In the target object-centric workspace (§7.8), all these workflows occur within the unified `/workspace` route via the Asset Explorer, Canvas, and context menus. **Migration is incremental** (see §7.8 "Migration Strategy"): legacy routes remain functional during transition and gain "Open in Workspace" links; they redirect to workspace only after feature parity is achieved.
 
 #### UC-1: Extract Ontology from Document (Domain Expert)
 
@@ -2575,6 +2575,48 @@ The previous multi-page routes redirect to the workspace with appropriate contex
 | FR-7.8.7 | Persistent VCR timeline | Bottom bar always shows the VCR timeline when an ontology is open. Scrubbing filters the canvas. Play/rewind for animated history. No separate timeline tab. |
 | FR-7.8.8 | Legacy route redirects | All previous routes (`/upload`, `/library`, `/curation/*`, `/ontology/*/edit`, `/pipeline`, `/quality`, `/dashboard`) redirect to the workspace with appropriate context loaded. |
 | FR-7.8.9 | Keyboard shortcuts | Common actions have keyboard shortcuts: Ctrl+N (new class), Delete (remove selected), Ctrl+Z (undo via temporal revert), Ctrl+S (create release), Space (toggle play in VCR). |
+
+#### Migration Strategy: Legacy Routes → Unified Workspace
+
+The transition from the multi-page UI (v0.1.0) to the unified workspace is **incremental, not big-bang**. Legacy routes and workspace coexist until all functionality is replicated; then legacy routes redirect.
+
+**Phase 1 — Workspace Reachable (current priority):**
+
+The workspace must be **discoverable** from every legacy page before it can replace them. During this phase:
+
+- The **home page (`/`)** includes a primary "Workspace" action card alongside Upload, Library, Pipeline, Dashboard.
+- **Every legacy page** (library, dashboard, pipeline, curation) includes a "Workspace" link in its top navigation bar.
+- **Legacy pages link INTO workspace** where appropriate: "Open in Workspace" buttons on library ontology cards, pipeline run items, and dashboard ontology rows. These navigate to `/workspace?ontologyId=X` (the workspace reads `ontologyId` from `searchParams` on mount).
+- **The workspace links back** to legacy pages that have functionality not yet replicated (e.g., upload file, pipeline DAG, quality radar).
+- Legacy routes are **NOT redirected** yet — they remain fully functional standalone pages.
+
+**Phase 2 — Feature Parity:**
+
+Workspace subsumes legacy page functionality one feature at a time:
+
+| Feature | Legacy Page | Workspace Equivalent | Migration |
+|---------|------------|---------------------|-----------|
+| File upload | `/upload` | Drag-and-drop onto canvas or asset explorer | Move upload UI into workspace; `/upload` redirects |
+| Ontology browsing | `/library` | Asset explorer (ontologies section) | `/library` redirects to `/workspace` |
+| Pipeline DAG | `/pipeline` | Pipeline run detail in asset explorer + overlay | `/pipeline` redirects |
+| Curation workflow | `/curation/[runId]` | Staging graph in canvas + curation lens | `/curation/*` redirects |
+| Graph editor | `/ontology/[id]/edit` | Canvas is always editable (Sigma.js) | `/ontology/*/edit` redirects |
+| Quality dashboard | `/dashboard` | Quality radar overlay in workspace | `/dashboard` redirects |
+| Entity resolution | `/entity-resolution` | ER view in canvas | `/entity-resolution` redirects |
+
+**Phase 3 — Legacy Removal:**
+
+Once all workflows are completable within `/workspace`, legacy routes redirect per FR-7.8.8. Legacy page components are archived (not deleted) for reference.
+
+**Graph Renderer Migration:**
+
+| Component | Current Library | Target Library | Migration Path |
+|-----------|----------------|---------------|----------------|
+| `SigmaCanvas` (workspace) | Sigma.js v3 + graphology | Same (already target) | — |
+| `GraphCanvas` (curation, ontology editor, ER) | React Flow v11 | Sigma.js via workspace | Legacy pages redirect to workspace once Sigma canvas supports full editing |
+| `AgentDAG` (pipeline) | React Flow v11 | React Flow (stays) | Pipeline DAG is a workflow diagram, not an ontology graph — React Flow is appropriate |
+
+**Key constraint:** During Phase 1, the workspace and legacy pages must use the **same backend API** and **same port**. The `NEXT_PUBLIC_API_URL` environment variable must match the running backend port. Default is `http://localhost:8001` for local development. The `Makefile` target `make backend` and all startup scripts must use port 8001 consistently.
 
 ---
 

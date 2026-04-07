@@ -196,6 +196,7 @@ async def list_runs(
                 ))
                 oid = oid_result[0] if oid_result else None
                 if oid:
+                    run["ontology_id"] = oid
                     cls_count = list(run_aql(db,
                         "FOR c IN ontology_classes "
                         "FILTER c.ontology_id == @oid AND c.expired == @never "
@@ -212,6 +213,8 @@ async def list_runs(
                     run["properties_extracted"] = prop_count[0] if prop_count else 0
             except Exception:
                 log.debug("Could not fetch entity counts for run enrichment")
+        if "ontology_id" not in run and run.get("target_ontology_id"):
+            run["ontology_id"] = run["target_ontology_id"]
 
     return payload
 

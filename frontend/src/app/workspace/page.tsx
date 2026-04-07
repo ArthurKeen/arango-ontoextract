@@ -188,12 +188,17 @@ export default function WorkspacePage() {
   }, [assetExplorerWidth]);
 
   const handleSelectOntology = useCallback((ontologyId: string) => {
-    setSelectedOntologyId(ontologyId);
     setSelectedNodeKey(null);
     setSelectedEdgeKey(null);
     setDetailPanelOpen(false);
     setGraphError(null);
-  }, []);
+    setInfoPanelItem(null);
+    if (ontologyId === selectedOntologyId) {
+      fetchGraphData(ontologyId);
+    } else {
+      setSelectedOntologyId(ontologyId);
+    }
+  }, [selectedOntologyId, fetchGraphData]);
 
   const handleNodeSelect = useCallback((classKey: string) => {
     setSelectedNodeKey(classKey);
@@ -211,12 +216,22 @@ export default function WorkspacePage() {
     data: Record<string, unknown>;
   } | null>(null);
 
-  const handleSelectDocument = useCallback((docId: string) => {
-    setInfoPanelItem({ type: "document", data: { _key: docId } });
+  const handleSelectDocument = useCallback(async (docId: string) => {
+    try {
+      const doc = await api.get<Record<string, unknown>>(`/api/v1/documents/${docId}`);
+      setInfoPanelItem({ type: "document", data: doc });
+    } catch {
+      setInfoPanelItem({ type: "document", data: { _key: docId } });
+    }
   }, []);
 
-  const handleSelectRun = useCallback((runId: string) => {
-    setInfoPanelItem({ type: "run", data: { _key: runId } });
+  const handleSelectRun = useCallback(async (runId: string) => {
+    try {
+      const run = await api.get<Record<string, unknown>>(`/api/v1/extraction/runs/${runId}`);
+      setInfoPanelItem({ type: "run", data: run });
+    } catch {
+      setInfoPanelItem({ type: "run", data: { _key: runId } });
+    }
   }, []);
 
   const handleAssetContextMenu = useCallback(
@@ -685,6 +700,91 @@ function AssetInfoPanel({
           >
             Open in Canvas
           </button>
+        </div>
+      )}
+
+      {type === "run" && typeof data.ontology_id === "string" && (
+        <div className="px-4 py-3 border-t border-gray-100 flex-shrink-0">
+          <button
+            onClick={() => onOpenOntology(data.ontology_id as string)}
+            className="w-full px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition-colors"
+          >
+            Open Ontology
+          </button>
+        </div>
+      )}
+
+      {type === "document" && typeof data._key === "string" && (
+        <DocumentContentSection docKey={data._key as string} />
+      )}
+    </div>
+  );
+}
+
+function DocumentContentSection({ docKey }: { docKey: string }) {
+  const [chunks, setChunks] = useState<{ _key: string; text: string; page?: number }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return;
+    let cancelled = false;
+    setLoading(true);
+    api
+      .get<{ data: { _key: string; text: string; page?: number }[] }>(
+        `/api/v1/documents/${docKey}/chunks`,
+      )
+      .then((res) => {
+        if (!cancelled) {
+          const list = Array.isArray(res) ? res : res.data;
+          setChunks(Array.isArray(list) ? list : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setChunks([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [docKey, expanded]);
+
+  return (
+    <div className="border-t border-gray-100">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-4 py-2.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center gap-1"
+      >
+        <span>{expanded ? "▼" : "▶"}</span>
+        <span>View Document Content ({chunks.length || "…"})</span>
+      </button>
+      {expanded && (
+        <div className="max-h-[300px] overflow-y-auto px-4 py-2 space-y-2">
+          {loading && (
+            <p className="text-xs text-gray-400 animate-pulse py-2">Loading chunks...</p>
+          )}
+          {!loading && chunks.length === 0 && (
+            <p className="text-xs text-gray-400 italic py-2">No chunks found</p>
+          )}
+          {chunks.map((chunk, idx) => (
+            <div
+              key={chunk._key ?? idx}
+              className="text-xs text-gray-600 bg-gray-50 rounded-md p-2 border border-gray-100"
+            >
+              {chunk.page != null && (
+                <span className="text-[10px] text-gray-400 font-medium mr-1">
+                  p.{chunk.page}
+                </span>
+              )}
+              <span className="whitespace-pre-wrap break-words">
+                {chunk.text.length > 500
+                  ? chunk.text.slice(0, 500) + "…"
+                  : chunk.text}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </div>

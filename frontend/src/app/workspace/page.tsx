@@ -353,6 +353,7 @@ function WorkspacePageInner() {
     switch (type) {
       case "class": {
         const classKey = (data._key ?? data.key) as string;
+        const classLabel = (data.label ?? classKey) as string;
         return [
           {
             label: "View Details", icon: "🔍",
@@ -369,24 +370,42 @@ function WorkspacePageInner() {
           },
           { label: "separator1", separator: true },
           {
+            label: "View Version History", icon: "📜",
+            onClick: () => { handleNodeSelect(classKey); },
+          },
+          {
+            label: "View Provenance", icon: "🔗",
+            onClick: () => { handleNodeSelect(classKey); },
+          },
+          { label: "separator2", separator: true },
+          {
             label: "Delete", icon: "🗑️", danger: true,
-            onClick: () => { deleteClass(classKey); },
+            onClick: () => {
+              if (confirm(`Delete class "${classLabel}"? This will expire the class and all connected edges.`)) {
+                deleteClass(classKey);
+              }
+            },
           },
         ];
       }
-      case "edge":
+      case "edge": {
+        const edgeKey = (data._key ?? data.key) as string;
+        const edgeLabel = (data.label ?? data.edgeType ?? edgeKey) as string;
         return [
           {
-            label: "View Details", icon: "🔍",
+            label: `${edgeLabel}`, icon: "🔍",
             onClick: () => {
-              const edgeKey = (data._key ?? data.key) as string;
               handleEdgeSelect(edgeKey);
               setDetailPanelOpen(true);
             },
           },
           { label: "separator", separator: true },
-          { label: "Delete", icon: "🗑️", danger: true, disabled: true },
+          {
+            label: "Delete", icon: "🗑️", danger: true,
+            disabled: true,
+          },
         ];
+      }
       case "document": {
         const docKey = (data._key) as string;
         return [
@@ -471,7 +490,16 @@ function WorkspacePageInner() {
             submenu: [
               { label: "Force-Directed", onClick: () => { viewportApiRef.current?.relayout("force"); } },
               { label: "Circular", onClick: () => { viewportApiRef.current?.relayout("circular"); } },
+              { label: "Grid", onClick: () => { viewportApiRef.current?.relayout("grid"); } },
               { label: "Random", onClick: () => { viewportApiRef.current?.relayout("random"); } },
+            ],
+          },
+          {
+            label: "Edge Style",
+            icon: "〰",
+            submenu: [
+              { label: "Curved", onClick: () => { viewportApiRef.current?.setEdgeStyle("curved"); } },
+              { label: "Straight", onClick: () => { viewportApiRef.current?.setEdgeStyle("straight"); } },
             ],
           },
           { label: "separator1", separator: true },

@@ -7,6 +7,17 @@ jest.mock("sigma/rendering", () => ({
   EdgeRectangleProgram: class {},
 }));
 
+jest.mock("@sigma/edge-curve", () => ({
+  __esModule: true,
+  EdgeCurvedArrowProgram: class {},
+  indexParallelEdgesIndex: () => {},
+}));
+
+jest.mock("@sigma/node-border", () => ({
+  __esModule: true,
+  createNodeBorderProgram: () => class {},
+}));
+
 jest.mock("sigma", () => ({
   __esModule: true,
   default: class MockSigma {

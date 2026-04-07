@@ -8,6 +8,11 @@ import {
   EdgeRectangleProgram,
   NodeCircleProgram,
 } from "sigma/rendering";
+import {
+  EdgeCurvedArrowProgram,
+  indexParallelEdgesIndex,
+} from "@sigma/edge-curve";
+import { createNodeBorderProgram } from "@sigma/node-border";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import noverlap from "graphology-layout-noverlap";
 import { circular } from "graphology-layout";
@@ -68,6 +73,12 @@ function lensNodeColor(cls: OntologyClass, lens: LensType): string {
 
 /* ── Props ────────────────────────────────────────────── */
 
+const NodeBorderProgram = createNodeBorderProgram({
+  borders: [
+    { size: { value: 0.15 }, color: { attribute: "borderColor" } },
+  ],
+});
+
 export interface SigmaCanvasProps {
   classes: OntologyClass[];
   edges: OntologyEdge[];
@@ -117,10 +128,16 @@ function buildGraph(
   for (const cls of classes) {
     const degree = degreeCounts.get(cls._key) ?? 0;
     const size = Math.max(12, Math.min(30, 12 + degree * 2));
+    const statusBorder =
+      cls.status === "approved" ? "#22c55e"
+        : cls.status === "rejected" ? "#ef4444"
+        : "#f59e0b";
     graph.addNode(cls._key, {
       label: cls.label,
       size,
       color: lensNodeColor(cls, lens),
+      borderColor: statusBorder,
+      type: "bordered",
       x: Math.random() * 100,
       y: Math.random() * 100,
       confidence: cls.confidence,
@@ -194,13 +211,24 @@ function centerCameraOnGraph(sigma: Sigma): void {
   sigma.refresh();
 }
 
-export type LayoutType = "force" | "circular" | "random";
+export type LayoutType = "force" | "circular" | "grid" | "random";
+export type EdgeStyleType = "curved" | "straight";
 
 function applyLayout(graph: Graph, layout: LayoutType): void {
   switch (layout) {
     case "circular":
       circular.assign(graph, { scale: 100 });
       break;
+    case "grid": {
+      const nodes = graph.nodes();
+      const cols = Math.ceil(Math.sqrt(nodes.length));
+      const spacing = 10;
+      nodes.forEach((node, i) => {
+        graph.setNodeAttribute(node, "x", (i % cols) * spacing);
+        graph.setNodeAttribute(node, "y", Math.floor(i / cols) * spacing);
+      });
+      break;
+    }
     case "random":
       graph.forEachNode((node) => {
         graph.setNodeAttribute(node, "x", Math.random() * 200 - 100);
@@ -228,6 +256,7 @@ export interface SigmaViewportApi {
   fitAll: () => void;
   centerView: () => void;
   relayout: (layout?: LayoutType) => void;
+  setEdgeStyle: (style: EdgeStyleType) => void;
 }
 
 /* ── Component ────────────────────────────────────────── */
@@ -283,6 +312,11 @@ export default function SigmaCanvas({
     if (!containerRef.current || graph.order === 0) return;
     graphRef.current = graph;
 
+    indexParallelEdgesIndex(graph, {
+      edgeIndexAttribute: "parallelIndex",
+      edgeMaxIndexAttribute: "parallelMaxIndex",
+    });
+
     const renderer = new Sigma(graph, containerRef.current, {
       renderLabels: true,
       renderEdgeLabels: true,
@@ -293,11 +327,16 @@ export default function SigmaCanvas({
       edgeLabelColor: { color: "#94a3b8" },
       edgeLabelFont: "Inter, system-ui, sans-serif",
       edgeLabelSize: 10,
-      defaultEdgeType: "arrow",
+      defaultNodeType: "bordered",
+      defaultEdgeType: "curvedArrow",
       stagePadding: 40,
       enableEdgeEvents: true,
-      nodeProgramClasses: { circle: NodeCircleProgram },
+      nodeProgramClasses: {
+        circle: NodeCircleProgram,
+        bordered: NodeBorderProgram,
+      },
       edgeProgramClasses: {
+        curvedArrow: EdgeCurvedArrowProgram,
         arrow: EdgeArrowProgram,
         line: EdgeRectangleProgram,
       },
@@ -497,18 +536,30 @@ export default function SigmaCanvas({
     centerCameraOnGraph(s);
   }, []);
 
+  const setEdgeStyle = useCallback((style: EdgeStyleType) => {
+    const g = graphRef.current;
+    const s = sigmaRef.current;
+    if (!g || !s) return;
+    const edgeType = style === "curved" ? "curvedArrow" : "arrow";
+    g.forEachEdge((edge) => {
+      g.setEdgeAttribute(edge, "type", edgeType);
+    });
+    s.refresh();
+  }, []);
+
   useEffect(() => {
     if (!onViewportApi) return;
     const api: SigmaViewportApi = {
       fitAll,
       centerView,
       relayout: handleRelayout,
+      setEdgeStyle,
     };
     onViewportApi(api);
     return () => {
       onViewportApi(null);
     };
-  }, [onViewportApi, fitAll, centerView, handleRelayout]);
+  }, [onViewportApi, fitAll, centerView, handleRelayout, setEdgeStyle]);
 
   if (classes.length === 0) {
     return (

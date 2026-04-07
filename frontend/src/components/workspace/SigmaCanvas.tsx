@@ -9,6 +9,8 @@ import {
   NodeCircleProgram,
 } from "sigma/rendering";
 import forceAtlas2 from "graphology-layout-forceatlas2";
+import noverlap from "graphology-layout-noverlap";
+import { circular } from "graphology-layout";
 import type {
   OntologyClass,
   OntologyEdge,
@@ -79,6 +81,8 @@ export interface SigmaCanvasProps {
   ) => void;
   /** Called when Sigma is ready or torn down (null on unmount). */
   onViewportApi?: (api: SigmaViewportApi | null) => void;
+  /** When set, only nodes in this set are visible (VCR timeline filtering). */
+  visibleNodeKeys?: Set<string> | null;
 }
 
 /* ── Build graphology Graph from domain data ─────────── */
@@ -190,11 +194,40 @@ function centerCameraOnGraph(sigma: Sigma): void {
   sigma.refresh();
 }
 
+export type LayoutType = "force" | "circular" | "random";
+
+function applyLayout(graph: Graph, layout: LayoutType): void {
+  switch (layout) {
+    case "circular":
+      circular.assign(graph, { scale: 100 });
+      break;
+    case "random":
+      graph.forEachNode((node) => {
+        graph.setNodeAttribute(node, "x", Math.random() * 200 - 100);
+        graph.setNodeAttribute(node, "y", Math.random() * 200 - 100);
+      });
+      break;
+    case "force":
+    default:
+      forceAtlas2.assign(graph, {
+        iterations: 150,
+        settings: {
+          gravity: 5,
+          scalingRatio: 20,
+          strongGravityMode: true,
+          barnesHutOptimize: graph.order > 50,
+        },
+      });
+      noverlap.assign(graph, { maxIterations: 50, settings: { ratio: 2 } });
+      break;
+  }
+}
+
 /** Imperative controls for parent (workspace context menu, shortcuts). */
 export interface SigmaViewportApi {
   fitAll: () => void;
   centerView: () => void;
-  relayout: () => void;
+  relayout: (layout?: LayoutType) => void;
 }
 
 /* ── Component ────────────────────────────────────────── */
@@ -207,6 +240,7 @@ export default function SigmaCanvas({
   onEdgeSelect,
   onContextMenu,
   onViewportApi,
+  visibleNodeKeys,
 }: SigmaCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -222,30 +256,17 @@ export default function SigmaCanvas({
     [edges],
   );
 
-  const graph = useMemo(() => {
-    const g = buildGraph(classes, edges, activeLens);
-    console.log("[SigmaCanvas] buildGraph result", {
-      classCount: classes.length,
-      edgeCount: edges.length,
-      graphOrder: g.order,
-      graphSize: g.size,
-    });
-    return g;
+  const graph = useMemo(
+    () => buildGraph(classes, edges, activeLens),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stableClassesKey, stableEdgesKey, activeLens]);
+    [stableClassesKey, stableEdgesKey, activeLens],
+  );
 
   useEffect(() => {
     if (graph.order === 0) return;
     setLayoutRunning(true);
     try {
-      forceAtlas2.assign(graph, {
-        iterations: 100,
-        settings: {
-          gravity: 1,
-          scalingRatio: 10,
-          barnesHutOptimize: graph.order > 50,
-        },
-      });
+      applyLayout(graph, "force");
     } finally {
       setLayoutRunning(false);
     }
@@ -259,19 +280,12 @@ export default function SigmaCanvas({
   onContextMenuRef.current = onContextMenu;
 
   useEffect(() => {
-    console.log("[SigmaCanvas] useEffect fired", {
-      hasContainer: !!containerRef.current,
-      graphOrder: graph.order,
-      graphSize: graph.size,
-      containerDims: containerRef.current
-        ? { w: containerRef.current.offsetWidth, h: containerRef.current.offsetHeight }
-        : null,
-    });
     if (!containerRef.current || graph.order === 0) return;
     graphRef.current = graph;
 
     const renderer = new Sigma(graph, containerRef.current, {
       renderLabels: true,
+      renderEdgeLabels: true,
       labelRenderedSizeThreshold: 6,
       labelColor: { color: "#e2e8f0" },
       labelFont: "Inter, system-ui, sans-serif",
@@ -282,7 +296,6 @@ export default function SigmaCanvas({
       defaultEdgeType: "arrow",
       stagePadding: 40,
       enableEdgeEvents: true,
-      // sigma is marked sideEffects:false; default WebGL programs can be tree-shaken.
       nodeProgramClasses: { circle: NodeCircleProgram },
       edgeProgramClasses: {
         arrow: EdgeArrowProgram,
@@ -297,26 +310,18 @@ export default function SigmaCanvas({
     const MAX_RETRIES = 30;
 
     const afterLayout = () => {
-      if (killed) { console.log("[SigmaCanvas] afterLayout: killed, skipping"); return; }
+      if (killed) return;
       renderer.resize();
       const dims = renderer.getDimensions();
-      console.log("[SigmaCanvas] afterLayout", { dims, retryCount, killed });
       if (dims.width === 0 || dims.height === 0) {
         retryCount++;
         if (retryCount < MAX_RETRIES) {
           setTimeout(afterLayout, 100);
-        } else {
-          console.error("[SigmaCanvas] afterLayout: gave up after MAX_RETRIES — container never got dimensions");
         }
         return;
       }
-      try {
-        renderer.refresh();
-        fitCameraToGraph(renderer);
-        console.log("[SigmaCanvas] afterLayout: refresh + fitCamera complete");
-      } catch (err) {
-        console.error("[SigmaCanvas] afterLayout: refresh threw", err);
-      }
+      renderer.refresh();
+      fitCameraToGraph(renderer);
     };
     requestAnimationFrame(() => {
       requestAnimationFrame(afterLayout);
@@ -334,6 +339,8 @@ export default function SigmaCanvas({
     resizeObserver?.observe(containerRef.current);
 
     let hoveredNode: string | null = null;
+    let draggedNode: string | null = null;
+    let isDragging = false;
 
     renderer.on("enterNode", ({ node }) => {
       if (killed) return;
@@ -351,7 +358,35 @@ export default function SigmaCanvas({
       renderer.refresh();
     });
 
+    renderer.on("downNode", ({ node, event }) => {
+      isDragging = true;
+      draggedNode = node;
+      graph.setNodeAttribute(node, "highlighted", true);
+      renderer.setSetting("enableCameraPanning", false);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    renderer.getMouseCaptor().on("mousemovebody", (event: any) => {
+      if (!isDragging || !draggedNode) return;
+      const pos = renderer.viewportToGraph({ x: event.x, y: event.y });
+      graph.setNodeAttribute(draggedNode, "x", pos.x);
+      graph.setNodeAttribute(draggedNode, "y", pos.y);
+      if (typeof event.preventSigmaDefault === "function") {
+        event.preventSigmaDefault();
+      }
+    });
+
+    renderer.getMouseCaptor().on("mouseup", () => {
+      if (draggedNode) {
+        graph.setNodeAttribute(draggedNode, "highlighted", false);
+      }
+      isDragging = false;
+      draggedNode = null;
+      renderer.setSetting("enableCameraPanning", true);
+    });
+
     renderer.on("clickNode", ({ node }) => {
+      if (isDragging) return;
       onNodeSelectRef.current(node);
     });
 
@@ -387,16 +422,7 @@ export default function SigmaCanvas({
       onContextMenuRef.current(event.original as MouseEvent, "canvas");
     });
 
-    console.log("[SigmaCanvas] Sigma instance created successfully", {
-      dims: renderer.getDimensions(),
-      settings: {
-        defaultNodeType: renderer.getSetting("defaultNodeType"),
-        defaultEdgeType: renderer.getSetting("defaultEdgeType"),
-      },
-    });
-
     return () => {
-      console.log("[SigmaCanvas] cleanup: killing renderer");
       killed = true;
       resizeObserver?.disconnect();
       renderer.kill();
@@ -417,18 +443,38 @@ export default function SigmaCanvas({
     sigmaRef.current?.refresh();
   }, [activeLens, classes]);
 
-  const handleRelayout = useCallback(() => {
+  useEffect(() => {
+    const s = sigmaRef.current;
+    if (!s) return;
+    if (!visibleNodeKeys) {
+      s.setSetting("nodeReducer", null);
+      s.setSetting("edgeReducer", null);
+    } else {
+      s.setSetting("nodeReducer", (_node: string, data: Record<string, unknown>) => {
+        if (!visibleNodeKeys.has(_node)) {
+          return { ...data, hidden: true };
+        }
+        return data;
+      });
+      s.setSetting("edgeReducer", (edge: string, data: Record<string, unknown>) => {
+        const g = graphRef.current;
+        if (!g) return data;
+        const src = g.source(edge);
+        const tgt = g.target(edge);
+        if (!visibleNodeKeys.has(src) || !visibleNodeKeys.has(tgt)) {
+          return { ...data, hidden: true };
+        }
+        return data;
+      });
+    }
+    s.refresh();
+  }, [visibleNodeKeys]);
+
+  const handleRelayout = useCallback((layout: LayoutType = "force") => {
     if (!graphRef.current || !sigmaRef.current) return;
     setLayoutRunning(true);
     try {
-      forceAtlas2.assign(graphRef.current, {
-        iterations: 100,
-        settings: {
-          gravity: 1,
-          scalingRatio: 10,
-          barnesHutOptimize: graphRef.current.order > 50,
-        },
-      });
+      applyLayout(graphRef.current, layout);
       sigmaRef.current.resize();
       sigmaRef.current.refresh();
       fitCameraToGraph(sigmaRef.current);
@@ -499,8 +545,9 @@ export default function SigmaCanvas({
           </div>
         </div>
       )}
-      <div className="absolute top-2 left-2 z-20 text-xs text-gray-500 bg-black/50 px-2 py-1 rounded pointer-events-none">
-        nodes: {graph.order} | edges: {graph.size}
+      {/* Node/edge count — subtle top-left overlay */}
+      <div className="absolute bottom-2 right-2 z-20 text-[10px] text-gray-600 pointer-events-none">
+        {graph.order} nodes &middot; {graph.size} edges
       </div>
       <div
         ref={containerRef}

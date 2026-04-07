@@ -73,6 +73,7 @@ function WorkspacePageInner() {
   const [edges, setEdges] = useState<OntologyEdge[]>([]);
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
+  const [timelineVisibleKeys, setTimelineVisibleKeys] = useState<Set<string> | null>(null);
 
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
@@ -272,10 +273,6 @@ function WorkspacePageInner() {
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
-  function triggerRelayout() {
-    viewportApiRef.current?.relayout();
-  }
-
   const refreshGraph = useCallback(() => {
     if (selectedOntologyId) fetchGraphData(selectedOntologyId);
   }, [selectedOntologyId, fetchGraphData]);
@@ -459,7 +456,6 @@ function WorkspacePageInner() {
       }
       case "canvas":
         return [
-          { label: "separator1", separator: true },
           {
             label: "View As",
             icon: "👁",
@@ -469,7 +465,16 @@ function WorkspacePageInner() {
               onClick: () => setActiveLens(opt.id),
             })),
           },
-          { label: "separator2", separator: true },
+          {
+            label: "Layout",
+            icon: "🔄",
+            submenu: [
+              { label: "Force-Directed", onClick: () => { viewportApiRef.current?.relayout("force"); } },
+              { label: "Circular", onClick: () => { viewportApiRef.current?.relayout("circular"); } },
+              { label: "Random", onClick: () => { viewportApiRef.current?.relayout("random"); } },
+            ],
+          },
+          { label: "separator1", separator: true },
           {
             label: "Fit All Nodes",
             icon: "⬜",
@@ -477,10 +482,6 @@ function WorkspacePageInner() {
               closeContextMenu();
               viewportApiRef.current?.fitAll();
             },
-          },
-          {
-            label: "Re-layout (ForceAtlas2)", icon: "🔄",
-            onClick: () => { closeContextMenu(); triggerRelayout(); },
           },
           {
             label: "Center View",
@@ -566,6 +567,7 @@ function WorkspacePageInner() {
                   onEdgeSelect={handleEdgeSelect}
                   onContextMenu={handleSigmaContextMenu}
                   onViewportApi={handleViewportApi}
+                  visibleNodeKeys={timelineVisibleKeys}
                 />
               )
             ) : (
@@ -608,7 +610,10 @@ function WorkspacePageInner() {
           {/* Bottom: VCR Timeline */}
           {selectedOntologyId && (
             <div className="h-auto min-h-[56px] border-t border-gray-800 bg-[#16162a] px-4 py-2 flex-shrink-0">
-              <VCRTimeline ontologyId={selectedOntologyId} />
+              <VCRTimeline
+                ontologyId={selectedOntologyId}
+                onVisibleEntitiesChange={setTimelineVisibleKeys}
+              />
             </div>
           )}
         </main>

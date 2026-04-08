@@ -100,17 +100,17 @@ function WorkspacePageInner() {
     }
     let cancelled = false;
 
-    const PIPELINE_STEP_ORDER = [
-      "strategy_selector", "extractor", "consistency_checker",
-      "quality_judge", "er_agent", "filter",
+    const FRONTEND_STEPS = [
+      "strategy_selector", "extraction_agent", "consistency_checker",
+      "quality_judge", "entity_resolution_agent", "pre_curation_filter",
     ];
-    const BACKEND_MAP: Record<string, string> = {
+    const BACKEND_TO_FRONTEND: Record<string, string> = {
       strategy_selector: "strategy_selector",
-      extractor: "extractor",
+      extractor: "extraction_agent",
       consistency_checker: "consistency_checker",
       quality_judge: "quality_judge",
-      er_agent: "er_agent",
-      filter: "filter",
+      er_agent: "entity_resolution_agent",
+      filter: "pre_curation_filter",
     };
 
     async function load() {
@@ -122,12 +122,12 @@ function WorkspacePageInner() {
           run?.stats?.step_logs ?? [];
 
         const map = new Map<string, StepStatus>();
-        for (const s of PIPELINE_STEP_ORDER) {
+        for (const s of FRONTEND_STEPS) {
           map.set(s, { status: "pending" });
         }
 
         for (const log of stepLogs) {
-          const key = BACKEND_MAP[log.step] ?? log.step;
+          const key = BACKEND_TO_FRONTEND[log.step] ?? log.step;
           if (!map.has(key)) continue;
           const status = log.status === "completed" || log.status === "skipped"
             ? "completed"

@@ -449,11 +449,35 @@ function WorkspacePageInner() {
           { label: "separator1", separator: true },
           {
             label: "View Version History", icon: "📜",
-            onClick: () => { handleNodeSelect(classKey); },
+            onClick: async () => {
+              try {
+                const history = await api.get<Record<string, unknown>[]>(
+                  `/api/v1/ontology/class/${classKey}/history`,
+                );
+                setInfoPanelItem({
+                  type: "ontology",
+                  data: { _key: classKey, name: classLabel, _history: history },
+                });
+              } catch {
+                handleNodeSelect(classKey);
+              }
+            },
           },
           {
             label: "View Provenance", icon: "🔗",
-            onClick: () => { handleNodeSelect(classKey); },
+            onClick: async () => {
+              try {
+                const prov = await api.get<{ data: Record<string, unknown>[] }>(
+                  `/api/v1/ontology/class/${classKey}/provenance`,
+                );
+                setInfoPanelItem({
+                  type: "ontology",
+                  data: { _key: classKey, name: classLabel, _provenance: prov.data },
+                });
+              } catch {
+                handleNodeSelect(classKey);
+              }
+            },
           },
           { label: "separator2", separator: true },
           {
@@ -871,6 +895,52 @@ function AssetInfoPanel({
         {/* Quality Report (when loaded via "View Quality Report") */}
         {type === "ontology" && typeof data._qualityReport === "object" && data._qualityReport != null && (
           <QualityReportSection report={data._qualityReport as Record<string, unknown>} />
+        )}
+
+        {/* Provenance chunks */}
+        {Array.isArray(data._provenance) && (data._provenance as Record<string, unknown>[]).length > 0 && (
+          <div className="border-t border-gray-100 pt-3">
+            <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              Source Chunks ({(data._provenance as unknown[]).length})
+            </dt>
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {(data._provenance as Record<string, unknown>[]).map((chunk, idx) => (
+                <div key={(chunk._key as string) ?? idx} className="text-xs bg-amber-50 rounded-md p-2 border border-amber-100">
+                  {typeof chunk.section_heading === "string" && chunk.section_heading && (
+                    <div className="font-medium text-amber-800 mb-1">{chunk.section_heading}</div>
+                  )}
+                  <div className="text-gray-600 whitespace-pre-wrap break-words">
+                    {((chunk.text as string) ?? "").length > 300
+                      ? (chunk.text as string).slice(0, 300) + "…"
+                      : (chunk.text as string)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Version History */}
+        {Array.isArray(data._history) && (data._history as Record<string, unknown>[]).length > 0 && (
+          <div className="border-t border-gray-100 pt-3">
+            <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              Version History ({(data._history as unknown[]).length})
+            </dt>
+            <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
+              {(data._history as Record<string, unknown>[]).map((ver, idx) => {
+                const created = ver.created as number | undefined;
+                const label = (ver.label ?? ver._key) as string;
+                const ts = created ? new Date(created * 1000).toLocaleString() : "—";
+                return (
+                  <div key={idx} className="flex items-baseline gap-2 text-xs bg-gray-50 rounded-md px-2.5 py-1.5">
+                    <span className="text-gray-400 font-mono text-[10px] flex-shrink-0">v{(data._history as unknown[]).length - idx}</span>
+                    <span className="font-medium text-gray-800 truncate">{label}</span>
+                    <span className="text-gray-400 ml-auto flex-shrink-0">{ts}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
 

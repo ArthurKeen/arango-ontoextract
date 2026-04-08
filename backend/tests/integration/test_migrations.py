@@ -6,6 +6,7 @@ These tests require a running ArangoDB instance.  The ``test_db`` fixture
 
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 
@@ -143,3 +144,37 @@ def test_arangosearch_view(test_db: StandardDatabase) -> None:
     assert "ontology_classes_search" in view_names, (
         f"Expected ontology_classes_search view, found: {view_names}"
     )
+
+
+def test_019_backfill_expired_sentinel_repairs_null(test_db: StandardDatabase) -> None:
+    """019 backfill sets NEVER_EXPIRES on documents with null/missing expired."""
+    apply_all(test_db)
+    never = sys.maxsize
+    col = test_db.collection("ontology_classes")
+    col.insert(
+        {
+            "_key": "tmp_m019_null_expired",
+            "label": "M019 Test Class",
+            "uri": "http://test.example.org#M019",
+            "description": "migration 019 test",
+            "ontology_id": "test_onto_m019",
+            "created": 1.0,
+            "expired": None,
+            "rdf_type": "owl:Class",
+            "confidence": 0.5,
+            "status": "pending",
+            "tier": "domain",
+            "version": 1,
+            "change_type": "initial",
+            "change_summary": "test",
+            "created_by": "migration_test",
+            "ttlExpireAt": None,
+        },
+        overwrite=True,
+    )
+    m019 = importlib.import_module("migrations.019_backfill_expired_sentinel")
+    m019.up(test_db)
+    doc = col.get("tmp_m019_null_expired")
+    assert doc is not None
+    assert doc.get("expired") == never
+    col.delete("tmp_m019_null_expired")

@@ -357,21 +357,31 @@ function WorkspacePageInner() {
 
   const approveClass = useCallback(async (key: string) => {
     if (!selectedOntologyId) return;
+    setClasses((prev) =>
+      prev.map((c) =>
+        c._key === key ? { ...c, status: "approved" as const } : c,
+      ),
+    );
     try {
       await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status: "approved" });
-      refreshGraph();
     } catch (err) {
       console.error("Failed to approve class", err);
+      refreshGraph();
     }
   }, [selectedOntologyId, refreshGraph]);
 
   const rejectClass = useCallback(async (key: string) => {
     if (!selectedOntologyId) return;
+    setClasses((prev) =>
+      prev.map((c) =>
+        c._key === key ? { ...c, status: "rejected" as const } : c,
+      ),
+    );
     try {
       await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status: "rejected" });
-      refreshGraph();
     } catch (err) {
       console.error("Failed to reject class", err);
+      refreshGraph();
     }
   }, [selectedOntologyId, refreshGraph]);
 

@@ -55,6 +55,13 @@ const STATUS_NODE_COLORS: Record<CurationStatus, string> = {
   rejected: "#ef4444",
 };
 
+/** Border ring for approval state (visible on every lens, including semantic). */
+function statusBorderForClass(cls: OntologyClass): string {
+  if (cls.status === "approved") return "#22c55e";
+  if (cls.status === "rejected") return "#ef4444";
+  return "#f59e0b";
+}
+
 function lensNodeColor(cls: OntologyClass, lens: LensType): string {
   switch (lens) {
     case "confidence":
@@ -128,10 +135,7 @@ function buildGraph(
   for (const cls of classes) {
     const degree = degreeCounts.get(cls._key) ?? 0;
     const size = Math.max(12, Math.min(30, 12 + degree * 2));
-    const statusBorder =
-      cls.status === "approved" ? "#22c55e"
-        : cls.status === "rejected" ? "#ef4444"
-        : "#f59e0b";
+    const statusBorder = statusBorderForClass(cls);
     graph.addNode(cls._key, {
       label: cls.label,
       size,
@@ -478,6 +482,8 @@ export default function SigmaCanvas({
       const cls = classes.find((c) => c._key === node);
       if (cls) {
         g.setNodeAttribute(node, "color", lensNodeColor(cls, activeLens));
+        g.setNodeAttribute(node, "borderColor", statusBorderForClass(cls));
+        g.setNodeAttribute(node, "status", cls.status);
       }
     });
     sigmaRef.current?.refresh();

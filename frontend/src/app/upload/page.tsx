@@ -135,7 +135,7 @@ export default function UploadPage() {
     const id = `import_${Date.now().toString(36)}`;
 
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
       const params = new URLSearchParams({
         ontology_id: id,
         ontology_label: label,

@@ -506,8 +506,24 @@ function WorkspacePageInner() {
             onClick: () => handleSelectOntology(ontKey),
           },
           {
-            label: "View Info", icon: "📊",
+            label: "View Info", icon: "ℹ️",
             onClick: () => { setInfoPanelItem({ type: "ontology", data }); },
+          },
+          {
+            label: "View Quality Report", icon: "📊",
+            onClick: async () => {
+              try {
+                const quality = await api.get<Record<string, unknown>>(
+                  `/api/v1/quality/${ontKey}`,
+                );
+                setInfoPanelItem({
+                  type: "ontology",
+                  data: { ...data, _qualityReport: quality },
+                });
+              } catch {
+                setInfoPanelItem({ type: "ontology", data });
+              }
+            },
           },
           {
             label: "Export",
@@ -851,6 +867,11 @@ function AssetInfoPanel({
             <dd className="text-sm text-gray-700">{String(row.value)}</dd>
           </div>
         ))}
+
+        {/* Quality Report (when loaded via "View Quality Report") */}
+        {type === "ontology" && typeof data._qualityReport === "object" && data._qualityReport != null && (
+          <QualityReportSection report={data._qualityReport as Record<string, unknown>} />
+        )}
       </div>
 
       {type === "ontology" && typeof data._key === "string" && (
@@ -1003,6 +1024,54 @@ function PipelineSplitPane({
       />
       <div className="flex-1 overflow-y-auto min-h-0">
         {bottom}
+      </div>
+    </div>
+  );
+}
+
+function QualityReportSection({ report }: { report: Record<string, unknown> }) {
+  const metrics: { label: string; value: string; color?: string }[] = [];
+
+  const fmt = (v: unknown, pct = false) => {
+    if (v == null) return "—";
+    const n = Number(v);
+    if (isNaN(n)) return String(v);
+    return pct ? `${(n * 100).toFixed(1)}%` : n.toFixed(2);
+  };
+
+  const scoreColor = (v: unknown) => {
+    const n = Number(v);
+    if (isNaN(n)) return "text-gray-600";
+    if (n >= 0.7) return "text-green-600";
+    if (n >= 0.5) return "text-yellow-600";
+    return "text-red-600";
+  };
+
+  if (report.health_score != null) metrics.push({ label: "Health Score", value: fmt(report.health_score, true), color: scoreColor(report.health_score) });
+  if (report.avg_confidence != null) metrics.push({ label: "Avg Confidence", value: fmt(report.avg_confidence, true), color: scoreColor(report.avg_confidence) });
+  if (report.avg_faithfulness != null) metrics.push({ label: "Faithfulness", value: fmt(report.avg_faithfulness, true), color: scoreColor(report.avg_faithfulness) });
+  if (report.avg_semantic_validity != null) metrics.push({ label: "Semantic Validity", value: fmt(report.avg_semantic_validity, true), color: scoreColor(report.avg_semantic_validity) });
+  if (report.completeness != null) metrics.push({ label: "Completeness", value: fmt(report.completeness, true) });
+  if (report.connectivity != null) metrics.push({ label: "Connectivity", value: fmt(report.connectivity, true) });
+  if (report.orphan_count != null) metrics.push({ label: "Orphan Classes", value: String(report.orphan_count) });
+  if (report.has_cycles != null) metrics.push({ label: "Has Cycles", value: report.has_cycles ? "Yes" : "No", color: report.has_cycles ? "text-red-600" : "text-green-600" });
+  if (report.relationship_count != null) metrics.push({ label: "Relationships", value: String(report.relationship_count) });
+  if (report.estimated_cost != null) metrics.push({ label: "Extraction Cost", value: `$${Number(report.estimated_cost).toFixed(4)}` });
+
+  if (metrics.length === 0) return null;
+
+  return (
+    <div className="border-t border-gray-100 pt-3">
+      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+        Quality Report
+      </dt>
+      <div className="grid grid-cols-2 gap-2">
+        {metrics.map((m) => (
+          <div key={m.label} className="bg-gray-50 rounded-md px-2.5 py-1.5">
+            <div className="text-[10px] text-gray-500 uppercase">{m.label}</div>
+            <div className={`text-sm font-semibold ${m.color ?? "text-gray-800"}`}>{m.value}</div>
+          </div>
+        ))}
       </div>
     </div>
   );

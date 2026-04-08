@@ -910,9 +910,11 @@ function AssetInfoPanel({
                     <div className="font-medium text-amber-800 mb-1">{chunk.section_heading}</div>
                   )}
                   <div className="text-gray-600 whitespace-pre-wrap break-words">
-                    {((chunk.text as string) ?? "").length > 300
-                      ? (chunk.text as string).slice(0, 300) + "…"
-                      : (chunk.text as string)}
+                    <HighlightedText
+                      text={((chunk.text as string) ?? "").slice(0, 500)}
+                      highlight={(data.name as string) ?? ""}
+                    />
+                    {((chunk.text as string) ?? "").length > 500 && "…"}
                   </div>
                 </div>
               ))}
@@ -1144,5 +1146,33 @@ function QualityReportSection({ report }: { report: Record<string, unknown> }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function HighlightedText({ text, highlight }: { text: string; highlight: string }) {
+  if (!highlight || highlight.length < 2) return <>{text}</>;
+
+  const terms = [highlight];
+  const words = highlight.split(/\s+/).filter((w) => w.length >= 3);
+  for (const w of words) {
+    if (!terms.includes(w)) terms.push(w);
+  }
+
+  const pattern = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const regex = new RegExp(`(${pattern})`, "gi");
+  const parts = text.split(regex);
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
   );
 }

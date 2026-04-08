@@ -646,15 +646,11 @@ function WorkspacePageInner() {
                     &times; Close
                   </button>
                 </div>
-                {/* DAG + Metrics stacked vertically */}
-                <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-                  <div className="min-h-[350px] flex-shrink-0" style={{ height: "55%" }}>
-                    <AgentDAG steps={pipelineSteps} />
-                  </div>
-                  <div className="border-t border-gray-200 flex-shrink-0">
-                    <RunMetrics runId={pipelineRunId} />
-                  </div>
-                </div>
+                {/* DAG + Metrics with draggable vertical divider */}
+                <PipelineSplitPane
+                  top={<AgentDAG steps={pipelineSteps} />}
+                  bottom={<RunMetrics runId={pipelineRunId} />}
+                />
               </div>
             ) : selectedOntologyId ? (
               graphLoading ? (
@@ -952,6 +948,62 @@ function DocumentContentSection({ docKey }: { docKey: string }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function PipelineSplitPane({
+  top,
+  bottom,
+}: {
+  top: React.ReactNode;
+  bottom: React.ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [topFraction, setTopFraction] = useState(0.55);
+  const draggingRef = useRef(false);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+
+    function onMove(ev: MouseEvent) {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const y = ev.clientY - rect.top;
+      const fraction = Math.min(0.85, Math.max(0.2, y / rect.height));
+      setTopFraction(fraction);
+    }
+
+    function onUp() {
+      draggingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="overflow-hidden" style={{ flex: `0 0 ${topFraction * 100}%` }}>
+        {top}
+      </div>
+      <div
+        className="h-1.5 cursor-row-resize hover:bg-indigo-400 active:bg-indigo-500 bg-gray-200 flex-shrink-0 transition-colors"
+        onMouseDown={handleMouseDown}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize pipeline panes"
+      />
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {bottom}
+      </div>
     </div>
   );
 }

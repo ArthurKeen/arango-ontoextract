@@ -23,6 +23,47 @@ log = logging.getLogger(__name__)
 
 NEVER_EXPIRES: int = sys.maxsize
 
+_PROPERTY_VERTEX_COLLECTIONS = (
+    "ontology_properties",
+    "ontology_object_properties",
+    "ontology_datatype_properties",
+)
+
+
+def _count_ontology_property_vertices(db: Any, ontology_id: str) -> int:
+    total = 0
+    for col in _PROPERTY_VERTEX_COLLECTIONS:
+        if not db.has_collection(col):
+            continue
+        rows = list(
+            run_aql(
+                db,
+                f"FOR p IN {col} "
+                "FILTER p.ontology_id == @oid AND p.expired == @never "
+                "COLLECT WITH COUNT INTO c RETURN c",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            )
+        )
+        total += int(rows[0]) if rows else 0
+    return total
+
+
+def _ontology_property_vertex_ids(db: Any, ontology_id: str) -> set[str]:
+    ids: set[str] = set()
+    for col in _PROPERTY_VERTEX_COLLECTIONS:
+        if not db.has_collection(col):
+            continue
+        for pid in run_aql(
+            db,
+            f"FOR p IN {col} "
+            "FILTER p.ontology_id == @oid AND p.expired == @never "
+            "RETURN p._id",
+            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+        ):
+            if pid:
+                ids.add(str(pid))
+    return ids
+
 
 def register_ontology_resources(mcp: FastMCP) -> None:
     """Register all MCP resources on the given server instance."""
@@ -178,51 +219,53 @@ FOR cls IN ontology_classes
                 ))
                 class_count = cnt[0] if cnt else 0
 
-            if db.has_collection("ontology_properties"):
-                cnt = list(run_aql(
-                    db,
-                    """\
-FOR prop IN ontology_properties
-  FILTER prop.ontology_id == @oid
-  FILTER prop.expired == @never
-  COLLECT WITH COUNT INTO cnt
-  RETURN cnt""",
-                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-                ))
-                prop_count = cnt[0] if cnt else 0
+            prop_count = _count_ontology_property_vertices(db, ontology_id)
 
             edge_counts: dict[str, int] = {}
             edge_collections = [
-                "subclass_of", "has_property", "equivalent_class",
-                "extends_domain", "related_to",
+                "subclass_of",
+                "has_property",
+                "equivalent_class",
+                "extends_domain",
+                "related_to",
+                "rdfs_domain",
+                "rdfs_range_class",
             ]
             class_ids: set[str] = set()
             if class_count > 0 and db.has_collection("ontology_classes"):
-                class_ids = set(run_aql(
-                    db,
-                    """\
+                class_ids = set(
+                    run_aql(
+                        db,
+                        """\
 FOR cls IN ontology_classes
   FILTER cls.ontology_id == @oid
   FILTER cls.expired == @never
   RETURN cls._id""",
-                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-                ))
+                        bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+                    )
+                )
+
+            prop_ids = _ontology_property_vertex_ids(db, ontology_id)
+            relevant_ids = class_ids | prop_ids
 
             for edge_col in edge_collections:
                 if not db.has_collection(edge_col):
                     edge_counts[edge_col] = 0
                     continue
-                edges = list(run_aql(
-                    db,
-                    """\
+                edges = list(
+                    run_aql(
+                        db,
+                        """\
 FOR e IN @@col
   FILTER e.expired == @never
   RETURN {f: e._from, t: e._to}""",
-                    bind_vars={"@col": edge_col, "never": NEVER_EXPIRES},
-                ))
+                        bind_vars={"@col": edge_col, "never": NEVER_EXPIRES},
+                    )
+                )
                 count = sum(
-                    1 for e in edges
-                    if e["f"] in class_ids or e["t"] in class_ids
+                    1
+                    for e in edges
+                    if e["f"] in relevant_ids or e["t"] in relevant_ids
                 )
                 edge_counts[edge_col] = count
 

@@ -4,7 +4,7 @@ class properties, and BM25 search.
 Four tools:
   - query_domain_ontology: summary stats for an ontology
   - get_class_hierarchy: subClassOf tree as nested dict
-  - get_class_properties: properties attached to a class via has_property edges
+  - get_class_properties: properties via PGT (rdfs_domain) and/or legacy has_property
   - search_similar_classes: BM25 search on class labels/descriptions
 """
 
@@ -22,6 +22,138 @@ from app.db.utils import doc_get, run_aql
 log = logging.getLogger(__name__)
 
 NEVER_EXPIRES: int = sys.maxsize
+
+_PROPERTY_VERTEX_COLLECTIONS = (
+    "ontology_properties",
+    "ontology_object_properties",
+    "ontology_datatype_properties",
+)
+
+
+def _count_ontology_property_vertices(db: Any, ontology_id: str) -> int:
+    """Count current property vertices across legacy + PGT collections (ADR-006)."""
+    total = 0
+    for col in _PROPERTY_VERTEX_COLLECTIONS:
+        if not db.has_collection(col):
+            continue
+        rows = list(
+            run_aql(
+                db,
+                f"FOR p IN {col} "
+                "FILTER p.ontology_id == @oid AND p.expired == @never "
+                "COLLECT WITH COUNT INTO c RETURN c",
+                bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+            )
+        )
+        total += int(rows[0]) if rows else 0
+    return total
+
+
+def _load_class_property_rows(
+    db: Any,
+    *,
+    class_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (datatype_props, object_props_merged, legacy_props) like REST get_class_detail."""
+    attributes: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
+    legacy_properties: list[dict[str, Any]] = []
+
+    if db.has_collection("rdfs_domain") and db.has_collection("ontology_datatype_properties"):
+        attributes = list(
+            run_aql(
+                db,
+                "FOR e IN rdfs_domain "
+                "FILTER e._to == @cid AND e.expired == @never "
+                "FOR p IN ontology_datatype_properties "
+                "FILTER p._id == e._from AND p.expired == @never "
+                "RETURN p",
+                bind_vars={"cid": class_id, "never": NEVER_EXPIRES},
+            )
+        )
+
+    if db.has_collection("rdfs_domain") and db.has_collection("ontology_object_properties"):
+        range_sub = "RETURN p"
+        if db.has_collection("rdfs_range_class"):
+            range_sub = (
+                "LET target = FIRST("
+                "  FOR re IN rdfs_range_class "
+                "  FILTER re._from == p._id AND re.expired == @never "
+                "  LET t = DOCUMENT(re._to) "
+                "  RETURN {_key: t._key, label: t.label, uri: t.uri, _id: t._id}"
+                ") "
+                "RETURN MERGE(p, {target_class: target})"
+            )
+        relationships = list(
+            run_aql(
+                db,
+                "FOR e IN rdfs_domain "
+                "FILTER e._to == @cid AND e.expired == @never "
+                "FOR p IN ontology_object_properties "
+                f"FILTER p._id == e._from AND p.expired == @never "
+                f"{range_sub}",
+                bind_vars={"cid": class_id, "never": NEVER_EXPIRES},
+            )
+        )
+
+    if not attributes and not relationships:
+        if db.has_collection("has_property") and db.has_collection("ontology_properties"):
+            legacy_properties = list(
+                run_aql(
+                    db,
+                    "FOR e IN has_property "
+                    "FILTER e._from == @cid AND e.expired == @never "
+                    "LET prop = DOCUMENT(e._to) "
+                    "FILTER prop != null AND prop.expired == @never "
+                    "RETURN prop",
+                    bind_vars={"cid": class_id, "never": NEVER_EXPIRES},
+                )
+            )
+
+    return attributes, relationships, legacy_properties
+
+
+def _flatten_properties_for_mcp(
+    attributes: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+    legacy_properties: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Single list shape expected by older MCP clients."""
+    flat: list[dict[str, Any]] = []
+    for p in attributes:
+        flat.append({
+            "key": p.get("_key"),
+            "uri": p.get("uri"),
+            "label": p.get("label"),
+            "description": p.get("description"),
+            "property_type": "datatype",
+            "range": p.get("range_datatype", "xsd:string"),
+            "domain_class": None,
+        })
+    for p in relationships:
+        tgt = p.get("target_class") or {}
+        range_uri = tgt.get("uri") or ""
+        flat.append({
+            "key": p.get("_key"),
+            "uri": p.get("uri"),
+            "label": p.get("label"),
+            "description": p.get("description"),
+            "property_type": "object",
+            "range": range_uri,
+            "domain_class": None,
+        })
+    if not flat:
+        for p in legacy_properties:
+            flat.append({
+                "key": p.get("_key"),
+                "uri": p.get("uri"),
+                "label": p.get("label"),
+                "description": p.get("description"),
+                "property_type": p.get("property_type", "datatype"),
+                "range": p.get("range", "xsd:string"),
+                "domain_class": p.get("domain_class"),
+            })
+    return flat
 
 
 def register_ontology_tools(mcp: FastMCP) -> None:
@@ -72,18 +204,7 @@ FOR cls IN ontology_classes
                     bind_vars={"oid": ontology_id},
                 ))
 
-            if db.has_collection("ontology_properties"):
-                prop_count_result = list(run_aql(
-                    db,
-                    """\
-FOR prop IN ontology_properties
-  FILTER prop.ontology_id == @oid
-  FILTER prop.expired == @never
-  COLLECT WITH COUNT INTO cnt
-  RETURN cnt""",
-                    bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
-                ))
-                prop_count = prop_count_result[0] if prop_count_result else 0
+            prop_count = _count_ontology_property_vertices(db, ontology_id)
 
             max_depth = _compute_hierarchy_depth(db, ontology_id)
 
@@ -197,7 +318,10 @@ FOR e IN subclass_of
 
     @mcp.tool()
     def get_class_properties(class_key: str) -> dict[str, Any]:
-        """Return all properties for a class (via has_property edges, current versions).
+        """Return properties for a class (PGT rdfs_domain + legacy has_property).
+
+        ``properties`` is a flattened list with ``property_type`` ``datatype`` or
+        ``object`` and a string ``range`` (XSD type or target class URI).
 
         Args:
             class_key: The _key of the ontology class.
@@ -221,29 +345,8 @@ FOR cls IN ontology_classes
                 return {"error": f"Class '{class_key}' not found or expired"}
 
             cls = cls_results[0]
-
-            properties: list[dict[str, Any]] = []
-            if db.has_collection("has_property") and db.has_collection("ontology_properties"):
-                properties = list(run_aql(
-                    db,
-                    """\
-FOR e IN has_property
-  FILTER e._from == @cls_id
-  FILTER e.expired == @never
-  LET prop = DOCUMENT(e._to)
-  FILTER prop != null
-  FILTER prop.expired == @never
-  RETURN {
-    key: prop._key,
-    uri: prop.uri,
-    label: prop.label,
-    description: prop.description,
-    property_type: prop.property_type,
-    range: prop.range,
-    domain_class: prop.domain_class
-  }""",
-                    bind_vars={"cls_id": cls["_id"], "never": NEVER_EXPIRES},
-                ))
+            attrs, rels, legacy = _load_class_property_rows(db, class_id=cls["_id"])
+            properties = _flatten_properties_for_mcp(attrs, rels, legacy)
 
             return {
                 "class_key": class_key,

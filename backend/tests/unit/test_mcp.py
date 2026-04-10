@@ -567,19 +567,26 @@ class TestOntologyStats:
         db.has_collection.return_value = True
         mock_get_db.return_value = db
 
-        # Calls in order: class_count, prop_count, class_ids, edge queries x5, total_versions
+        # class_count, prop counts x3, class_ids, prop _id queries x3, edges x7, versions
         mock_run_aql.side_effect = [
-            iter([3]),  # class count
-            iter([2]),  # prop count
+            iter([3]),
+            iter([1]),
+            iter([0]),
+            iter([1]),
             iter(
                 ["ontology_classes/c1", "ontology_classes/c2", "ontology_classes/c3"]
-            ),  # class_ids
-            iter([{"f": "ontology_classes/c1", "t": "ontology_classes/c2"}]),  # subclass_of
-            iter([]),  # has_property
-            iter([]),  # equivalent_class
-            iter([]),  # extends_domain
-            iter([]),  # related_to
-            iter([5]),  # total versions
+            ),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([{"f": "ontology_classes/c1", "t": "ontology_classes/c2"}]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([5]),
         ]
         mock_doc_get.return_value = {"name": "Test Onto", "status": "active", "tier": "local"}
 
@@ -800,11 +807,13 @@ class TestQueryDomainOntology:
         db.has_collection.return_value = True
         mock_get_db.return_value = db
 
-        # class_count, recent_changes, prop_count, hierarchy_depth
+        # class_count, recent_changes, prop counts x3, hierarchy_depth
         mock_run_aql.side_effect = [
             iter([10]),  # class count
             iter([{"key": "c1", "label": "Cls1"}]),  # recent changes
-            iter([4]),  # prop count
+            iter([1]),
+            iter([1]),
+            iter([2]),  # property_count sum == 4
             iter([2]),  # hierarchy depth
         ]
         mock_doc_get.return_value = {
@@ -916,8 +925,13 @@ class TestGetClassProperties:
         mock_get_db.return_value = db
 
         cls_doc = {"_key": "c1", "_id": "ontology_classes/c1", "label": "MyClass", "uri": "u:c1"}
-        props = [{"key": "p1", "label": "prop1", "property_type": "datatype"}]
-        mock_run_aql.side_effect = [iter([cls_doc]), iter(props)]
+        legacy_prop = {"_key": "p1", "label": "prop1", "property_type": "datatype"}
+        mock_run_aql.side_effect = [
+            iter([cls_doc]),
+            iter([]),  # PGT datatype via rdfs_domain
+            iter([]),  # PGT object via rdfs_domain
+            iter([legacy_prop]),  # legacy has_property
+        ]
 
         tools = _capture_tools(register_ontology_tools)
         result = tools["get_class_properties"]("c1")
@@ -1003,7 +1017,7 @@ class TestGetProvenance:
         db = MagicMock()
         db.has_collection.return_value = True
         mock_get_db.return_value = db
-        mock_run_aql.return_value = iter([])  # not found in either collection
+        mock_run_aql.side_effect = [iter([]), iter([]), iter([]), iter([])]
 
         tools = _capture_tools(register_export_tools)
         result = tools["get_provenance"]("missing-key")
@@ -1080,7 +1094,15 @@ class TestExportOntology:
         db = MagicMock()
         db.has_collection.return_value = True
         mock_get_db.return_value = db
-        mock_run_aql.side_effect = [iter([]), iter([])]  # no classes, no props
+        # classes, 3 property collections, rdfs_range_class, rdfs_domain (then early return)
+        mock_run_aql.side_effect = [
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+        ]
 
         tools = _capture_tools(register_export_tools)
         result = tools["export_ontology"]("empty-onto")
@@ -1127,9 +1149,13 @@ class TestExportOntology:
             }
         ]
         mock_run_aql.side_effect = [
-            iter(classes),  # classes
-            iter(properties),  # properties
-            iter([]),  # subclass_of edges
+            iter(classes),
+            iter(properties),
+            iter([]),
+            iter([]),
+            iter([]),  # rdfs_range_class
+            iter([]),  # rdfs_domain
+            iter([]),  # subclass_of
         ]
 
         tools = _capture_tools(register_export_tools)
@@ -1157,6 +1183,10 @@ class TestExportOntology:
         ]
         mock_run_aql.side_effect = [
             iter(classes),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
             iter([]),
             iter([]),
         ]
@@ -1188,7 +1218,15 @@ class TestExportOntology:
                 "property_type": "object",
             }
         ]
-        mock_run_aql.side_effect = [iter(classes), iter(properties), iter([])]
+        mock_run_aql.side_effect = [
+            iter(classes),
+            iter(properties),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+        ]
 
         tools = _capture_tools(register_export_tools)
         result = tools["export_ontology"]("o1", format="turtle")
@@ -1226,11 +1264,75 @@ class TestExportOntology:
             },
         ]
         edges = [{"from_id": "ontology_classes/child", "to_id": "ontology_classes/parent"}]
-        mock_run_aql.side_effect = [iter(classes), iter([]), iter(edges)]
+        mock_run_aql.side_effect = [
+            iter(classes),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter([]),
+            iter(edges),
+        ]
 
         tools = _capture_tools(register_export_tools)
         result = tools["export_ontology"]("o1", format="turtle")
         assert "subClassOf" in result
+
+    @patch("app.mcp.tools.export.run_aql")
+    @patch("app.mcp.tools.export.get_db")
+    def test_pgt_object_property_domain_and_range_in_turtle(
+        self, mock_get_db, mock_run_aql
+    ):
+        from app.mcp.tools.export import register_export_tools
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+        mock_get_db.return_value = db
+
+        classes = [
+            {
+                "_key": "c1",
+                "_id": "ontology_classes/c1",
+                "label": "DomainCls",
+                "uri": "http://ex.org/DomainCls",
+                "description": None,
+            }
+        ]
+        obj_prop = {
+            "_key": "c1_rel",
+            "_id": "ontology_object_properties/c1_rel",
+            "label": "pointsTo",
+            "uri": "http://ex.org/pointsTo",
+            "description": "",
+        }
+        range_rows = [
+            {
+                "from_id": "ontology_object_properties/c1_rel",
+                "uri": "http://ex.org/TargetCls",
+            }
+        ]
+        domain_rows = [
+            {
+                "from_id": "ontology_object_properties/c1_rel",
+                "to_id": "ontology_classes/c1",
+            }
+        ]
+        mock_run_aql.side_effect = [
+            iter(classes),
+            iter([]),
+            iter([obj_prop]),
+            iter([]),
+            iter(range_rows),
+            iter(domain_rows),
+            iter([]),
+        ]
+
+        tools = _capture_tools(register_export_tools)
+        result = tools["export_ontology"]("o1", format="turtle")
+        assert "ObjectProperty" in result
+        assert "rdfs:domain" in result
+        assert "rdfs:range" in result
+        assert "TargetCls" in result
 
 
 # ===========================================================================
@@ -1257,7 +1359,7 @@ class TestExportHelpers:
 
         db = MagicMock()
         db.has_collection.return_value = True
-        mock_run_aql.return_value = iter([])
+        mock_run_aql.side_effect = [iter([]), iter([]), iter([]), iter([])]
 
         result = _find_entity(db, "missing")
         assert result is None

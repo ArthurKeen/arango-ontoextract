@@ -66,6 +66,8 @@ After startup, verify each service is accessible:
 | Frontend | http://localhost:3000 | Landing page with system status |
 | ArangoDB UI | http://localhost:8529 | ArangoDB web interface |
 
+Day-to-day ontology work happens on **`/workspace`** (asset explorer + **Sigma.js** graph + VCR timeline). Aggregated metrics and the **Per-Ontology Quality** tab live on **`/dashboard`** (the legacy **`/quality`** URL redirects to that tab).
+
 Run the database migration to create the schema:
 
 ```bash
@@ -216,7 +218,7 @@ After extraction, a staging graph contains draft ontology entities. Domain exper
 
 Navigate to `/curation/{runId}` in the frontend. The dashboard shows:
 
-- **Graph Canvas** — interactive visualization of extracted classes and relationships (React Flow)
+- **Graph Canvas** — interactive visualization of extracted classes and relationships (**React Flow** on `/curation`; the main **`/workspace`** canvas uses **Sigma.js** for large graphs)
 - **Node Detail Panel** — click any class to see URI, label, description, confidence, provenance
 - **Action Buttons** — approve, reject, edit, or merge each entity
 
@@ -475,31 +477,46 @@ curl -X PUT http://localhost:8000/api/v1/er/config \
 
 ### Import an Existing Ontology
 
-Upload an OWL/TTL file to add it to the ontology library:
+Upload an OWL/TTL (or RDF-XML, JSON-LD) file to add it to the ontology library. You must pass a unique **`ontology_id`** (this becomes the registry `_key`). Optionally pass **`ontology_label`** for the display name; otherwise the server derives a name from the OWL ontology `rdfs:label`, the filename, or the id.
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ontology/import \
+curl -X POST "http://localhost:8000/api/v1/ontology/import?ontology_id=my_imported_onto&ontology_label=My%20Schema" \
   -F "file=@my_ontology.ttl"
 ```
 
 The import process:
-1. Parses the OWL/TTL file via rdflib
+1. Parses the file via rdflib
 2. Transforms to ArangoDB via ArangoRDF PGT
-3. Creates a registry entry in `ontology_registry`
+3. Creates a registry entry in `ontology_registry` (`name`, `label`, `tier: local`, description)
 4. Tags all imported entities with `ontology_id`
 5. Creates a per-ontology named graph
 
 ### Export an Ontology
 
-```bash
-# Export as Turtle (default)
-curl "http://localhost:8000/api/v1/ontology/export?format=ttl"
+Exports are **per ontology** (replace `my_ontology` with the registry `_key`):
 
-# Export as JSON-LD
-curl "http://localhost:8000/api/v1/ontology/export?format=json-ld"
+```bash
+# Turtle (default)
+curl "http://localhost:8000/api/v1/ontology/my_ontology/export?format=turtle"
+
+# JSON-LD
+curl "http://localhost:8000/api/v1/ontology/my_ontology/export?format=jsonld"
+
+# CSV
+curl "http://localhost:8000/api/v1/ontology/my_ontology/export?format=csv"
 ```
 
-Supported formats: `ttl` (Turtle), `json-ld`, `csv`.
+Supported `format` values: `turtle`, `jsonld`, `csv`.
+
+### Rename or describe an ontology (registry)
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/ontology/library/my_ontology \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Human Readable Name", "description": "Optional description"}'
+```
+
+In the **Workspace** UI, right-click an ontology in the asset explorer → **Edit name & description** (same API).
 
 ### Schema Extraction
 

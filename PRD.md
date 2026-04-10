@@ -421,15 +421,15 @@ This section defines the end-to-end workflows performed by each role. These work
 **Trigger:** User wants to assess ontology quality
 
 **Main Flow:**
-1. User navigates to `/dashboard` (primary quality dashboard). The legacy `/quality` URL redirects here.
+1. User navigates to `/dashboard` (primary quality dashboard). The legacy `/quality` URL redirects to `/dashboard?tab=per-ontology-quality` (per-ontology radar and score cards).
 2. Dashboard shows aggregate quality summary cards and ontology-level alerts.
 3. User reviews the per-ontology score table and radar chart for LLM-as-judge metrics.
 4. User clicks an ontology → sees per-ontology quality: health score, faithfulness, semantic validity, completeness, orphan/cycle flags, and class score distribution.
-5. User can open the GraphRAG vs VectorRAG comparison tab, clearly labeled as mock/demo data until a live benchmark API exists.
+5. User opens the **Per-Ontology Quality** tab (same `/dashboard` page) for a live six-dimension radar and metrics from `GET /api/v1/quality/{ontology_id}` (no mock data).
 6. User navigates to library → QualityPanel shows inline quality summary for the selected ontology.
 
 **Alternative Flows:**
-- 1a. User lands on `/quality` from an older bookmark or doc link → system redirects to `/dashboard`
+- 1a. User lands on `/quality` from an older bookmark or doc link → system redirects to `/dashboard?tab=per-ontology-quality`
 
 **Post-conditions:** User informed of quality status. Can prioritize curation effort on low-quality ontologies.
 
@@ -509,7 +509,7 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 | UC-8 | Deprecate ontology | All entities expired (not deleted); registry status=deprecated; dependent ontologies warned | DELETE /library/{id}?confirm=true, GET /library/{id} |
 | UC-9 | System reset | Collections empty; named graphs removed; documents preserved (soft) or removed (full) | POST /admin/reset, POST /admin/reset/full |
 | UC-10 | MCP tool calls | Correct data returned; no side effects on reads | MCP tools: search_similar_classes, get_class_hierarchy, export_ontology |
-| UC-11 | Quality metrics | Health score computed; confidence values differentiated; completeness accurate | GET /quality/{id}, GET /quality/dashboard, GET /quality/summary |
+| UC-11 | Quality metrics | Health score computed; confidence values differentiated; completeness accurate | GET /quality/{id}, GET /quality/dashboard |
 | UC-12 | Create + publish release | RC created with snapshot; breaking changes detected; release published; export serves version; previous release superseded | POST /ontology/{id}/releases, POST .../publish, GET /ontology/{id}/export?version=1.2.0 |
 | UC-13 | Revert to previous release | Current state matches target release; changes preserved in history; revert appears as timeline event | POST /ontology/{id}/revert, GET /ontology/{id}/timeline |
 
@@ -2187,14 +2187,17 @@ Bottom section highlighting ontologies that need attention:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/v1/quality/{ontology_id}` | Returns all computed quality scores including health score, avg faithfulness, avg semantic validity, structural metrics, and estimated cost for an ontology |
-| `GET` | `/api/v1/quality/{ontology_id}/history` | Quality metrics over time (leverages temporal snapshots) |
+| `GET` | `/api/v1/quality/{ontology_id}/history` | *(Planned — not implemented in router yet.)* Quality metrics over time via temporal snapshots |
 | `GET` | `/api/v1/quality/{ontology_id}/evaluation` | Returns the qualitative evaluation (strengths/weaknesses) for the ontology's extraction run |
 | `GET` | `/api/v1/quality/{ontology_id}/class-scores` | Returns per-class faithfulness and semantic validity scores for distribution charts |
-| `GET` | `/api/v1/quality/summary` | Aggregate quality scores across all ontologies (now includes avg faithfulness, avg semantic validity) |
-| `GET` | `/api/v1/quality/dashboard` | Single aggregated payload for the dashboard: all ontology scores, summary cards, flags/alerts |
-| `POST` | `/api/v1/quality/recall` | Upload a reference OWL/TTL file to compute recall against extracted ontology |
+| `GET` | `/api/v1/quality/dashboard` | Single aggregated payload for the dashboard: all ontology scorecards, aggregate **summary** (replaces the former `/quality/summary` endpoint), and flags/alerts |
+| `POST` | `/api/v1/quality/recall` | *(Specified — not yet implemented.)* Upload a reference OWL/TTL file to compute recall against extracted ontology |
 
-**Current Implementation Note:** The GraphRAG vs VectorRAG tab in the dashboard currently uses clearly labeled mock/demo data for UI walkthroughs. A live benchmark API remains future work.
+**Removed / superseded:** `GET /api/v1/quality/summary` was removed; clients should use `GET /api/v1/quality/dashboard` and read the `summary` field.
+
+**Not yet implemented (API spec vs code):** `GET /api/v1/quality/{ontology_id}/history` (quality over time) is described below but is not registered in the current FastAPI router.
+
+**Dashboard UI:** The second tab on `/dashboard` is **Per-Ontology Quality** (live API data). A separate GraphRAG-vs-VectorRAG mock comparison is no longer shipped in the product UI.
 
 ### 6.14 Ontology Constraints (OWL Restrictions & SHACL Shapes)
 
@@ -2326,8 +2329,8 @@ The `ontology_constraints` collection already exists in §5.1 with fields for `o
 | `GET` | `/api/v1/ontology/local/{org_id}` | Get organization's local ontology |
 | `GET` | `/api/v1/ontology/staging/{run_id}` | Get staging graph for curation — returns `{ run_id, ontology_id, classes[], properties[], edges[] }` by resolving the ontology from the extraction run |
 | `POST` | `/api/v1/ontology/staging/{run_id}/promote` | Promote approved staging entities to production |
-| `GET` | `/api/v1/ontology/export` | Export ontology in OWL/TTL/JSON-LD format |
-| `POST` | `/api/v1/ontology/import` | Import external ontology file (OWL/TTL/RDF) via ArangoRDF |
+| `GET` | `/api/v1/ontology/{ontology_id}/export` | Export a registered ontology (`format`: `turtle`, `jsonld`, `csv`) |
+| `POST` | `/api/v1/ontology/import` | Import external ontology file (multipart); **query** `ontology_id` (required), optional `ontology_label`, `ontology_uri_prefix` |
 | `GET` | `/api/v1/ontology/library` | List all ontologies in the registry |
 | `GET` | `/api/v1/ontology/library/{ontology_id}` | Get ontology detail (classes, properties, stats) |
 | `PUT` | `/api/v1/ontology/library/{ontology_id}` | Update ontology metadata (name, description, tags, status) |
@@ -2399,10 +2402,12 @@ The `ontology_constraints` collection already exists in §5.1 with fields for `o
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/quality/{ontology_id}` | All computed quality scores for an ontology (acceptance rate, structural quality, avg confidence, etc.) |
-| `GET` | `/api/v1/quality/{ontology_id}/history` | Quality metrics over time |
-| `GET` | `/api/v1/quality/summary` | Aggregate quality scores across all ontologies |
-| `POST` | `/api/v1/quality/recall` | Upload reference OWL/TTL file; compute recall against extracted ontology |
+| `GET` | `/api/v1/quality/dashboard` | Full dashboard payload: `summary`, `ontologies[]`, `alerts` (aggregate summary supersedes removed `/quality/summary`) |
+| `GET` | `/api/v1/quality/{ontology_id}` | All computed quality scores for an ontology (health score, structural metrics, extraction metrics, schema metrics, etc.) |
+| `GET` | `/api/v1/quality/{ontology_id}/evaluation` | Qualitative evaluation (strengths / weaknesses) from the linked extraction run |
+| `GET` | `/api/v1/quality/{ontology_id}/class-scores` | Per-class faithfulness and semantic validity for charts |
+| `GET` | `/api/v1/quality/{ontology_id}/history` | *(Not implemented in router yet — planned: quality over time via temporal snapshots.)* |
+| `POST` | `/api/v1/quality/recall` | *(Not implemented yet.)* Upload reference OWL/TTL; compute recall against extracted ontology |
 
 ### 7.9 API Conventions
 

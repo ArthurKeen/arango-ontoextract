@@ -75,3 +75,9 @@ We chose **React Flow** as the graph visualization library for the curation dash
 - Lazy loading and server-side filtering for large ontologies (only load visible subgraph)
 - Layout computation can be offloaded to Web Workers if needed
 - Graph analysis is done in ArangoDB via AQL traversals, not in the browser
+
+---
+
+## Addendum (2026-04): Main workspace graph
+
+The decision above remains in force for the **curation** dashboard and other React-heavy graph UIs. The unified **`/workspace`** experience adopted **[Sigma.js](https://www.sigmajs.org/)** (`SigmaCanvas`) for the primary ontology canvas so large graphs stay interactive (WebGL). React Flow remains the choice where nodes must be full React components (curation actions, pipeline DAG, ontology editor).

@@ -15,11 +15,12 @@ Interactive documentation (Swagger UI) is available at `http://localhost:8000/do
 5. [Ontology — Domain and Local](#ontology--domain-and-local)
 6. [Ontology — Temporal](#ontology--temporal)
 7. [Ontology — Import and Export](#ontology--import-and-export)
-8. [Curation](#curation)
-9. [Entity Resolution](#entity-resolution)
-10. [WebSocket](#websocket)
-11. [Error Format](#error-format)
-12. [Pagination](#pagination)
+8. [Quality metrics](#quality-metrics)
+9. [Curation](#curation)
+10. [Entity Resolution](#entity-resolution)
+11. [WebSocket](#websocket)
+12. [Error Format](#error-format)
+13. [Pagination](#pagination)
 
 ---
 
@@ -188,6 +189,7 @@ Upload a file for processing. The file is parsed, chunked, and embedded asynchro
 |--------|------|-------------|------|
 | `GET` | `/api/v1/ontology/library` | List registered ontologies (paginated) | Yes |
 | `GET` | `/api/v1/ontology/library/{ontology_id}` | Get ontology detail with stats | Yes |
+| `PUT` | `/api/v1/ontology/library/{ontology_id}` | Update registry metadata: `name`, `description`, `tags`, `tier`, `status` (also syncs `label` with `name`) | Yes |
 | `PUT` | `/api/v1/ontology/orgs/{org_id}/ontologies` | Set base ontologies for an organization | Yes |
 | `GET` | `/api/v1/ontology/orgs/{org_id}/ontologies` | Get selected base ontologies | Yes |
 
@@ -314,18 +316,43 @@ Upload a file for processing. The file is parsed, chunked, and embedded asynchro
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
-| `POST` | `/api/v1/ontology/import` | Import an OWL/TTL ontology file | Yes |
-| `GET` | `/api/v1/ontology/export` | Export ontology (TTL, JSON-LD, CSV) | Yes |
+| `POST` | `/api/v1/ontology/import` | Import OWL/TTL/RDF-XML/JSON-LD (multipart file) | Yes |
+| `GET` | `/api/v1/ontology/{ontology_id}/export` | Export one ontology (Turtle, JSON-LD, CSV) | Yes |
 | `POST` | `/api/v1/ontology/schema/extract` | Extract ontology from ArangoDB schema | Yes |
 | `GET` | `/api/v1/ontology/schema/extract/{run_id}` | Get schema extraction status | Yes |
 
-### GET /api/v1/ontology/export
+### POST /api/v1/ontology/import
+
+**Query parameters (required / optional):**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ontology_id` | string | Yes | Registry `_key` for the imported ontology |
+| `ontology_label` | string | No | Display name override |
+| `ontology_uri_prefix` | string | No | URI prefix filter for entity import |
+
+**Request:** `multipart/form-data` with field `file` (the ontology file).
+
+### GET /api/v1/ontology/{ontology_id}/export
 
 **Query Parameters:**
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `format` | string | `ttl` | Export format: `ttl`, `json-ld`, `csv` |
+| `format` | string | `turtle` | `turtle`, `jsonld`, or `csv` |
+
+---
+
+## Quality metrics
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| `GET` | `/api/v1/quality/dashboard` | Full dashboard: `summary`, `ontologies[]`, `alerts` | Yes |
+| `GET` | `/api/v1/quality/{ontology_id}` | Structural + extraction quality merge for one ontology | Yes |
+| `GET` | `/api/v1/quality/{ontology_id}/evaluation` | Qualitative strengths / weaknesses | Yes |
+| `GET` | `/api/v1/quality/{ontology_id}/class-scores` | Per-class faithfulness and semantic validity | Yes |
+
+**Note:** `GET /api/v1/quality/summary` was removed; use `GET /api/v1/quality/dashboard` and read the `summary` field. `GET .../history` and `POST .../recall` appear in the PRD but are not implemented in the current router.
 
 ---
 

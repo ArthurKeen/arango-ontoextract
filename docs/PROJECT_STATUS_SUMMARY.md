@@ -1,6 +1,6 @@
 # Arango-OntoExtract (AOE) — Project Status Summary
 
-**Date:** March 31, 2026
+**Date:** April 9, 2026
 **Version:** v0.1.0 + 40 incremental commits
 **Repository:** https://github.com/arangoml/ontology_generator
 
@@ -29,7 +29,7 @@ AOE is an LLM-driven ontology extraction and curation platform built on ArangoDB
 | **Temporal Versioning** | Complete | Full version history on every class/property/edge; VCR timeline with additive entity playback |
 | **ArangoDB Visualizer** | Complete | Auto-installed themes, canvas actions, saved queries (temporal-aware) per ontology graph |
 | **MCP Server** | Complete | Runtime tools for AI agents to query ontologies, trigger extractions |
-| **Quality Metrics** | Mostly Complete | Health score (0–100), quality panel in library, unified `/dashboard` with `/quality` redirect alias, audited OntoQA panel, and labeled mock/demo RAG comparison |
+| **Quality Metrics** | Mostly Complete | Health score (0–100), quality panel in library, unified `/dashboard`, **Per-Ontology Quality** tab (live API radar), audited OntoQA panel; aggregate summary via `GET /quality/dashboard` |
 | **Deletion & Integrity** | Complete | Temporal soft-delete with cross-ontology cascade; system reset for dev/demo |
 
 ### Architecture
@@ -46,7 +46,7 @@ AI Agents (Claude, GPT-4o, external MCP clients)
 
 ### Key Technical Decisions
 
-- **Graph visualization:** Currently React Flow (prototype); target migration to Sigma.js + graphology (WebGL) for scalability
+- **Graph visualization:** **Workspace** (`/workspace`) uses Sigma.js + graphology (WebGL). **Curation** (`/curation/...`), **ontology editor** (`/ontology/.../edit`), and **entity-resolution** pages still use React Flow (`GraphCanvas`).
 - **Vector search:** ArangoDB FAISS-based vector index (IVF) on chunk embeddings
 - **Temporal model:** Edge-interval time travel with `created`/`expired` timestamps and MDI-prefixed indexes
 - **Confidence scoring:** LLM-as-Judge faithfulness evaluation + semantic validation pass (domain/range, disjointness checks)

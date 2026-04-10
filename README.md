@@ -189,6 +189,7 @@ make clean             # Remove caches and build artifacts
 |--------|------|-------------|
 | `GET` | `/api/v1/ontology/library` | List ontologies |
 | `GET` | `/api/v1/ontology/library/{id}` | Ontology detail + stats |
+| `PUT` | `/api/v1/ontology/library/{id}` | Update registry metadata (name, description, tags, tier, status) |
 | `PUT` | `/api/v1/ontology/orgs/{org_id}/ontologies` | Set base ontologies |
 | `GET` | `/api/v1/ontology/orgs/{org_id}/ontologies` | Get base ontologies |
 | `GET` | `/api/v1/ontology/domain` | Domain ontology graph |
@@ -199,8 +200,8 @@ make clean             # Remove caches and build artifacts
 | `GET` | `/api/v1/ontology/{id}/diff` | Temporal diff |
 | `GET` | `/api/v1/ontology/{id}/timeline` | Timeline events |
 | `POST` | `/api/v1/ontology/class/{key}/revert` | Revert to version |
-| `POST` | `/api/v1/ontology/import` | Import OWL/TTL |
-| `GET` | `/api/v1/ontology/export` | Export ontology |
+| `POST` | `/api/v1/ontology/import` | Import OWL/TTL (query: `ontology_id`, optional `ontology_label`) |
+| `GET` | `/api/v1/ontology/{id}/export` | Export ontology (formats: `turtle`, `jsonld`, `csv`) |
 
 ### Curation
 
@@ -227,6 +228,15 @@ make clean             # Remove caches and build artifacts
 | `POST` | `/api/v1/er/cross-tier` | Cross-tier candidates |
 | `GET` | `/api/v1/er/config` | Get ER config |
 | `PUT` | `/api/v1/er/config` | Update ER config |
+
+### Quality
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/quality/dashboard` | Summary + per-ontology scorecards + alerts |
+| `GET` | `/api/v1/quality/{ontology_id}` | Merged structural + extraction quality for one ontology |
+| `GET` | `/api/v1/quality/{ontology_id}/evaluation` | Strengths / weaknesses text |
+| `GET` | `/api/v1/quality/{ontology_id}/class-scores` | Per-class faithfulness / validity for charts |
 
 ### WebSocket
 

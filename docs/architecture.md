@@ -93,12 +93,18 @@ React 18 + Next.js 14 application providing the user interface.
 | Page | Purpose |
 |------|---------|
 | `/` | Landing page with system health status |
+| `/workspace` | Unified workspace — asset explorer, **Sigma.js** ontology graph, VCR timeline |
+| `/dashboard` | Metrics and quality (including per-ontology quality tab) |
 | `/pipeline` | Pipeline Monitor — real-time extraction DAG, run list, metrics |
-| `/curation/{runId}` | Visual Curation Dashboard — graph canvas, node actions, VCR timeline |
+| `/curation/{runId}` | Visual Curation Dashboard — **React Flow** graph, node actions, VCR timeline |
 | `/library` | Ontology Library browser |
+| `/quality` | Redirects to `/dashboard?tab=per-ontology-quality` |
+| `/ontology/{ontologyId}/edit` | Ontology structure editor (**React Flow**) |
+| `/entity-resolution` | ER workflows (**React Flow** where a graph is shown) |
 
 Key UI components:
-- **GraphCanvas** — React Flow-based interactive ontology graph
+- **SigmaCanvas** — Sigma.js graph on `/workspace` (large-scale ontology visualization)
+- **GraphCanvas** — React Flow graph for curation, ontology editor, and related flows
 - **VCRTimeline** — temporal slider with play/pause/rewind controls
 - **AgentDAG** — React Flow rendering of the LangGraph pipeline with live status
 - **MergeCandidates** — ER candidate review with accept/reject
@@ -215,7 +221,7 @@ This enables point-in-time snapshots via AQL range filters on `[created, expired
 | LLM orchestration | LangGraph | Stateful multi-step agent graphs with checkpointing, conditional edges, and human-in-the-loop breakpoints |
 | LLM providers | Claude (primary), GPT-4o (fallback) | Best-in-class structured extraction with JSON schema enforcement |
 | Frontend | Next.js 14 + React 18 | Server-side rendering, file-based routing, React Server Components |
-| Graph visualization | React Flow | Native React components, interactive node/edge manipulation, custom renderers, layout algorithms |
+| Graph visualization | Sigma.js + React Flow | Sigma for the main `/workspace` canvas (WebGL performance at scale); React Flow for curation, pipeline DAG, ontology editor, and ER UIs that need rich node interactions |
 | Entity resolution | arango-entity-resolution | ArangoDB-native ER with blocking, scoring, and WCC clustering; supports GAE backend |
 | Temporal indexing | MDI-prefixed indexes | ArangoDB's multi-dimensional indexes optimized for interval range queries on `[created, expired]` |
 | MCP server | FastMCP (mcp Python SDK) | Standard MCP protocol for AI agent interoperability |

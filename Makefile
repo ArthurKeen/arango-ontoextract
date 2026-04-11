@@ -1,4 +1,4 @@
-.PHONY: help setup infra backend frontend test test-unit test-integration test-all test-infra-up test-infra-down lint format typecheck type-check clean migrate docker-build docker-up docker-down
+.PHONY: help setup dev infra backend frontend test test-unit test-integration test-all test-infra-up test-infra-down lint format typecheck type-check clean migrate docker-build docker-up docker-down
 
 # Optional repo-root .env (BACKEND_PORT, etc.). Safe if missing.
 -include .env
@@ -21,6 +21,9 @@ setup: ## First-time project setup (venv + deps + .env)
 	cd frontend && npm install
 	@test -f .env || cp .env.example .env && echo "==> Created .env from .env.example"
 	@echo "==> Done. Run 'make infra' to start ArangoDB + Redis."
+
+dev: ## API + Next in one terminal (Ctrl+C stops both). Uses BACKEND_PORT (default 8010).
+	@BACKEND_PORT=$(BACKEND_PORT) bash scripts/dev-local.sh
 
 # ---------------------------------------------------------------------------
 # Infrastructure

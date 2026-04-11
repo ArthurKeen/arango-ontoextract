@@ -31,6 +31,7 @@ EXPECTED_DOCUMENT_COLLECTIONS = {
     "users",
     "aoe_system_meta",
     "ontology_registry",
+    "ontology_releases",
 }
 
 EXPECTED_VERSIONED_VERTEX_COLLECTIONS = {

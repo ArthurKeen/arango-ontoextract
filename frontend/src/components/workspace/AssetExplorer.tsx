@@ -364,6 +364,18 @@ export default function AssetExplorer({
               <span className="truncate flex-1 font-medium group-hover:text-gray-900">
                 {ontologyDisplayName(ont)}
               </span>
+              {ont.current_release_version ? (
+                <span
+                  className="text-[10px] text-emerald-700 font-medium flex-shrink-0"
+                  title={
+                    ont.current_release_at
+                      ? `Released ${ont.current_release_at}`
+                      : "Released version"
+                  }
+                >
+                  v{ont.current_release_version}
+                </span>
+              ) : null}
               <span className="text-[10px] text-gray-400 flex-shrink-0">
                 {ont.class_count}c
               </span>

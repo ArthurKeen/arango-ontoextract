@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import LensToolbar, { type LensType } from "@/components/workspace/LensToolbar";
 import AssetExplorer from "@/components/workspace/AssetExplorer";
 import OntologyRenameDialog from "@/components/workspace/OntologyRenameDialog";
+import OntologyReleaseDialog from "@/components/workspace/OntologyReleaseDialog";
 import CanvasLensLegend from "@/components/workspace/CanvasLensLegend";
 import EmptyCanvasState from "@/components/workspace/EmptyCanvasState";
 import FloatingDetailPanel from "@/components/workspace/FloatingDetailPanel";
@@ -100,6 +101,10 @@ function WorkspacePageInner() {
     key: string;
     name: string;
     description: string;
+  } | null>(null);
+  const [releaseOntology, setReleaseOntology] = useState<{
+    key: string;
+    currentReleaseVersion?: string | null;
   } | null>(null);
 
   const [classes, setClasses] = useState<OntologyClass[]>([]);
@@ -684,6 +689,19 @@ function WorkspacePageInner() {
             },
           },
           {
+            label: "Release",
+            icon: "🚀",
+            disabled: data.status === "deprecated",
+            onClick: () => {
+              if (!ontKey || data.status === "deprecated") return;
+              const cur =
+                typeof data.current_release_version === "string"
+                  ? data.current_release_version
+                  : null;
+              setReleaseOntology({ key: ontKey, currentReleaseVersion: cur });
+            },
+          },
+          {
             label: "View Quality Report", icon: "📊",
             onClick: () => fetchOntologyQualityReport(data),
           },
@@ -947,6 +965,16 @@ function WorkspacePageInner() {
               setOntologyName(displayName);
             }
           }}
+        />
+      )}
+
+      {releaseOntology && (
+        <OntologyReleaseDialog
+          open
+          ontologyKey={releaseOntology.key}
+          currentReleaseVersion={releaseOntology.currentReleaseVersion}
+          onClose={() => setReleaseOntology(null)}
+          onReleased={() => setExplorerLibraryNonce((n) => n + 1)}
         />
       )}
     </div>

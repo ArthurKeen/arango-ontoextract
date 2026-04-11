@@ -131,6 +131,12 @@ export interface OntologyRegistryEntry {
   status: "draft" | "active" | "deprecated";
   tags?: string[];
   health_score?: number;
+  /** Latest recorded release (denormalized on registry). */
+  current_release_version?: string | null;
+  current_release_description?: string | null;
+  current_release_at?: string | null;
+  /** Set after at least one release; absent means never released via this flow. */
+  release_state?: "released" | string;
 }
 
 export interface SearchResult {

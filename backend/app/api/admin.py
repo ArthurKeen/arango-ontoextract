@@ -32,6 +32,7 @@ ONTOLOGY_COLLECTIONS = [
     "produced_by",
     "extraction_runs",
     "ontology_registry",
+    "ontology_releases",
     "curation_decisions",
     "quality_history",
 ]

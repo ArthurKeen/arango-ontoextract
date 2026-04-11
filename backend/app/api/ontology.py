@@ -5,12 +5,13 @@ import sys
 import time
 from typing import Any, cast
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
+from app.api.auth import get_user_from_request
 from app.api.errors import ConflictError, NotFoundError, ValidationError
-from app.db import documents_repo, ontology_repo, registry_repo
+from app.db import documents_repo, ontology_repo, registry_repo, releases_repo
 from app.db.client import get_db
 from app.db.utils import doc_get, run_aql
 from app.models.curation import (
@@ -214,6 +215,71 @@ async def update_ontology_metadata(
         raise NotFoundError(str(exc)) from exc
 
     return updated
+
+
+class CreateOntologyReleaseRequest(BaseModel):
+    """Body for recording a versioned ontology release."""
+
+    version: str = Field(..., min_length=1, max_length=120, description="Release version label, e.g. 1.0.0")
+    description: str = Field(
+        "",
+        max_length=4000,
+        description="Short description of this release",
+    )
+    release_notes: str = Field(
+        "",
+        max_length=50000,
+        description="Detailed release notes or changelog",
+    )
+
+
+@router.post("/library/{ontology_id}/releases")
+async def create_ontology_release(
+    ontology_id: str,
+    body: CreateOntologyReleaseRequest,
+    request: Request,
+) -> dict:
+    """Record a new ontology release and update registry release metadata."""
+    entry = registry_repo.get_registry_entry(ontology_id)
+    if entry is None:
+        raise NotFoundError(f"Ontology '{ontology_id}' not found")
+    if entry.get("status") == "deprecated":
+        raise ValidationError("Cannot release a deprecated ontology")
+
+    user = get_user_from_request(request)
+    released_by = user.user_id if user else None
+
+    version = body.version.strip()
+    if not version:
+        raise ValidationError("Release version is required")
+
+    try:
+        rec = releases_repo.create_release(
+            ontology_id,
+            version=version,
+            description=body.description.strip(),
+            release_notes=body.release_notes.strip(),
+            released_by=released_by,
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "already exists" in msg:
+            raise ConflictError(msg) from exc
+        raise ValidationError(msg) from exc
+
+    return {"release": rec}
+
+
+@router.get("/library/{ontology_id}/releases")
+async def list_ontology_releases(
+    ontology_id: str,
+    limit: int = Query(50, ge=1, le=100),
+) -> dict:
+    """List release records for an ontology, newest first."""
+    if registry_repo.get_registry_entry(ontology_id) is None:
+        raise NotFoundError(f"Ontology '{ontology_id}' not found")
+    rows = releases_repo.list_releases_for_ontology(ontology_id, limit=limit)
+    return {"data": rows}
 
 
 @router.delete("/library/{ontology_id}")

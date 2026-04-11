@@ -11,6 +11,10 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: "/favicon.ico",
+        destination: "/favicon.svg",
+      },
+      {
         source: "/api/:path*",
         destination: `${backendTarget}/api/:path*`,
       },

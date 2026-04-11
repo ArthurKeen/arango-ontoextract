@@ -46,6 +46,24 @@ export class ApiError extends Error {
  */
 export const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8010";
 
+/**
+ * Use same-origin `/api/*` (Next.js rewrite → FastAPI) when local dev would
+ * otherwise send traffic to port 8000 — commonly occupied by a non-AOE service.
+ * Set NEXT_PUBLIC_API_FORCE_URL=1 to disable and honor NEXT_PUBLIC_API_URL exactly.
+ */
+function shouldUseSameOriginApiProxy(envUrl: string | undefined): boolean {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  if (h !== "localhost" && h !== "127.0.0.1") return false;
+  if (process.env.NEXT_PUBLIC_API_FORCE_URL === "1") return false;
+  if (envUrl === undefined || envUrl.trim() === "") return true;
+  try {
+    return new URL(envUrl).port === "8000";
+  } catch {
+    return false;
+  }
+}
+
 function resolveApiBaseUrl(baseUrl: string): string {
   if (typeof window === "undefined") {
     return baseUrl;
@@ -83,8 +101,7 @@ class ApiClient {
 
   constructor(baseUrl?: string) {
     const envUrl = baseUrl ?? process.env.NEXT_PUBLIC_API_URL;
-    const inBrowser = typeof window !== "undefined";
-    if (inBrowser && (envUrl === undefined || envUrl === "")) {
+    if (shouldUseSameOriginApiProxy(envUrl)) {
       this.baseUrl = "";
     } else {
       this.baseUrl = resolveApiBaseUrl(envUrl ?? DEFAULT_BACKEND_ORIGIN);
@@ -158,7 +175,9 @@ export const api = new ApiClient();
 
 /** Resolve the backend API base URL (no trailing slash). */
 export function getApiBaseUrl(): string {
-  return resolveApiBaseUrl(
-    process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_BACKEND_ORIGIN,
-  );
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (shouldUseSameOriginApiProxy(envUrl)) {
+    return resolveApiBaseUrl(DEFAULT_BACKEND_ORIGIN);
+  }
+  return resolveApiBaseUrl(envUrl ?? DEFAULT_BACKEND_ORIGIN);
 }

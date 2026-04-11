@@ -40,6 +40,7 @@ interface AssetExplorerProps {
   onSelectDocument: (docId: string) => void;
   onSelectRun: (runId: string, ontologyId?: string) => void;
   selectedOntologyId: string | null;
+  selectedRunId: string | null;
   onContextMenu: (e: React.MouseEvent, type: string, data: unknown) => void;
   /** Increment (e.g. after ontology rename) to refetch documents + library lists. */
   libraryReloadNonce?: number;
@@ -98,6 +99,7 @@ export default function AssetExplorer({
   onSelectDocument,
   onSelectRun,
   selectedOntologyId,
+  selectedRunId,
   onContextMenu,
   libraryReloadNonce = 0,
 }: AssetExplorerProps) {
@@ -406,10 +408,12 @@ export default function AssetExplorer({
                 e.preventDefault();
                 onContextMenu(e, "run", run);
               }}
-              className="w-full text-left pl-7 pr-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 transition-colors group"
+              className={`w-full text-left pl-7 pr-3 py-1.5 text-xs flex items-center gap-2 transition-colors group
+                ${selectedRunId === run._key ? "bg-violet-50 text-violet-800" : "hover:bg-gray-50"}
+              `}
             >
               <StatusDot status={run.status} />
-              <span className="truncate flex-1 text-gray-700 group-hover:text-gray-900">
+              <span className={`truncate flex-1 font-medium group-hover:text-gray-900 ${selectedRunId === run._key ? "text-violet-800" : "text-gray-700"}`}>
                 {run.document_name}
               </span>
               <span className="text-[10px] text-gray-400 flex-shrink-0">

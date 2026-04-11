@@ -819,6 +819,7 @@ function WorkspacePageInner() {
             onSelectDocument={handleSelectDocument}
             onSelectRun={handleSelectRun}
             selectedOntologyId={selectedOntologyId}
+            selectedRunId={pipelineRunId}
             onContextMenu={handleAssetContextMenu}
             libraryReloadNonce={explorerLibraryNonce}
           />

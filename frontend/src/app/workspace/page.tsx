@@ -495,6 +495,26 @@ function WorkspacePageInner() {
     }
   }, [selectedOntologyId, refreshGraph]);
 
+  const approveProperty = useCallback(async (key: string, ontologyId?: string) => {
+    const oid = ontologyId ?? selectedOntologyId;
+    if (!oid) return;
+    try {
+      await api.put(`/api/v1/ontology/${oid}/properties/${key}`, { status: "approved" });
+    } catch (err) {
+      console.error("Failed to approve property", err);
+    }
+  }, [selectedOntologyId]);
+
+  const rejectProperty = useCallback(async (key: string, ontologyId?: string) => {
+    const oid = ontologyId ?? selectedOntologyId;
+    if (!oid) return;
+    try {
+      await api.put(`/api/v1/ontology/${oid}/properties/${key}`, { status: "rejected" });
+    } catch (err) {
+      console.error("Failed to reject property", err);
+    }
+  }, [selectedOntologyId]);
+
   const deleteClass = useCallback(async (key: string) => {
     if (!selectedOntologyId) return;
     try {
@@ -690,6 +710,51 @@ function WorkspacePageInner() {
           {
             label: "Delete", icon: "🗑️", danger: true,
             disabled: true,
+          },
+        ];
+      }
+      case "property": {
+        const propKey = (data._key ?? data.key) as string;
+        const propLabel = (data.label ?? propKey) as string;
+        const propOntologyId = (data.ontology_id ?? selectedOntologyId) as string;
+        const propRange = (data.range_datatype ?? data.range ?? (data.target_class as Record<string, unknown> | undefined)?.label ?? "") as string;
+        const propStatus = data.status as string | undefined;
+
+        return [
+          {
+            label: propLabel, icon: "🔍",
+            onClick: () => {
+              setInfoPanelItem({
+                type: "run",
+                data: {
+                  _key: propKey,
+                  name: propLabel,
+                  status: propStatus,
+                  range: propRange,
+                  ontology_id: propOntologyId,
+                  ...data,
+                },
+              });
+            },
+          },
+          { label: "separator0", separator: true },
+          {
+            label: "Approve", icon: "✅",
+            disabled: propStatus === "approved",
+            onClick: () => { approveProperty(propKey, propOntologyId); },
+          },
+          {
+            label: "Reject", icon: "❌",
+            disabled: propStatus === "rejected",
+            onClick: () => { rejectProperty(propKey, propOntologyId); },
+          },
+          { label: "separator1", separator: true },
+          {
+            label: "Copy URI", icon: "📋",
+            disabled: !data.uri,
+            onClick: () => {
+              if (data.uri) navigator.clipboard.writeText(data.uri as string).catch(() => {});
+            },
           },
         ];
       }

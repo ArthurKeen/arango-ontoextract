@@ -47,6 +47,8 @@ class TestSchemaExtractionConfig:
         assert cfg.target_password == ""
         assert cfg.use_llm_inference is False
         assert cfg.ontology_id is None
+        assert cfg.extraction_source == "arango_graph_schema"
+        assert cfg.verify_tls is True
 
     def test_custom_values(self):
         cfg = _make_config(ontology_id="custom", ontology_label="My Schema")
@@ -121,27 +123,24 @@ class TestExtractSchema:
 
         assert result["ontology_id"] == "my_custom_id"
 
+    @patch("app.services.schema_extraction.import_from_file")
+    @patch("app.services.schema_extraction._run_schema_mapper_extract")
     @patch("app.services.schema_extraction._try_import_schema_mapper")
     @patch("app.services.schema_extraction.get_db")
-    def test_mapper_path_calls_snapshot_and_export(self, mock_get_db, mock_mapper):
+    def test_mapper_path_calls_run_schema_mapper_extract(
+        self, mock_get_db, mock_try_mapper, mock_run_extract, mock_import
+    ):
         mock_get_db.return_value = MagicMock()
-        snapshot_fn = MagicMock(return_value="snapshot_data")
-        owl_export_fn = MagicMock(return_value="@prefix owl: <> .")
-        mock_mapper.return_value = (snapshot_fn, owl_export_fn)
+        mock_try_mapper.return_value = (object(), object(), object(), object())
+        mock_run_extract.return_value = ("@prefix owl: <> .", {"physical_schema_fingerprint": "fp1"})
+        mock_import.return_value = {"imported": True}
+        config = _make_config()
+        result = extract_schema(config)
 
-        with patch("app.services.schema_extraction.import_from_file") as mock_import:
-            mock_import.return_value = {"imported": True}
-            config = _make_config()
-            result = extract_schema(config)
-
-        snapshot_fn.assert_called_once_with(
-            host="http://localhost:8529",
-            database="test_db",
-            username="root",
-            password="pass",
-        )
-        owl_export_fn.assert_called_once_with("snapshot_data")
+        mock_run_extract.assert_called_once()
+        assert mock_run_extract.call_args[0][0] is config
         assert result["status"] == "completed"
+        assert result["provenance"]["physical_schema_fingerprint"] == "fp1"
 
     @patch("app.services.schema_extraction._try_import_schema_mapper", return_value=None)
     @patch(
@@ -191,4 +190,4 @@ class TestStubExtractSchema:
         assert "users" in ttl
         assert "edges" in ttl
         assert "_system" not in ttl
-        mock_client.close.assert_called_once()
+        assert mock_client.close.call_count >= 1

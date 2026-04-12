@@ -221,7 +221,7 @@ export default function AgentDAG({ steps, onContextMenu, onApi }: AgentDAGProps)
   }, [nodes]);
 
   return (
-    <div className="w-full h-[580px] [&_.react-flow__pane]:!cursor-default [&_.react-flow__node]:!cursor-default" data-testid="agent-dag">
+    <div className="w-full h-[580px] [&_.react-flow__pane]:!cursor-default [&_.react-flow__node]:!cursor-default [&_.react-flow__node]:!pointer-events-auto" data-testid="agent-dag">
       <ReactFlow
         nodes={nodes}
         edges={edges}

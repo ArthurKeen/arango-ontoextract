@@ -1353,10 +1353,18 @@ function AssetInfoPanel({
     );
   } else if (type === "run") {
     const stats = (data.stats ?? {}) as Record<string, unknown>;
-    const startedAt = data.started_at as number | undefined;
-    const completedAt = data.completed_at as number | undefined;
-    const duration = startedAt && completedAt
-      ? `${Math.round(((completedAt as number) - (startedAt as number)))}s`
+    const rawStart = data.started_at;
+    const rawEnd = data.completed_at;
+    const toSeconds = (v: unknown): number | null => {
+      if (v == null) return null;
+      if (typeof v === "number") return v < 1e12 ? v : v / 1000;
+      const ms = new Date(v as string).getTime();
+      return isNaN(ms) ? null : ms / 1000;
+    };
+    const startSec = toSeconds(rawStart);
+    const endSec = toSeconds(rawEnd);
+    const duration = startSec != null && endSec != null
+      ? `${Math.round(endSec - startSec)}s`
       : data.duration_ms != null
         ? `${Math.round((data.duration_ms as number) / 1000)}s`
         : undefined;

@@ -1692,6 +1692,272 @@ async def import_ontology_endpoint(
 
 
 # ---------------------------------------------------------------------------
+# Create empty ontology (PRD 6.15 FR-15.7)
+# ---------------------------------------------------------------------------
+
+
+class CreateOntologyRequest(BaseModel):
+    """Create a new (empty) ontology in the registry."""
+
+    ontology_id: str | None = Field(
+        None, description="Optional custom key; auto-generated if omitted"
+    )
+    name: str = Field(..., min_length=1, description="Human-readable ontology name")
+    description: str = Field(default="", description="Optional description")
+    uri_prefix: str | None = Field(
+        None, description="URI namespace prefix (e.g. http://example.org/ontology/my-ont#)"
+    )
+    tier: str = Field(default="local", description="Ontology tier: domain or local")
+    imports: list[str] = Field(
+        default_factory=list,
+        description="Registry keys of ontologies to import into this one",
+    )
+
+
+@router.post("/create", status_code=201)
+async def create_ontology(body: CreateOntologyRequest) -> dict:
+    """Create an empty ontology, optionally importing other ontologies into it."""
+    import uuid
+
+    db = get_db()
+    ont_id = body.ontology_id or f"ont_{uuid.uuid4().hex[:12]}"
+
+    existing = registry_repo.get_registry_entry(ont_id, db=db)
+    if existing is not None:
+        raise ConflictError(f"Ontology '{ont_id}' already exists")
+
+    uri = body.uri_prefix or f"http://example.org/ontology/{ont_id}#"
+    entry = registry_repo.create_registry_entry(
+        {
+            "_key": ont_id,
+            "name": body.name,
+            "label": body.name,
+            "description": body.description,
+            "tier": body.tier,
+            "source": "manual",
+            "uri": uri,
+            "class_count": 0,
+            "property_count": 0,
+        },
+        db=db,
+    )
+
+    imports_created: list[dict[str, str]] = []
+    warnings: list[str] = []
+    for target_key in body.imports:
+        target = registry_repo.get_registry_entry(target_key, db=db)
+        if target is None:
+            warnings.append(f"Import target '{target_key}' not found — skipped")
+            continue
+        if target_key == ont_id:
+            warnings.append("Cannot import self — skipped")
+            continue
+        if not db.has_collection("imports"):
+            warnings.append("'imports' edge collection missing — skipped")
+            break
+        ontology_repo.create_edge(
+            db=db,
+            edge_collection="imports",
+            from_id=f"ontology_registry/{ont_id}",
+            to_id=f"ontology_registry/{target_key}",
+            data={"import_iri": target.get("uri", "")},
+        )
+        imports_created.append({"target": target_key, "name": target.get("name", target_key)})
+
+    return {
+        "ontology_id": entry["_key"],
+        "name": entry["name"],
+        "imports_created": imports_created,
+        "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Ontology imports management (PRD 6.15 FR-15.7–15.12)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{ontology_id}/imports")
+async def list_ontology_imports(ontology_id: str) -> dict:
+    """List all ontologies imported by this ontology."""
+    db = get_db()
+    entry = registry_repo.get_registry_entry(ontology_id, db=db)
+    if entry is None:
+        raise NotFoundError(f"Ontology '{ontology_id}' not found")
+
+    if not db.has_collection("imports"):
+        return {"imports": []}
+
+    query = """
+        FOR e IN imports
+          FILTER e._from == @from_id
+          FILTER e.expired == @never
+          LET target = DOCUMENT(e._to)
+          RETURN {
+            edge_key: e._key,
+            target_id: PARSE_IDENTIFIER(e._to).key,
+            target_name: target.name || target.label || PARSE_IDENTIFIER(e._to).key,
+            target_uri: target.uri,
+            import_iri: e.import_iri,
+            created: e.created
+          }
+    """
+    results = list(
+        run_aql(
+            db,
+            query,
+            bind_vars={
+                "from_id": f"ontology_registry/{ontology_id}",
+                "never": NEVER_EXPIRES,
+            },
+        )
+    )
+    return {"imports": results}
+
+
+@router.get("/{ontology_id}/imported-by")
+async def list_ontology_dependents(ontology_id: str) -> dict:
+    """List all ontologies that import this ontology."""
+    db = get_db()
+    entry = registry_repo.get_registry_entry(ontology_id, db=db)
+    if entry is None:
+        raise NotFoundError(f"Ontology '{ontology_id}' not found")
+
+    if not db.has_collection("imports"):
+        return {"imported_by": []}
+
+    query = """
+        FOR e IN imports
+          FILTER e._to == @to_id
+          FILTER e.expired == @never
+          LET source = DOCUMENT(e._from)
+          RETURN {
+            edge_key: e._key,
+            source_id: PARSE_IDENTIFIER(e._from).key,
+            source_name: source.name || source.label || PARSE_IDENTIFIER(e._from).key,
+            created: e.created
+          }
+    """
+    results = list(
+        run_aql(
+            db,
+            query,
+            bind_vars={
+                "to_id": f"ontology_registry/{ontology_id}",
+                "never": NEVER_EXPIRES,
+            },
+        )
+    )
+    return {"imported_by": results}
+
+
+class AddImportRequest(BaseModel):
+    target_ontology_id: str = Field(..., description="Registry key of the ontology to import")
+
+
+@router.post("/{ontology_id}/imports", status_code=201)
+async def add_ontology_import(ontology_id: str, body: AddImportRequest) -> dict:
+    """Add an import edge from one ontology to another."""
+    db = get_db()
+    entry = registry_repo.get_registry_entry(ontology_id, db=db)
+    if entry is None:
+        raise NotFoundError(f"Ontology '{ontology_id}' not found")
+
+    target = registry_repo.get_registry_entry(body.target_ontology_id, db=db)
+    if target is None:
+        raise NotFoundError(f"Target ontology '{body.target_ontology_id}' not found")
+
+    if body.target_ontology_id == ontology_id:
+        raise ValidationError("Cannot import self")
+
+    if not db.has_collection("imports"):
+        raise HTTPException(status_code=500, detail="'imports' edge collection not available")
+
+    from_id = f"ontology_registry/{ontology_id}"
+    to_id = f"ontology_registry/{body.target_ontology_id}"
+
+    existing = list(
+        run_aql(
+            db,
+            "FOR e IN imports FILTER e._from == @f AND e._to == @t AND e.expired == @never RETURN e._key",
+            bind_vars={"f": from_id, "t": to_id, "never": NEVER_EXPIRES},
+        )
+    )
+    if existing:
+        raise ConflictError(
+            f"'{ontology_id}' already imports '{body.target_ontology_id}'"
+        )
+
+    # Circular dependency check: would target importing us create a cycle?
+    cycle_check = list(
+        run_aql(
+            db,
+            """
+            FOR v IN 1..10 OUTBOUND @target_id imports
+              FILTER v._key == @source_key
+              LIMIT 1
+              RETURN true
+            """,
+            bind_vars={
+                "target_id": to_id,
+                "source_key": ontology_id,
+            },
+        )
+    )
+    if cycle_check:
+        raise ValidationError(
+            f"Adding this import would create a circular dependency"
+        )
+
+    edge = ontology_repo.create_edge(
+        db=db,
+        edge_collection="imports",
+        from_id=from_id,
+        to_id=to_id,
+        data={"import_iri": target.get("uri", "")},
+    )
+
+    return {
+        "edge_key": edge["_key"],
+        "from": ontology_id,
+        "to": body.target_ontology_id,
+        "target_name": target.get("name", body.target_ontology_id),
+    }
+
+
+@router.delete("/{ontology_id}/imports/{target_ontology_id}")
+async def remove_ontology_import(ontology_id: str, target_ontology_id: str) -> dict:
+    """Remove an import edge (soft-delete via temporal expiry)."""
+    db = get_db()
+
+    if not db.has_collection("imports"):
+        raise NotFoundError("imports edge collection not available")
+
+    from_id = f"ontology_registry/{ontology_id}"
+    to_id = f"ontology_registry/{target_ontology_id}"
+
+    edges = list(
+        run_aql(
+            db,
+            "FOR e IN imports FILTER e._from == @f AND e._to == @t AND e.expired == @never RETURN e",
+            bind_vars={"f": from_id, "t": to_id, "never": NEVER_EXPIRES},
+        )
+    )
+    if not edges:
+        raise NotFoundError(
+            f"No active import from '{ontology_id}' to '{target_ontology_id}'"
+        )
+
+    now = time.time()
+    for edge in edges:
+        db.collection("imports").update(
+            {"_key": edge["_key"], "expired": now, "ttlExpireAt": now + 90 * 86400}
+        )
+
+    return {"removed": len(edges), "from": ontology_id, "to": target_ontology_id}
+
+
+# ---------------------------------------------------------------------------
 # Schema extraction endpoints (PRD 6.9 — Week 20)
 # ---------------------------------------------------------------------------
 

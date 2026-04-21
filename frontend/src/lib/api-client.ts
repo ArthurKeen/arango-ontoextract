@@ -173,11 +173,32 @@ class ApiClient {
 
 export const api = new ApiClient();
 
-/** Resolve the backend API base URL (no trailing slash). */
+/**
+ * Base URL prefix for browser `fetch(...)` to the API.
+ *
+ * Returns `""` when the Next.js same-origin rewrite should be used (the
+ * default in local dev) so callers end up with relative `/api/...` paths and
+ * avoid cross-origin/CORS entirely. Returns an absolute origin otherwise.
+ *
+ * For WebSocket URLs (which need an absolute `ws://` / `wss://`), use
+ * `getApiOrigin()` instead.
+ */
 export function getApiBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   if (shouldUseSameOriginApiProxy(envUrl)) {
-    return resolveApiBaseUrl(DEFAULT_BACKEND_ORIGIN);
+    return "";
   }
+  return resolveApiBaseUrl(envUrl ?? DEFAULT_BACKEND_ORIGIN);
+}
+
+/**
+ * Always-absolute API origin (protocol + host + port, no trailing slash).
+ *
+ * Use this when you need a real URL — e.g. building a WebSocket URL — rather
+ * than a fetch prefix. Browser HTTP callers should prefer `getApiBaseUrl()`
+ * so the Next.js rewrite handles CORS.
+ */
+export function getApiOrigin(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
   return resolveApiBaseUrl(envUrl ?? DEFAULT_BACKEND_ORIGIN);
 }

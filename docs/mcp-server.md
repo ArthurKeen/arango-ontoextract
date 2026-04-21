@@ -30,7 +30,7 @@ Add to your `.cursor/mcp.json`:
     "aoe": {
       "command": "python",
       "args": ["-m", "app.mcp.server"],
-      "cwd": "/path/to/ontology_generator/backend"
+      "cwd": "/path/to/arango-ontoextract/backend"
     }
   }
 }
@@ -46,7 +46,7 @@ Add to `claude_desktop_config.json`:
     "aoe": {
       "command": "python",
       "args": ["-m", "app.mcp.server"],
-      "cwd": "/path/to/ontology_generator/backend"
+      "cwd": "/path/to/arango-ontoextract/backend"
     }
   }
 }
@@ -266,7 +266,7 @@ The MCP server uses the same configuration as the FastAPI backend (`app/config.p
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ARANGO_HOST` | `http://localhost:8530` | ArangoDB connection URL |
-| `ARANGO_DB` | `ontology_generator` | Database name |
+| `ARANGO_DB` | `OntoExtract` | Database name |
 | `ARANGO_USER` | `root` | Database user |
 | `ARANGO_PASSWORD` | `changeme` | Database password |
 

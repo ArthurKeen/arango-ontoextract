@@ -36,7 +36,7 @@ A comprehensive walkthrough for using the Arango-OntoExtract (AOE) platform — 
 
 ```bash
 # Clone the repository
-git clone <repo-url> && cd ontology_generator
+git clone <repo-url> && cd arango-ontoextract
 
 # Copy environment config and add your API keys
 cp .env.example .env
@@ -546,7 +546,7 @@ Add to your `.cursor/mcp.json`:
     "aoe": {
       "command": "python",
       "args": ["-m", "app.mcp.server"],
-      "cwd": "/path/to/ontology_generator/backend"
+      "cwd": "/path/to/arango-ontoextract/backend"
     }
   }
 }
@@ -562,7 +562,7 @@ Add to `claude_desktop_config.json`:
     "aoe": {
       "command": "python",
       "args": ["-m", "app.mcp.server"],
-      "cwd": "/path/to/ontology_generator/backend"
+      "cwd": "/path/to/arango-ontoextract/backend"
     }
   }
 }

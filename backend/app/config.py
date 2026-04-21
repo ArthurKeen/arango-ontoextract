@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # -- ArangoDB (common) -------------------------------------------------
     arango_host: str = "http://localhost:8530"
-    arango_db: str = "ontology_generator"
+    arango_db: str = "OntoExtract"
     arango_user: str = "root"
     arango_password: str = "changeme"
     arango_no_auth: bool = False

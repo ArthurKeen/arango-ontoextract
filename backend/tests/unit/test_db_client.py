@@ -34,7 +34,7 @@ class TestDbClient:
 
         db_client.close_db()
 
-        settings = _make_settings(host="http://localhost:8530", db="ontology_generator")
+        settings = _make_settings(host="http://localhost:8530", db="OntoExtract")
         client = MagicMock()
         db = MagicMock()
         client.db.return_value = db
@@ -60,7 +60,7 @@ class TestDbClient:
 
         first_settings = _make_settings(
             host="http://localhost:8530",
-            db="ontology_generator",
+            db="OntoExtract",
         )
         second_settings = _make_settings(
             host="http://localhost:8530",

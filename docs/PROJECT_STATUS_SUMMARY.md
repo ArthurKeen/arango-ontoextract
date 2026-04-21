@@ -2,7 +2,7 @@
 
 **Date:** April 9, 2026
 **Version:** v0.1.0 + 40 incremental commits
-**Repository:** https://github.com/arangoml/ontology_generator
+**Repository:** https://github.com/arango-solutions/arango-ontoextract
 
 ---
 

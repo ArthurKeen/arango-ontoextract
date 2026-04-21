@@ -19,7 +19,7 @@ Assets are installed into ArangoDB's internal collections (`_graphThemeStore`, `
 python scripts/setup/install_visualizer.py
 
 # Standalone with explicit connection:
-python scripts/setup/install_visualizer.py --host http://localhost:8530 --db ontology_generator --password changeme
+python scripts/setup/install_visualizer.py --host http://localhost:8530 --db OntoExtract --password changeme
 
 # Prune theme to only collections in the graph:
 python scripts/setup/install_visualizer.py --prune

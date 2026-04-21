@@ -44,6 +44,14 @@ interface AssetExplorerProps {
   onContextMenu: (e: React.MouseEvent, type: string, data: unknown) => void;
   /** Increment (e.g. after ontology rename) to refetch documents + library lists. */
   libraryReloadNonce?: number;
+  /** The currently selected class key (from graph click or sidebar click). */
+  selectedClassKey?: string | null;
+  /** Fired when a class row is clicked in the sidebar. */
+  onSelectClass?: (classKey: string, ontologyId: string) => void;
+  /** The currently selected edge key (from graph click or sidebar click). */
+  selectedEdgeKey?: string | null;
+  /** Fired when an edge/relation row is clicked in the sidebar. */
+  onSelectEdge?: (edgeKey: string, ontologyId: string) => void;
 }
 
 type SectionId = "documents" | "ontologies" | "runs";
@@ -102,6 +110,10 @@ export default function AssetExplorer({
   selectedRunId,
   onContextMenu,
   libraryReloadNonce = 0,
+  selectedClassKey,
+  onSelectClass,
+  selectedEdgeKey,
+  onSelectEdge,
 }: AssetExplorerProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Record<SectionId, boolean>>({
@@ -358,6 +370,10 @@ export default function AssetExplorer({
               isSelected={selectedOntologyId === ont._key}
               onSelect={() => onSelectOntology(ont._key)}
               onContextMenu={onContextMenu}
+              selectedClassKey={selectedOntologyId === ont._key ? selectedClassKey ?? null : null}
+              onSelectClass={onSelectClass}
+              selectedEdgeKey={selectedOntologyId === ont._key ? selectedEdgeKey ?? null : null}
+              onSelectEdge={onSelectEdge}
             />
           ))}
         </Section>
@@ -505,12 +521,20 @@ function OntologyItem({
   isSelected,
   onSelect,
   onContextMenu,
+  selectedClassKey,
+  onSelectClass,
+  selectedEdgeKey,
+  onSelectEdge,
 }: {
   ont: OntologyRegistryEntry;
   displayName: string;
   isSelected: boolean;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent, type: string, data: unknown) => void;
+  selectedClassKey: string | null;
+  onSelectClass?: (classKey: string, ontologyId: string) => void;
+  selectedEdgeKey: string | null;
+  onSelectEdge?: (edgeKey: string, ontologyId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [classesOpen, setClassesOpen] = useState(false);
@@ -521,6 +545,22 @@ function OntologyItem({
 
   const [edges, setEdges] = useState<OntologyEdgeEntry[]>([]);
   const [edgesLoading, setEdgesLoading] = useState(false);
+
+  // Auto-expand the ontology + classes section when a class is selected from the graph
+  useEffect(() => {
+    if (selectedClassKey) {
+      setExpanded(true);
+      setClassesOpen(true);
+    }
+  }, [selectedClassKey]);
+
+  // Auto-expand the ontology + relations section when an edge is selected from the graph
+  useEffect(() => {
+    if (selectedEdgeKey) {
+      setExpanded(true);
+      setEdgesOpen(true);
+    }
+  }, [selectedEdgeKey]);
 
   useEffect(() => {
     if (!classesOpen || classes.length > 0) return;
@@ -643,6 +683,8 @@ function OntologyItem({
                   cls={cls}
                   ontologyId={ont._key}
                   onContextMenu={onContextMenu}
+                  isSelected={selectedClassKey === cls._key}
+                  onSelectClass={onSelectClass}
                 />
               ))}
             </div>
@@ -680,27 +722,22 @@ function OntologyItem({
                 const src = edge.source_label ?? edge._from?.split("/").pop()?.replace(/_/g, " ") ?? "";
                 const tgt = edge.target_label ?? edge._to?.split("/").pop()?.replace(/_/g, " ") ?? "";
                 const displayLabel = edge.label || (src && tgt ? `${src} → ${tgt}` : edge._key);
+                const edgeIsSelected = selectedEdgeKey === edge._key;
 
                 return (
-                  <div
+                  <EdgeRow
                     key={edge._key}
+                    edgeKey={edge._key}
+                    displayLabel={displayLabel}
+                    typeLabel={typeLabel}
+                    title={`${typeLabel}: ${src} → ${tgt}`}
+                    isSelected={edgeIsSelected}
+                    onClick={() => onSelectEdge?.(edge._key, ont._key)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       onContextMenu(e, "edge", edge);
                     }}
-                    className="w-full text-left pl-14 pr-3 py-1 text-[10px] flex items-center gap-1.5 hover:bg-gray-50 transition-colors cursor-default"
-                    title={`${typeLabel}: ${src} → ${tgt}`}
-                  >
-                    <span className="text-purple-400 flex-shrink-0">↔</span>
-                    <span className="truncate text-gray-700 flex-1">
-                      {displayLabel}
-                    </span>
-                    {typeLabel && (
-                      <span className="text-gray-400 flex-shrink-0 text-[8px]">
-                        {typeLabel}
-                      </span>
-                    )}
-                  </div>
+                  />
                 );
               })}
             </div>
@@ -715,14 +752,19 @@ function ClassItem({
   cls,
   ontologyId,
   onContextMenu,
+  isSelected,
+  onSelectClass,
 }: {
   cls: OntologyClassEntry;
   ontologyId: string;
   onContextMenu: (e: React.MouseEvent, type: string, data: unknown) => void;
+  isSelected: boolean;
+  onSelectClass?: (classKey: string, ontologyId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [properties, setProperties] = useState<ClassPropertyEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const rowRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!expanded || properties.length > 0) return;
@@ -742,26 +784,46 @@ function ClassItem({
     return () => { cancelled = true; };
   }, [expanded, properties.length, ontologyId, cls._key]);
 
-  const statusColor: Record<string, string> = {
-    approved: "text-green-600",
-    rejected: "text-red-500",
-    pending: "text-amber-500",
+  const statusDot: Record<string, string> = {
+    approved: "bg-green-500",
+    rejected: "bg-red-400",
+    pending: "bg-amber-400",
   };
+
+  useEffect(() => {
+    if (isSelected && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [isSelected]);
 
   return (
     <div>
       <button
-        onClick={() => setExpanded((v) => !v)}
+        ref={rowRef}
+        onClick={() => {
+          if (onSelectClass) {
+            onSelectClass(cls._key, ontologyId);
+          }
+          setExpanded((v) => !v);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           onContextMenu(e, "class", { ...cls, ontology_id: ontologyId });
         }}
-        className="w-full text-left pl-14 pr-3 py-1 text-[10px] flex items-center gap-1.5 hover:bg-gray-50 transition-colors group"
+        className={`w-full text-left pl-14 pr-3 py-1 text-[10px] flex items-center gap-1.5 hover:bg-gray-50 transition-colors group ${
+          isSelected ? "bg-indigo-50 ring-1 ring-indigo-300" : ""
+        }`}
       >
         <span className="text-[9px] text-gray-400 w-3 text-center flex-shrink-0">
           {expanded ? "▼" : "▶"}
         </span>
-        <span className={`font-medium truncate flex-1 ${statusColor[cls.status ?? ""] ?? "text-gray-700"} group-hover:text-gray-900`}>
+        {cls.status && statusDot[cls.status] && (
+          <span
+            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot[cls.status]}`}
+            title={cls.status}
+          />
+        )}
+        <span className={`font-medium truncate flex-1 ${isSelected ? "text-indigo-700" : "text-gray-700"} group-hover:text-gray-900`}>
           {cls.label ?? cls._key}
         </span>
         {cls.confidence != null && (
@@ -801,6 +863,55 @@ function ClassItem({
         </div>
       )}
     </div>
+  );
+}
+
+function EdgeRow({
+  edgeKey,
+  displayLabel,
+  typeLabel,
+  title,
+  isSelected,
+  onClick,
+  onContextMenu: onCtx,
+}: {
+  edgeKey: string;
+  displayLabel: string;
+  typeLabel: string;
+  title: string;
+  isSelected: boolean;
+  onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
+  const rowRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (isSelected && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [isSelected]);
+
+  return (
+    <button
+      ref={rowRef}
+      key={edgeKey}
+      onClick={onClick}
+      onContextMenu={onCtx}
+      className={`w-full text-left pl-14 pr-3 py-1 text-[10px] flex items-center gap-1.5 hover:bg-gray-50 transition-colors ${
+        isSelected ? "bg-indigo-50 ring-1 ring-indigo-300" : ""
+      }`}
+      title={title}
+    >
+      <span className="text-purple-400 flex-shrink-0">↔</span>
+      <span className={`truncate flex-1 ${isSelected ? "text-indigo-700 font-medium" : "text-gray-700"}`}>
+        {displayLabel}
+      </span>
+      {typeLabel && (
+        <span className="text-gray-400 flex-shrink-0 text-[8px]">
+          {typeLabel}
+        </span>
+      )}
+    </button>
   );
 }
 

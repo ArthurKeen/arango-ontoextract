@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 
 **Project Name:** Arango-OntoExtract (AOE)
-**Document Status:** Draft v3
-**Last Updated:** 2026-03-28
+**Document Status:** Draft v4
+**Last Updated:** 2026-04-10
 **Primary Tech Stack:** ArangoDB, Python, Large Language Models (LLMs), React/Next.js (Frontend), Cursor IDE, Claude (AI Agent)
 
 ---
@@ -35,7 +35,7 @@
    - 6.12 Pipeline Monitor Dashboard (Agentic Workflow Visualizer)
    - 6.13 Ontology Quality Metrics
    - 6.14 Ontology Constraints (OWL Restrictions & SHACL Shapes)
-   - 6.15 Ontology Imports & Dependency Management
+   - 6.15 Ontology Imports, Composition & Dependency Management
 7. [API Specification](#7-api-specification-backend)
    - 7.1–7.7 Endpoint groups
    - 7.8 Frontend Architecture: Object-Centric Workspace
@@ -1099,6 +1099,7 @@ This evolution should be planned as a separate phase after the current extractio
 | FR-4.14 | Context-menu driven architecture | All entity actions MUST be accessible via right-click context menus (`onContextMenu` events), eliminating the need to navigate to side panels or separate pages. Right-click on Class Node → [Edit Metadata, Approve/Reject, Create Relationship, Merge, View History]. Right-click on Edge → [Change Type, Reverse Direction, Delete, Approve]. Right-click on Canvas → [Add New Class, Add Document, Center View]. Right-click on Document (asset explorer) → [Extract to New Ontology, View Chunks, Delete]. |
 | FR-4.15 | Viewport lenses (display modes) | Instead of separate modes or tabs for curation vs. viewing, the central canvas supports instant toggleable "Lenses" that change node/edge styling dynamically: **Semantic Lens** (default, colors by OWL type), **Confidence Lens** (traffic-light by multi-signal score), **Curation Lens** (highlights staging/unapproved with pulsing borders), **Diff Lens** (green additions, red removals based on VCR position), **Source Lens** (colors by source_type: extraction/import/manual/foundation). |
 | FR-4.16 | Single-page workspace | All curation, editing, viewing, and quality workflows occur within a single unified workspace (`/workspace`) without page-to-page navigation. The graph canvas, asset explorer, detail panel, and VCR timeline are persistent zones. See §7.8 for full specification. |
+| FR-4.16a | Bidirectional class–graph selection sync | Clicking a class row in the Asset Explorer sidebar selects that node in the graph canvas: the camera animates to center on the node, the node receives a persistent highlight ring, and the detail panel opens. Conversely, clicking a class node in the graph canvas highlights the corresponding row in the sidebar: the ontology's class tree auto-expands if collapsed, and the row scrolls into view with a selection indicator. The same `selectedNodeKey` drives both surfaces, ensuring they are always in sync. |
 | FR-4.17 | Concurrent editing safety | Optimistic concurrency control: all write endpoints on versioned entities include a `version` field in the request. If the server's current version doesn't match, the request is rejected with `409 Conflict` and the response includes the current version. The UI detects conflicts and offers the user choices: reload (discard local changes), force overwrite, or merge. When two users have the same ontology open in the workspace, WebSocket broadcasts notify the other user of changes in real-time (entity_updated events). |
 
 ### 6.5 Temporal Time Travel & VCR Timeline (Ontology History)
@@ -1602,6 +1603,38 @@ Ontology in the AOE Library
 | FR-9.6 | Provenance tracks source database | Extracted classes link back to source database URL + collection name, not document chunks |
 | FR-9.7 | Validate against tool contract v1 | Uses arango-schema-mapper's structured JSON request/response contract for integration |
 | FR-9.8 | Graph-schema extraction distinct from document pipeline | API request includes `extraction_source` defaulting to `arango_graph_schema` (live DB introspection vs document → chunk extraction elsewhere). Successful responses include `provenance` with `physical_schema_fingerprint` and optional `schema_analyzer_metadata` when `arangodb-schema-analyzer` is installed |
+| FR-9.9 | Named graph-aware extraction | When the target ArangoDB database defines named graphs (via `db.graphs()`), the system reads each graph's **edge definitions** (edge collection + from/to vertex collections) and maps them directly to ontology relationships. Each named graph can be extracted as a separate ontology or merged into one. The extraction produces richer relationships than collection-only scanning because edge definitions explicitly declare which vertex types connect via which edge types. |
+| FR-9.10 | Direct graph-to-ontology mapping (no `schema_analyzer` required) | A built-in fallback path that works without the optional `arangodb-schema-analyzer` library. It reads: (a) document collections → `owl:Class`, (b) edge collections → `owl:ObjectProperty` with `rdfs:domain`/`rdfs:range` inferred from edge definition `from`/`to` collections, (c) sampled document fields → `owl:DatatypeProperty` with `rdfs:domain` set to the parent collection's class and `rdfs:range` inferred from field value types (string, number, boolean, array, object). The result is a structurally complete ontology without requiring LLM enhancement. |
+| FR-9.11 | Schema-derived ontology auto-imports | When extracting from a graph schema, the user can optionally select existing ontologies from the library to import. The schema-derived ontology gets `imports` edges to the selected ontologies. Entity resolution runs between the schema-derived classes and imported classes to suggest `owl:equivalentClass` or `rdfs:subClassOf` alignments (e.g., a `customers` collection maps to `schema:Person` from Schema.org). |
+| FR-9.12 | Index and constraint mapping | ArangoDB persistent/hash/fulltext/geo/TTL indexes on collections are mapped to ontology constraints: unique indexes → cardinality restrictions, required fields (from schema validation rules if present) → `owl:minCardinality 1`, geo indexes → GeoSPARQL property hints. These feed into the `ontology_constraints` collection (§6.14). |
+| FR-9.13 | Schema extraction UI with graph selection | The schema extraction UI displays discovered named graphs from the target database. Users select which graph(s) to extract, preview the vertex/edge collection mapping, and optionally select base ontologies to import. A "Preview" step shows the proposed class/property/edge mapping before committing to extraction. |
+
+**Named Graph Extraction Model:**
+
+```
+ArangoDB Named Graph: "social_network"
+  Edge Definitions:
+    - "follows"  : users → users
+    - "likes"    : users → posts
+    - "authored" : users → posts
+
+           ↓  FR-9.9 + FR-9.10
+
+Ontology Classes:        Ontology Object Properties:
+  ┌──────────┐              follows   (User → User)
+  │   User   │              likes     (User → Post)
+  ├──────────┤              authored  (User → Post)
+  │ name: str│
+  │ email:str│           Ontology Datatype Properties:
+  │ age: int │              name   (domain: User, range: xsd:string)
+  └──────────┘              email  (domain: User, range: xsd:string)
+  ┌──────────┐              age    (domain: User, range: xsd:integer)
+  │   Post   │              title  (domain: Post, range: xsd:string)
+  ├──────────┤              body   (domain: Post, range: xsd:string)
+  │ title:str│
+  │ body: str│
+  └──────────┘
+```
 
 **Use Cases:**
 
@@ -1610,6 +1643,8 @@ Ontology in the AOE Library
 | Organization has existing ArangoDB data but no formal ontology | Generate ontology from their live schema, curate, and use as Tier 2 base |
 | Compare extracted schema against imported industry standard | Entity resolution between schema-derived ontology and domain ontology reveals alignment gaps |
 | Schema evolution tracking | Re-extract periodically; diff against previous extraction to detect schema drift |
+| Named graph with rich edge definitions | Extract precise relationship semantics (domain/range) directly from graph structure — no LLM guesswork needed |
+| Schema-derived ontology as composition base | Extract from existing DB, import a domain standard (FIBO, Schema.org), run ER to align, curate, and extend |
 
 ### 6.10 MCP Server (Runtime)
 
@@ -2235,9 +2270,9 @@ The existing `ontology_constraints` collection (§5.1) stores both OWL restricti
 
 The `ontology_constraints` collection already exists in §5.1 with fields for `owl:Restriction` types. This section extends it to also cover SHACL shapes and defines the full lifecycle (extraction, import, display, export, temporal versioning).
 
-### 6.15 Ontology Imports & Dependency Management
+### 6.15 Ontology Imports, Composition & Dependency Management
 
-**Description:** Ontologies rarely exist in isolation. Real-world ontologies build on each other via `owl:imports` declarations (e.g., a Financial Services ontology imports Dublin Core for metadata properties and FIBO for financial concepts). The system must represent, track, and visualize these inter-ontology dependencies.
+**Description:** Ontologies rarely exist in isolation. Real-world ontologies build on each other via `owl:imports` declarations (e.g., a Financial Services ontology imports Dublin Core for metadata properties and FIBO for financial concepts). The system must represent, track, visualize, and **compose** these inter-ontology dependencies — enabling users to create new ontologies that inherit and extend existing ones.
 
 **Import Dependency Model:**
 
@@ -2277,6 +2312,41 @@ The `ontology_constraints` collection already exists in §5.1 with fields for `o
 | FR-15.4 | Cascade warnings on ontology deletion | When deprecating an ontology, the system traverses the `imports` graph to find all downstream dependents. A confirmation dialog lists them: "Ontology X is imported by Y, Z. Deprecating X will affect these ontologies." |
 | FR-15.5 | Import resolution during OWL file import | When importing an OWL file that contains `owl:imports` declarations, the system checks if each imported ontology exists in the library. If not, it offers to: (a) auto-import from URL if the import IRI is resolvable, (b) skip and warn, or (c) block import until dependencies are satisfied. |
 | FR-15.6 | Standard ontology catalog | The system provides a built-in catalog of commonly used upper ontologies with one-click import: FIBO (modular — user selects which modules), Schema.org, Dublin Core (DC Terms), FOAF, PROV-O, SKOS Core, OWL-Time, GeoSPARQL. Catalog entries include description, module count, and approximate class count. |
+| FR-15.7 | Create composed ontology via UI | Users can create a new ontology that explicitly imports one or more existing ontologies from the library. The "New Ontology" dialog includes a searchable multi-select for imports. Selected imports are recorded as `imports` edges. The new ontology inherits all classes, properties, and edges from imported ontologies as read-only foundations, and users can extend with new classes/properties. |
+| FR-15.8 | Effective ontology graph (transitive import closure) | When viewing or querying a composed ontology, the system computes the **effective ontology** = own axioms + transitive closure of all `imports` dependencies. API: `GET /ontology/{id}/effective` returns merged classes/properties/edges from the ontology and all imports. The graph canvas renders imported entities with a distinct visual treatment (dimmed, different border, or "imported" badge) to distinguish them from locally-defined entities. |
+| FR-15.9 | Import-aware extraction | When extracting from documents into a composed ontology, the LLM receives the effective ontology (own + imported classes) as context. Extracted classes that match imported classes are linked via `owl:equivalentClass` or `rdfs:subClassOf` rather than duplicated. The extraction prompt explicitly instructs the LLM to reuse imported concepts where applicable. |
+| FR-15.10 | Ontology composition via drag-and-drop | In the workspace graph canvas, users can drag an ontology from the Asset Explorer onto an open ontology to add it as an import. The system creates the `imports` edge and refreshes the effective graph. Removing an import is available via right-click context menu on the imported ontology node. |
+| FR-15.11 | Import conflict detection | When composing ontologies, the system detects naming conflicts (same class label or URI in multiple imported ontologies) and surfaces them as warnings. Users can resolve conflicts by choosing which import takes precedence or by creating explicit `owl:equivalentClass` links. |
+| FR-15.12 | Export preserves `owl:imports` | OWL/Turtle export includes `owl:imports` triples for each `imports` edge from the ontology's registry entry. Exported files can be re-imported into AOE or other OWL tools with the import structure intact. |
+
+**Ontology Composition Model:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Composed Ontology: "Acme Financial Services"               │
+│  ─────────────────────────────────────────────────────────  │
+│  Own classes: AcmeAccount, AcmeLoan, AcmeCustomer           │
+│                                                             │
+│  ┌─ imports ──────────────────────────────────────────────┐ │
+│  │  FIBO Foundation:  LegalEntity, FinancialInstrument    │ │
+│  │  Dublin Core:      title, creator, date                │ │
+│  │  Schema.org:       Organization, Person                │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                             │
+│  Effective graph = Own + FIBO + DC + Schema.org (merged)    │
+│  → AcmeCustomer rdfs:subClassOf fibo:LegalEntity            │
+│  → AcmeLoan rdfs:subClassOf fibo:FinancialInstrument        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Composition Workflow:**
+
+1. User creates new ontology → selects imports from library
+2. System resolves transitive imports (FIBO Foundation → FIBO Business Entities → ...)
+3. Effective graph is computed and cached
+4. User adds new classes/properties that extend imported concepts
+5. Extraction pipeline uses effective graph as LLM context
+6. Export includes `owl:imports` declarations
 
 ---
 
@@ -3318,7 +3388,7 @@ A feature is not complete until:
 
 1. **Monorepo structure:**
    ```
-   ontology_generator/
+   arango-ontoextract/
    ├── backend/              # FastAPI application
    │   ├── app/
    │   │   ├── api/          # Route handlers

@@ -47,7 +47,24 @@ jest.mock("sigma", () => ({
       return {
         setState: () => {},
         getState: () => ({ ratio: 1, angle: 0, x: 0, y: 0 }),
+        animate: () => {},
       };
+    }
+
+    getMouseCaptor() {
+      return { on: () => {} };
+    }
+
+    getNodeDisplayData() {
+      return { x: 400, y: 300, size: 10, color: "#000", label: "test" };
+    }
+
+    graphToViewport() {
+      return { x: 400, y: 300 };
+    }
+
+    viewportToFramedGraph() {
+      return { x: 0.5, y: 0.5 };
     }
 
     getStagePadding() {
@@ -58,7 +75,7 @@ jest.mock("sigma", () => ({
   },
 }));
 
-import SigmaCanvas from "@/components/workspace/SigmaCanvas";
+import SigmaCanvas, { type SigmaViewportApi } from "@/components/workspace/SigmaCanvas";
 
 describe("SigmaCanvas", () => {
   beforeAll(() => {
@@ -82,5 +99,63 @@ describe("SigmaCanvas", () => {
     );
     expect(screen.getByTestId("sigma-empty")).toBeInTheDocument();
     expect(screen.getByText(/No ontology data available/i)).toBeInTheDocument();
+  });
+
+  it("exposes focusNode in the viewport API", () => {
+    let capturedApi: SigmaViewportApi | null = null;
+    render(
+      <SigmaCanvas
+        classes={[
+          {
+            _key: "Person",
+            label: "Person",
+            uri: "http://example.org#Person",
+            ontology_id: "test",
+            status: "approved",
+            confidence: 0.9,
+            rdf_type: "owl:Class",
+          },
+        ]}
+        edges={[]}
+        activeLens="semantic"
+        onNodeSelect={() => {}}
+        onEdgeSelect={() => {}}
+        onContextMenu={() => {}}
+        onViewportApi={(api) => {
+          capturedApi = api;
+        }}
+      />,
+    );
+    expect(capturedApi).not.toBeNull();
+    expect(capturedApi!.focusNode).toBeInstanceOf(Function);
+    // focusNode should not throw even if the node doesn't exist in the mock
+    expect(() => capturedApi!.focusNode("Person")).not.toThrow();
+    expect(() => capturedApi!.focusNode("NonExistent")).not.toThrow();
+  });
+
+  it("accepts selectedNodeKey prop without crashing", () => {
+    render(
+      <SigmaCanvas
+        classes={[
+          {
+            _key: "Person",
+            label: "Person",
+            uri: "http://example.org#Person",
+            ontology_id: "test",
+            status: "approved",
+            confidence: 0.9,
+            rdf_type: "owl:Class",
+          },
+        ]}
+        edges={[]}
+        activeLens="semantic"
+        onNodeSelect={() => {}}
+        onEdgeSelect={() => {}}
+        onContextMenu={() => {}}
+        selectedNodeKey="Person"
+      />,
+    );
+    // No crash means the prop is accepted and processed
+    expect(true).toBe(true);
   });
 });

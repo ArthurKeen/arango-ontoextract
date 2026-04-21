@@ -4,19 +4,44 @@ LLM-driven ontology extraction and curation platform built on ArangoDB.
 
 AOE ingests unstructured documents (PDF, DOCX, Markdown), extracts formal domain ontologies via large language models, and provides a visual curation dashboard for domain experts to review, edit, and promote extracted knowledge into a production graph. Ontologies are stored in ArangoDB via ArangoRDF's PGT transformation, preserving OWL metamodel semantics while leveraging ArangoDB's multi-model capabilities.
 
+![AOE workspace — the object-centric curation canvas with the Financial Services Domain ontology in Semantic view, a class detail panel open on the Account class, the lens legend bottom-left, and the temporal VCR timeline along the bottom edge.](docs/images/workspace-hero.png)
+
+> The AOE workspace: asset explorer (left), graph canvas with the active lens legend, floating class detail panel, and VCR timeline for temporal navigation — all on one persistent stage.
+
 ## Architecture
 
-```
-Frontend (Next.js)  ──▶  Backend (FastAPI)  ──▶  ArangoDB (multi-model)
-       │                       │                        │
-       │                  LangGraph Pipeline             ├── Document Store
-       │                  ┌─────────────────┐           ├── Graph (OWL/PGT)
-       │                  │ Strategy → LLM  │           ├── Vector Index
-       └── WebSocket ◀────│ → Consistency   │           └── ArangoSearch
-                          │ → ER → Filter   │
-                          └─────────────────┘
-                               │
-                          MCP Server (FastMCP)  ──▶  AI Agents (Cursor, Claude)
+```mermaid
+flowchart LR
+    FE["Frontend<br/>(Next.js)"]
+    BE["Backend<br/>(FastAPI)"]
+    MCP["MCP Server<br/>(FastMCP)"]
+    AI["AI Agents<br/>(Cursor, Claude)"]
+
+    subgraph Pipeline["LangGraph Pipeline"]
+        direction TB
+        P1["Strategy → LLM"]
+        P2["Consistency"]
+        P3["ER"]
+        P4["Filter"]
+        P1 --> P2 --> P3 --> P4
+    end
+
+    subgraph Arango["ArangoDB (multi-model)"]
+        direction TB
+        DS["Document Store"]
+        GR["Graph (OWL/PGT)"]
+        VI["Vector Index"]
+        AS["ArangoSearch"]
+    end
+
+    FE -->|HTTP / REST| BE
+    BE -->|AQL| Arango
+    BE --> Pipeline
+    Pipeline --> Arango
+    BE -.->|WebSocket| FE
+    BE --> MCP
+    MCP --> AI
+    AI -.->|tools| MCP
 ```
 
 **Two-tier ontology model:**
@@ -28,7 +53,7 @@ Frontend (Next.js)  ──▶  Backend (FastAPI)  ──▶  ArangoDB (multi-mod
 
 ```bash
 # 1. Clone and set up
-git clone <repo-url> && cd ontology_generator
+git clone <repo-url> && cd arango-ontoextract
 cp .env.example .env          # Add your API keys
 make setup                     # Python venv + npm install
 
@@ -70,7 +95,7 @@ After startup:
 ## Project Structure
 
 ```
-ontology_generator/
+arango-ontoextract/
 ├── backend/                       # Python / FastAPI
 │   ├── app/
 │   │   ├── api/                   # REST endpoints (documents, extraction, ontology, curation, er)
@@ -301,7 +326,7 @@ All configuration is via environment variables (see [.env.example](.env.example)
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ARANGO_HOST` | `http://localhost:8529` | ArangoDB connection URL |
-| `ARANGO_DB` | `ontology_generator` | Database name |
+| `ARANGO_DB` | `OntoExtract` | Database name |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key for Claude |
 | `OPENAI_API_KEY` | — | OpenAI API key for embeddings |
 | `LLM_EXTRACTION_MODEL` | `claude-sonnet-4-20250514` | Model for ontology extraction |
@@ -345,6 +370,8 @@ docker compose -f docker-compose.prod.yml up -d
 | [docs/benchmarks.md](docs/benchmarks.md) | Performance targets |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/visualizer/](docs/visualizer/) | ArangoDB Visualizer customizations |
+| [samples/corpora/README.md](samples/corpora/README.md) | Synthetic + real test corpora for the extraction pipeline |
+| [benchmarks/ontology_extraction/README.md](benchmarks/ontology_extraction/README.md) | Ontology-extraction benchmark harness (Re-DocRED, WebNLG) |
 
 ## Contributing
 

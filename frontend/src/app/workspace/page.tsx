@@ -7,6 +7,8 @@ import LensToolbar, { type LensType } from "@/components/workspace/LensToolbar";
 import AssetExplorer from "@/components/workspace/AssetExplorer";
 import OntologyRenameDialog from "@/components/workspace/OntologyRenameDialog";
 import OntologyReleaseDialog from "@/components/workspace/OntologyReleaseDialog";
+import CreateOntologyDialog from "@/components/workspace/CreateOntologyDialog";
+import ManageImportsOverlay from "@/components/workspace/ManageImportsOverlay";
 import CanvasLensLegend from "@/components/workspace/CanvasLensLegend";
 import EmptyCanvasState from "@/components/workspace/EmptyCanvasState";
 import FloatingDetailPanel from "@/components/workspace/FloatingDetailPanel";
@@ -28,14 +30,32 @@ import type {
   OntologyEdge,
 } from "@/types/curation";
 import type { SigmaViewportApi } from "@/components/workspace/SigmaCanvas";
+import type { ClassBoxProperty } from "@/components/workspace/ClassBoxNode";
+
+export type GraphViewMode = "network" | "box-arrow";
 import PanelDragGrip from "@/components/workspace/PanelDragGrip";
 import {
   splitTextByKeywordAlternation,
   termsFromEntityLabel,
 } from "@/lib/textHighlight";
 import { useDraggablePanel } from "@/hooks/useDraggablePanel";
+import type { PerOntologyQualityApiShape } from "@/lib/perOntologyQualityDimensions";
+
+const QualityReportOverlay = dynamic(
+  () => import("@/components/dashboard/QualityReportOverlay"),
+  { ssr: false },
+);
 
 const SigmaCanvas = dynamic(() => import("@/components/workspace/SigmaCanvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full flex items-center justify-center bg-[#111118]">
+      <div className="animate-spin h-8 w-8 border-2 border-indigo-400 border-t-transparent rounded-full" />
+    </div>
+  ),
+});
+
+const BoxArrowCanvas = dynamic(() => import("@/components/workspace/BoxArrowCanvas"), {
   ssr: false,
   loading: () => (
     <div className="h-full flex items-center justify-center bg-[#111118]">
@@ -96,6 +116,7 @@ function WorkspacePageInner() {
   const [assetExplorerWidth, setAssetExplorerWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [activeLens, setActiveLens] = useState<LensType>("semantic");
+  const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>("network");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [ontologyName, setOntologyName] = useState<string | null>(null);
   const [ontologyTier, setOntologyTier] = useState<"domain" | "local" | null>(null);
@@ -108,6 +129,11 @@ function WorkspacePageInner() {
   const [releaseOntology, setReleaseOntology] = useState<{
     key: string;
     currentReleaseVersion?: string | null;
+  } | null>(null);
+  const [showCreateOntology, setShowCreateOntology] = useState(false);
+  const [manageImports, setManageImports] = useState<{
+    key: string;
+    name: string;
   } | null>(null);
 
   const [classes, setClasses] = useState<OntologyClass[]>([]);
@@ -286,6 +312,60 @@ function WorkspacePageInner() {
     fetchGraphData(selectedOntologyId);
   }, [selectedOntologyId, fetchGraphData]);
 
+  // Fetch properties when box-arrow mode is active
+  useEffect(() => {
+    if (graphViewMode !== "box-arrow" || !selectedOntologyId) {
+      setProperties([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{ data: OntologyProperty[] }>(
+          `/api/v1/ontology/${selectedOntologyId}/properties`,
+        );
+        if (cancelled) return;
+        const list = Array.isArray(res) ? res : res.data;
+        setProperties(list);
+      } catch {
+        if (!cancelled) setProperties([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [graphViewMode, selectedOntologyId]);
+
+  const classPropertiesMap = useMemo<Record<string, ClassBoxProperty[]>>(() => {
+    if (properties.length === 0) return {};
+
+    const propByKey = new Map<string, OntologyProperty>();
+    for (const prop of properties) {
+      propByKey.set(prop._key, prop);
+    }
+
+    // Build property→class mapping from rdfs_domain edges
+    // rdfs_domain: _from = property doc ID, _to = class doc ID
+    const map: Record<string, ClassBoxProperty[]> = {};
+    for (const edge of edges) {
+      const edgeType = ((edge as unknown as Record<string, unknown>).edge_type ?? edge.type) as string;
+      if (edgeType !== "rdfs_domain") continue;
+
+      const propKey = edge._from.split("/").pop() ?? edge._from;
+      const classKey = edge._to.split("/").pop() ?? edge._to;
+      const prop = propByKey.get(propKey);
+      if (!prop) continue;
+
+      if (!map[classKey]) map[classKey] = [];
+      if (map[classKey].some((p) => p._key === prop._key)) continue;
+      map[classKey].push({
+        _key: prop._key,
+        label: prop.label,
+        range_datatype: prop.range_type ?? (prop as unknown as Record<string, unknown>).range_datatype as string | undefined,
+        status: prop.status,
+      });
+    }
+    return map;
+  }, [properties, edges]);
+
   useEffect(() => {
     const lensKeys: Record<string, LensType> = {
       "1": "semantic",
@@ -364,9 +444,28 @@ function WorkspacePageInner() {
     setSelectedNodeKey(null);
   }, []);
 
+  const handleSelectClassFromSidebar = useCallback((classKey: string, _ontologyId: string) => {
+    setSelectedNodeKey(classKey);
+    setSelectedEdgeKey(null);
+    setDetailPanelOpen(true);
+    viewportApiRef.current?.focusNode(classKey);
+  }, []);
+
+  const handleSelectEdgeFromSidebar = useCallback((edgeKey: string, _ontologyId: string) => {
+    setSelectedEdgeKey(edgeKey);
+    setSelectedNodeKey(null);
+    setDetailPanelOpen(true);
+    viewportApiRef.current?.focusEdge(edgeKey);
+  }, []);
+
   const [infoPanelItem, setInfoPanelItem] = useState<{
     type: "document" | "ontology" | "run";
     data: Record<string, unknown>;
+  } | null>(null);
+
+  const [qualityOverlay, setQualityOverlay] = useState<{
+    name: string;
+    data: PerOntologyQualityApiShape;
   } | null>(null);
 
   const handleSelectDocument = useCallback(async (docId: string) => {
@@ -567,38 +666,13 @@ function WorkspacePageInner() {
     async (ontologyData: Record<string, unknown>) => {
       const base = { ...ontologyData };
       const id = String(base._key ?? base.ontology_id ?? "").trim();
-      setInfoPanelItem({
-        type: "ontology",
-        data: {
-          ...base,
-          _qualityReport: undefined,
-          _qualityReportLoading: true,
-          _qualityReportError: undefined,
-        },
-      });
-      if (!id) {
-        setInfoPanelItem({
-          type: "ontology",
-          data: {
-            ...base,
-            _qualityReportLoading: false,
-            _qualityReportError: "Ontology has no id (_key or ontology_id).",
-          },
-        });
-        return;
-      }
+      const name = String(base.label ?? base.name ?? id);
+      if (!id) return;
       try {
-        const quality = await api.get<Record<string, unknown>>(
+        const quality = await api.get<PerOntologyQualityApiShape>(
           `/api/v1/quality/${encodeURIComponent(id)}`,
         );
-        setInfoPanelItem({
-          type: "ontology",
-          data: {
-            ...base,
-            _qualityReport: quality,
-            _qualityReportLoading: false,
-          },
-        });
+        setQualityOverlay({ name, data: quality });
       } catch (err) {
         const message =
           err instanceof ApiError
@@ -606,14 +680,7 @@ function WorkspacePageInner() {
             : err instanceof Error
               ? err.message
               : "Failed to load quality report";
-        setInfoPanelItem({
-          type: "ontology",
-          data: {
-            ...base,
-            _qualityReportLoading: false,
-            _qualityReportError: message,
-          },
-        });
+        console.error("Quality report error:", message);
       }
     },
     [],
@@ -808,6 +875,14 @@ function WorkspacePageInner() {
             },
           },
           {
+            label: "Manage Imports", icon: "🔗",
+            onClick: () => {
+              if (!ontKey) return;
+              const n = String(data.name ?? data.label ?? ontKey).trim();
+              setManageImports({ key: ontKey, name: n });
+            },
+          },
+          {
             label: "View Quality Report", icon: "📊",
             onClick: () => fetchOntologyQualityReport(data),
           },
@@ -894,23 +969,41 @@ function WorkspacePageInner() {
             })),
           },
           {
-            label: "Layout",
-            icon: "🔄",
+            label: "Graph Style",
+            icon: "📐",
             submenu: [
-              { label: "Force-Directed", onClick: () => { viewportApiRef.current?.relayout("force"); } },
-              { label: "Circular", onClick: () => { viewportApiRef.current?.relayout("circular"); } },
-              { label: "Grid", onClick: () => { viewportApiRef.current?.relayout("grid"); } },
-              { label: "Random", onClick: () => { viewportApiRef.current?.relayout("random"); } },
+              {
+                label: "Network (circles)",
+                checked: graphViewMode === "network",
+                onClick: () => setGraphViewMode("network"),
+              },
+              {
+                label: "Box & Arrow (UML)",
+                checked: graphViewMode === "box-arrow",
+                onClick: () => setGraphViewMode("box-arrow"),
+              },
             ],
           },
-          {
-            label: "Edge Style",
-            icon: "〰",
-            submenu: [
-              { label: "Curved", onClick: () => { viewportApiRef.current?.setEdgeStyle("curved"); } },
-              { label: "Straight", onClick: () => { viewportApiRef.current?.setEdgeStyle("straight"); } },
-            ],
-          },
+          ...(graphViewMode === "network" ? [
+            {
+              label: "Layout",
+              icon: "🔄",
+              submenu: [
+                { label: "Force-Directed", onClick: () => { viewportApiRef.current?.relayout("force"); } },
+                { label: "Circular", onClick: () => { viewportApiRef.current?.relayout("circular"); } },
+                { label: "Grid", onClick: () => { viewportApiRef.current?.relayout("grid"); } },
+                { label: "Random", onClick: () => { viewportApiRef.current?.relayout("random"); } },
+              ],
+            },
+            {
+              label: "Edge Style",
+              icon: "〰",
+              submenu: [
+                { label: "Curved", onClick: () => { viewportApiRef.current?.setEdgeStyle("curved"); } },
+                { label: "Straight", onClick: () => { viewportApiRef.current?.setEdgeStyle("straight"); } },
+              ],
+            },
+          ] as ContextMenuItem[] : []),
           { label: "separator1", separator: true },
           {
             label: "Fit All Nodes",
@@ -927,6 +1020,12 @@ function WorkspacePageInner() {
               closeContextMenu();
               viewportApiRef.current?.centerView();
             },
+          },
+          { label: "sep-new-ont", separator: true },
+          {
+            label: "New Ontology…",
+            icon: "➕",
+            onClick: () => setShowCreateOntology(true),
           },
         ];
       case "step": {
@@ -1111,6 +1210,10 @@ function WorkspacePageInner() {
             selectedRunId={pipelineRunId}
             onContextMenu={handleAssetContextMenu}
             libraryReloadNonce={explorerLibraryNonce}
+            selectedClassKey={selectedNodeKey}
+            onSelectClass={handleSelectClassFromSidebar}
+            selectedEdgeKey={selectedEdgeKey}
+            onSelectEdge={handleSelectEdgeFromSidebar}
           />
         </aside>
 
@@ -1181,22 +1284,44 @@ function WorkspacePageInner() {
                 </div>
               ) : (
                 <>
-                  <SigmaCanvas
-                    classes={classes}
-                    edges={edges}
-                    activeLens={activeLens}
-                    ontologyTier={ontologyTier}
-                    onNodeSelect={handleNodeSelect}
-                    onEdgeSelect={handleEdgeSelect}
-                    onContextMenu={handleSigmaContextMenu}
-                    onViewportApi={handleViewportApi}
-                    visibleNodeKeys={timelineVisibleKeys}
-                  />
-                  <CanvasLensLegend
-                    activeLens={activeLens}
-                    timelineActive={timelineVisibleKeys != null}
-                  />
+                  {graphViewMode === "box-arrow" ? (
+                    <BoxArrowCanvas
+                      classes={classes}
+                      edges={edges}
+                      activeLens={activeLens}
+                      ontologyTier={ontologyTier}
+                      onNodeSelect={handleNodeSelect}
+                      onEdgeSelect={handleEdgeSelect}
+                      onContextMenu={handleSigmaContextMenu}
+                      onViewportApi={handleViewportApi}
+                      visibleNodeKeys={timelineVisibleKeys}
+                      selectedNodeKey={selectedNodeKey}
+                      selectedEdgeKey={selectedEdgeKey}
+                      classProperties={classPropertiesMap}
+                    />
+                  ) : (
+                    <SigmaCanvas
+                      classes={classes}
+                      edges={edges}
+                      activeLens={activeLens}
+                      ontologyTier={ontologyTier}
+                      onNodeSelect={handleNodeSelect}
+                      onEdgeSelect={handleEdgeSelect}
+                      onContextMenu={handleSigmaContextMenu}
+                      onViewportApi={handleViewportApi}
+                      visibleNodeKeys={timelineVisibleKeys}
+                      selectedNodeKey={selectedNodeKey}
+                      selectedEdgeKey={selectedEdgeKey}
+                    />
+                  )}
+                  {graphViewMode !== "box-arrow" && (
+                    <CanvasLensLegend
+                      activeLens={activeLens}
+                      timelineActive={timelineVisibleKeys != null}
+                    />
+                  )}
                 </>
+
               )
             ) : (
               <EmptyCanvasState />
@@ -1284,6 +1409,32 @@ function WorkspacePageInner() {
           currentReleaseVersion={releaseOntology.currentReleaseVersion}
           onClose={() => setReleaseOntology(null)}
           onReleased={() => setExplorerLibraryNonce((n) => n + 1)}
+        />
+      )}
+
+      {qualityOverlay && (
+        <QualityReportOverlay
+          name={qualityOverlay.name}
+          data={qualityOverlay.data}
+          onClose={() => setQualityOverlay(null)}
+        />
+      )}
+
+      <CreateOntologyDialog
+        open={showCreateOntology}
+        onClose={() => setShowCreateOntology(false)}
+        onCreated={(id) => {
+          setExplorerLibraryNonce((n) => n + 1);
+          handleSelectOntology(id);
+        }}
+      />
+
+      {manageImports && (
+        <ManageImportsOverlay
+          ontologyId={manageImports.key}
+          ontologyName={manageImports.name}
+          onClose={() => setManageImports(null)}
+          onChanged={() => setExplorerLibraryNonce((n) => n + 1)}
         />
       )}
     </div>

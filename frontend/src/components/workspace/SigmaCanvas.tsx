@@ -174,6 +174,66 @@ function lensEdgeVisual(
   return { color: fallbackColor, size: baseSize };
 }
 
+/* ── Dark-theme hover label renderer ──────────────────── */
+
+const HOVER_BG = "#1e1e3a";
+const HOVER_TEXT = "#e2e8f0";
+const HOVER_SHADOW = "rgba(0,0,0,0.6)";
+
+function drawDarkNodeHover(
+  context: CanvasRenderingContext2D,
+  data: { x: number; y: number; size: number; label?: string | null; color: string },
+  settings: { labelSize: number; labelFont: string; labelWeight: string },
+): void {
+  const size = settings.labelSize;
+  const font = settings.labelFont;
+  const weight = settings.labelWeight;
+  context.font = `${weight} ${size}px ${font}`;
+
+  context.fillStyle = HOVER_BG;
+  context.shadowOffsetX = 0;
+  context.shadowOffsetY = 2;
+  context.shadowBlur = 10;
+  context.shadowColor = HOVER_SHADOW;
+
+  const PADDING = 2;
+
+  if (typeof data.label === "string") {
+    const textWidth = context.measureText(data.label).width;
+    const boxWidth = Math.round(textWidth + 5);
+    const boxHeight = Math.round(size + 2 * PADDING);
+    const radius = Math.max(data.size, size / 2) + PADDING;
+    const angleRadian = Math.asin(boxHeight / 2 / radius);
+    const xDeltaCoord = Math.sqrt(
+      Math.abs(Math.pow(radius, 2) - Math.pow(boxHeight / 2, 2)),
+    );
+
+    context.beginPath();
+    context.moveTo(data.x + xDeltaCoord, data.y + boxHeight / 2);
+    context.lineTo(data.x + radius + boxWidth, data.y + boxHeight / 2);
+    context.lineTo(data.x + radius + boxWidth, data.y - boxHeight / 2);
+    context.lineTo(data.x + xDeltaCoord, data.y - boxHeight / 2);
+    context.arc(data.x, data.y, radius, angleRadian, -angleRadian);
+    context.closePath();
+    context.fill();
+  } else {
+    context.beginPath();
+    context.arc(data.x, data.y, data.size + PADDING, 0, Math.PI * 2);
+    context.closePath();
+    context.fill();
+  }
+
+  context.shadowOffsetX = 0;
+  context.shadowOffsetY = 0;
+  context.shadowBlur = 0;
+
+  if (typeof data.label === "string") {
+    context.fillStyle = HOVER_TEXT;
+    context.font = `${weight} ${size}px ${font}`;
+    context.fillText(data.label, data.x + data.size + 3, data.y + size / 3);
+  }
+}
+
 /* ── Props ────────────────────────────────────────────── */
 
 /** Outer ring = `borderColor` (e.g. curation); inner fill = `color` (lens / semantic).
@@ -203,6 +263,10 @@ export interface SigmaCanvasProps {
   onViewportApi?: (api: SigmaViewportApi | null) => void;
   /** When set, only nodes in this set are visible (VCR timeline filtering). */
   visibleNodeKeys?: Set<string> | null;
+  /** Externally-driven node selection (e.g. sidebar click). Highlighted with a ring. */
+  selectedNodeKey?: string | null;
+  /** Externally-driven edge selection (e.g. sidebar click). */
+  selectedEdgeKey?: string | null;
 }
 
 /* ── Topology graph (lens-independent positions & structure) ── */
@@ -427,6 +491,10 @@ export interface SigmaViewportApi {
   centerView: () => void;
   relayout: (layout?: LayoutType) => void;
   setEdgeStyle: (style: EdgeStyleType) => void;
+  /** Animate the camera to center on a specific node and highlight it. */
+  focusNode: (nodeKey: string) => void;
+  /** Animate the camera to center on a specific edge (midpoint of source+target). */
+  focusEdge: (edgeKey: string) => void;
 }
 
 /* ── Component ────────────────────────────────────────── */
@@ -441,6 +509,8 @@ export default function SigmaCanvas({
   onContextMenu,
   onViewportApi,
   visibleNodeKeys,
+  selectedNodeKey,
+  selectedEdgeKey,
 }: SigmaCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -512,6 +582,7 @@ export default function SigmaCanvas({
       edgeLabelColor: { color: "#94a3b8" },
       edgeLabelFont: "Inter, system-ui, sans-serif",
       edgeLabelSize: 10,
+      defaultDrawNodeHover: drawDarkNodeHover,
       defaultNodeType: "bordered",
       defaultEdgeType: "curvedArrow",
       stagePadding: 40,
@@ -559,7 +630,6 @@ export default function SigmaCanvas({
             if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return;
             renderer.resize();
             renderer.refresh();
-            fitCameraToGraph(renderer);
           })
         : null;
     resizeObserver?.observe(containerRef.current);
@@ -664,29 +734,46 @@ export default function SigmaCanvas({
   useEffect(() => {
     const s = sigmaRef.current;
     if (!s) return;
-    if (!visibleNodeKeys) {
+    const hasVisFilter = !!visibleNodeKeys;
+    const hasNodeSel = !!selectedNodeKey;
+    const hasEdgeSel = !!selectedEdgeKey;
+    const needsReducer = hasVisFilter || hasNodeSel || hasEdgeSel;
+
+    if (!needsReducer) {
       s.setSetting("nodeReducer", null);
       s.setSetting("edgeReducer", null);
     } else {
       s.setSetting("nodeReducer", (_node: string, data: Record<string, unknown>) => {
-        if (!visibleNodeKeys.has(_node)) {
-          return { ...data, hidden: true };
+        let d = data;
+        if (hasVisFilter && !visibleNodeKeys!.has(_node)) {
+          return { ...d, hidden: true };
         }
-        return data;
+        if (hasNodeSel && _node === selectedNodeKey) {
+          d = { ...d, highlighted: true, zIndex: 10 };
+        }
+        return d;
       });
       s.setSetting("edgeReducer", (edge: string, data: Record<string, unknown>) => {
         const g = graphRef.current;
         if (!g) return data;
-        const src = g.source(edge);
-        const tgt = g.target(edge);
-        if (!visibleNodeKeys.has(src) || !visibleNodeKeys.has(tgt)) {
-          return { ...data, hidden: true };
+        if (hasVisFilter) {
+          const src = g.source(edge);
+          const tgt = g.target(edge);
+          if (!visibleNodeKeys!.has(src) || !visibleNodeKeys!.has(tgt)) {
+            return { ...data, hidden: true };
+          }
+        }
+        if (hasEdgeSel) {
+          const attrs = g.getEdgeAttributes(edge);
+          if ((attrs.edgeKey ?? edge) === selectedEdgeKey) {
+            return { ...data, size: (data.size as number ?? 2) + 2, color: "#818cf8", zIndex: 10 };
+          }
         }
         return data;
       });
     }
     s.refresh();
-  }, [visibleNodeKeys]);
+  }, [visibleNodeKeys, selectedNodeKey, selectedEdgeKey]);
 
   const handleRelayout = useCallback((layout: LayoutType = "force") => {
     if (!graphRef.current || !sigmaRef.current) return;
@@ -726,6 +813,94 @@ export default function SigmaCanvas({
     s.refresh();
   }, []);
 
+  const focusNode = useCallback((nodeKey: string) => {
+    const g = graphRef.current;
+    const s = sigmaRef.current;
+    if (!g || !s || !g.hasNode(nodeKey)) return;
+
+    const nodeAttrs = g.getNodeAttributes(nodeKey);
+
+    // Compute bounding box of all visible nodes in raw graph coordinates
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    g.forEachNode((_n, a) => {
+      if (a.hidden) return;
+      const ax = a.x as number;
+      const ay = a.y as number;
+      if (ax < minX) minX = ax;
+      if (ax > maxX) maxX = ax;
+      if (ay < minY) minY = ay;
+      if (ay > maxY) maxY = ay;
+    });
+    if (!isFinite(minX)) return;
+
+    // Sigma with autoRescale normalizes the bounding box to [0, 1] camera space.
+    // Camera {x: 0.5, y: 0.5, ratio: 1} shows the full graph centered.
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const x = (nodeAttrs.x - minX) / rangeX;
+    const y = (nodeAttrs.y - minY) / rangeY;
+
+    if (!isFinite(x) || !isFinite(y)) return;
+
+    s.getCamera().animate(
+      { x, y, ratio: 0.35, angle: 0 },
+      { duration: 300 },
+    );
+  }, []);
+
+  const focusEdge = useCallback((edgeKey: string) => {
+    const g = graphRef.current;
+    const s = sigmaRef.current;
+    if (!g || !s) return;
+
+    // Find the graphology edge whose edgeKey attribute matches
+    let graphEdgeId: string | null = null;
+    g.forEachEdge((eid, attrs) => {
+      if (attrs.edgeKey === edgeKey || eid === edgeKey) {
+        graphEdgeId = eid;
+      }
+    });
+    if (!graphEdgeId) return;
+
+    const srcKey = g.source(graphEdgeId);
+    const tgtKey = g.target(graphEdgeId);
+    const srcAttrs = g.getNodeAttributes(srcKey);
+    const tgtAttrs = g.getNodeAttributes(tgtKey);
+
+    // Center on the midpoint of the two endpoint nodes
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    g.forEachNode((_n, a) => {
+      if (a.hidden) return;
+      const ax = a.x as number;
+      const ay = a.y as number;
+      if (ax < minX) minX = ax;
+      if (ax > maxX) maxX = ax;
+      if (ay < minY) minY = ay;
+      if (ay > maxY) maxY = ay;
+    });
+    if (!isFinite(minX)) return;
+
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const midGraphX = (srcAttrs.x + tgtAttrs.x) / 2;
+    const midGraphY = (srcAttrs.y + tgtAttrs.y) / 2;
+    const x = (midGraphX - minX) / rangeX;
+    const y = (midGraphY - minY) / rangeY;
+
+    if (!isFinite(x) || !isFinite(y)) return;
+
+    s.getCamera().animate(
+      { x, y, ratio: 0.35, angle: 0 },
+      { duration: 300 },
+    );
+  }, []);
+
   useEffect(() => {
     if (!onViewportApi) return;
     const api: SigmaViewportApi = {
@@ -733,12 +908,14 @@ export default function SigmaCanvas({
       centerView,
       relayout: handleRelayout,
       setEdgeStyle,
+      focusNode,
+      focusEdge,
     };
     onViewportApi(api);
     return () => {
       onViewportApi(null);
     };
-  }, [onViewportApi, fitAll, centerView, handleRelayout, setEdgeStyle]);
+  }, [onViewportApi, fitAll, centerView, handleRelayout, setEdgeStyle, focusNode, focusEdge]);
 
   if (classes.length === 0) {
     return (

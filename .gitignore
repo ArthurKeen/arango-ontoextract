@@ -22,6 +22,7 @@ build/
 venv/
 env/
 .python-version
+uv.lock
 
 # Testing / Coverage
 .pytest_cache/

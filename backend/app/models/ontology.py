@@ -111,6 +111,16 @@ class ExtractionClassification(StrEnum):
     NEW = "new"
 
 
+class SourceEvidence(BaseModel):
+    """Source-text evidence supporting an extracted ontology assertion."""
+
+    source_chunk_ids: list[str] = []
+    source_spans: list[str] = []
+    evidence_text: str = ""
+    evidence_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    extraction_rationale: str = ""
+
+
 class ExtractedAttribute(BaseModel):
     """A datatype property (class attribute) extracted by the LLM."""
 
@@ -119,6 +129,7 @@ class ExtractedAttribute(BaseModel):
     description: str = ""
     range_datatype: str = "xsd:string"
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    evidence: list[SourceEvidence] = []
 
 
 class ExtractedRelationship(BaseModel):
@@ -129,6 +140,7 @@ class ExtractedRelationship(BaseModel):
     description: str = ""
     target_class_uri: str
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    evidence: list[SourceEvidence] = []
 
 
 class ExtractedClass(BaseModel):
@@ -138,9 +150,11 @@ class ExtractedClass(BaseModel):
     label: str
     description: str
     parent_uri: str | None = None
+    parent_evidence: list[SourceEvidence] = []
     parent_domain_uri: str | None = None
     classification: ExtractionClassification = ExtractionClassification.NEW
     confidence: float = Field(ge=0.0, le=1.0)
+    evidence: list[SourceEvidence] = []
     # Legacy field — kept for backward compat during migration
     properties: list["ExtractedProperty"] = []
     # PGT-aligned fields (ADR-006)
@@ -164,6 +178,7 @@ class ExtractedProperty(BaseModel):
     property_type: str  # "datatype" | "object"
     range: str
     confidence: float = Field(ge=0.0, le=1.0)
+    evidence: list[SourceEvidence] = []
 
 
 class ExtractionResult(BaseModel):

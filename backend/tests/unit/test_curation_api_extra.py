@@ -22,6 +22,7 @@ from app.models.curation import (
     BatchDecisionRequest,
     CurationAction,
     CurationDecisionCreate,
+    CurationIssueReason,
     EntityType,
     MergeRequest,
     PromotionRequest,
@@ -37,6 +38,7 @@ class TestCurationRoutes:
             entity_type=EntityType.CLASS,
             action=CurationAction.APPROVE,
             curator_id="u1",
+            issue_reasons=[CurationIssueReason.MISSING_EVIDENCE],
         )
         batch = BatchDecisionRequest(
             run_id="r1",
@@ -46,6 +48,7 @@ class TestCurationRoutes:
                     entity_type=EntityType.CLASS,
                     action=CurationAction.REJECT,
                     curator_id="u1",
+                    issue_reasons=[CurationIssueReason.HALLUCINATED],
                 )
             ],
         )
@@ -62,7 +65,9 @@ class TestCurationRoutes:
         assert result == {"ok": True}
         assert batch_result == {"processed": 1}
         assert mock_record.call_args.kwargs["entity_type"] == "class"
+        assert mock_record.call_args.kwargs["issue_reasons"] == ["missing_evidence"]
         assert mock_batch.call_args.kwargs["decisions"][0]["action"] == "reject"
+        assert mock_batch.call_args.kwargs["decisions"][0]["issue_reasons"] == ["hallucinated"]
 
     @pytest.mark.asyncio
     async def test_list_and_get_decision(self):

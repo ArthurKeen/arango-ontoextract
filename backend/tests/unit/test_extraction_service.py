@@ -991,6 +991,20 @@ class TestMaterializeToGraph:
         from app.services.extraction import _materialize_to_graph
 
         mock_db, cols = _mock_db(chunk_keys=[])
+        class_evidence = [
+            {
+                "source_chunk_ids": ["chunk_1"],
+                "evidence_text": "Animals are living creatures.",
+                "evidence_confidence": 0.9,
+            }
+        ]
+        attribute_evidence = [
+            {
+                "source_chunk_ids": ["chunk_2"],
+                "evidence_text": "Each animal has a species.",
+                "evidence_confidence": 0.85,
+            }
+        ]
 
         result = _make_result(
             classes=[
@@ -1001,8 +1015,14 @@ class TestMaterializeToGraph:
                     "confidence": 0.85,
                     "faithfulness_score": 0.91,
                     "semantic_validity_score": 0.77,
+                    "evidence": class_evidence,
                     "properties": [
-                        {"label": "species", "range": "xsd:string", "confidence": 0.9},
+                        {
+                            "label": "species",
+                            "range": "xsd:string",
+                            "confidence": 0.9,
+                            "evidence": attribute_evidence,
+                        },
                         {"label": "habitat", "range": "http://ex.org#Habitat", "confidence": 0.7},
                     ],
                 },
@@ -1027,11 +1047,14 @@ class TestMaterializeToGraph:
         assert cls_doc["confidence"] == 0.85
         assert cls_doc["faithfulness_score"] == 0.91
         assert cls_doc["semantic_validity_score"] == 0.77
+        assert cls_doc["evidence"] == class_evidence
         assert cls_doc["expired"] == NEVER_EXPIRES
 
         # Datatype property inserted ("species" → xsd:string)
         dt_col = cols["ontology_datatype_properties"]
         assert dt_col.insert.call_count == 1
+        dt_doc = dt_col.insert.call_args[0][0]
+        assert dt_doc["evidence"] == attribute_evidence
 
         # rdfs_domain edges (one for the datatype property)
         rd_col = cols["rdfs_domain"]
@@ -1048,6 +1071,13 @@ class TestMaterializeToGraph:
         from app.services.extraction import _materialize_to_graph
 
         mock_db, cols = _mock_db(chunk_keys=[])
+        parent_evidence = [
+            {
+                "source_chunk_ids": ["chunk_parent"],
+                "evidence_text": "Animals are living things.",
+                "evidence_confidence": 0.88,
+            }
+        ]
 
         result = _make_result(
             classes=[
@@ -1062,6 +1092,7 @@ class TestMaterializeToGraph:
                     "uri": "http://ex.org/ontology#Animal",
                     "description": "A creature",
                     "parent_uri": "http://ex.org/ontology#LivingThing",
+                    "parent_evidence": parent_evidence,
                     "properties": [],
                 },
             ]
@@ -1080,6 +1111,7 @@ class TestMaterializeToGraph:
         edge = sub_col.insert.call_args[0][0]
         assert edge["_from"] == "ontology_classes/Animal"
         assert edge["_to"] == "ontology_classes/LivingThing"
+        assert edge["evidence"] == parent_evidence
 
     def test_handles_class_insert_failure_gracefully(self):
         from app.services.extraction import _materialize_to_graph
@@ -1132,6 +1164,13 @@ class TestMaterializeToGraph:
         from app.services.extraction import _materialize_to_graph
 
         mock_db, cols = _mock_db(chunk_keys=[])
+        relationship_evidence = [
+            {
+                "source_chunk_ids": ["chunk_rel"],
+                "evidence_text": "Foo is related to Bar.",
+                "evidence_confidence": 0.8,
+            }
+        ]
 
         result = _make_result(
             classes=[
@@ -1140,7 +1179,11 @@ class TestMaterializeToGraph:
                     "uri": "http://ex.org/ontology#Foo",
                     "properties": [
                         {"label": "name", "range": "xsd:string"},
-                        {"label": "relatedTo", "range": "http://ex.org#Bar"},
+                        {
+                            "label": "relatedTo",
+                            "range": "http://ex.org#Bar",
+                            "evidence": relationship_evidence,
+                        },
                     ],
                 },
             ]
@@ -1163,6 +1206,7 @@ class TestMaterializeToGraph:
         obj_inserts = [c[0][0] for c in obj_col.insert.call_args_list]
         related_prop = next(p for p in obj_inserts if p["label"] == "relatedTo")
         assert related_prop["label"] == "relatedTo"
+        assert related_prop["evidence"] == relationship_evidence
 
     def test_has_chunk_edges_created(self):
         from app.services.extraction import _materialize_to_graph

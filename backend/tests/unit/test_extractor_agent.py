@@ -60,15 +60,21 @@ class TestBatchChunks:
         chunks = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
         batches = _batch_chunks(chunks, batch_size=5)
         assert len(batches) == 1
-        assert "[Chunk 1]" in batches[0]
-        assert "[Chunk 3]" in batches[0]
+        assert "[Chunk 1 | source_chunk_id=1]" in batches[0]
+        assert "[Chunk 3 | source_chunk_id=3]" in batches[0]
 
     def test_multiple_batches(self):
         chunks = [{"text": f"chunk{i}"} for i in range(7)]
         batches = _batch_chunks(chunks, batch_size=3)
         assert len(batches) == 3  # 3+3+1
-        assert "[Chunk 1]" in batches[0]
-        assert "[Chunk 4]" in batches[1]
+        assert "[Chunk 1 | source_chunk_id=1]" in batches[0]
+        assert "[Chunk 4 | source_chunk_id=4]" in batches[1]
+
+    def test_uses_stable_chunk_ids_when_available(self):
+        chunks = [{"_key": "chunk_a", "text": "a"}, {"chunk_id": "chunk_b", "text": "b"}]
+        batches = _batch_chunks(chunks, batch_size=5)
+        assert "[Chunk 1 | source_chunk_id=chunk_a]" in batches[0]
+        assert "[Chunk 2 | source_chunk_id=chunk_b]" in batches[0]
 
     def test_empty_chunks(self):
         assert _batch_chunks([], batch_size=5) == []
@@ -130,6 +136,49 @@ class TestParseLlmResponse:
         }
         result = _parse_llm_response(json.dumps(data), 1, "m")
         assert result.classes[0].properties[0].confidence == 0.5
+
+    def test_preserves_source_evidence(self):
+        data = {
+            "classes": [
+                {
+                    "uri": "http://ex.org#Customer",
+                    "label": "Customer",
+                    "description": "A party that holds accounts",
+                    "confidence": 0.9,
+                    "evidence": [
+                        {
+                            "source_chunk_ids": ["chunk_1"],
+                            "source_spans": ["sentence 1"],
+                            "evidence_text": "Customers hold accounts.",
+                            "evidence_confidence": 0.95,
+                            "extraction_rationale": "The sentence names the concept.",
+                        }
+                    ],
+                    "attributes": [
+                        {
+                            "uri": "http://ex.org#customerName",
+                            "label": "customer name",
+                            "description": "Customer display name",
+                            "range_datatype": "xsd:string",
+                            "confidence": 0.8,
+                            "evidence": [
+                                {
+                                    "source_chunk_ids": ["chunk_1"],
+                                    "evidence_text": "customer name",
+                                    "evidence_confidence": 0.8,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_llm_response(json.dumps(data), 1, "m")
+
+        assert result.classes[0].evidence[0].source_chunk_ids == ["chunk_1"]
+        assert result.classes[0].evidence[0].evidence_text == "Customers hold accounts."
+        assert result.classes[0].attributes[0].evidence[0].evidence_confidence == 0.8
 
     def test_raises_on_invalid_json(self):
         with pytest.raises(json.JSONDecodeError):

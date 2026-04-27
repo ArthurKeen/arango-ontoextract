@@ -59,6 +59,7 @@ def record_decision(
     action: str,
     curator_id: str,
     notes: str | None = None,
+    issue_reasons: list[str] | None = None,
     edited_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Record a single curation decision and apply the temporal side-effect.
@@ -73,6 +74,17 @@ def record_decision(
     if db is None:
         db = get_db()
 
+    collection: str | None = None
+    current_entity: dict[str, Any] | None = None
+    if entity_type != "edge":
+        collection = _collection_for(
+            entity_type,
+            db=db,
+            entity_key=entity_key,
+        )
+        if action == "edit":
+            current_entity = _get_current_by_key(db, collection=collection, key=entity_key)
+
     decision_doc = {
         "run_id": run_id,
         "entity_key": entity_key,
@@ -80,7 +92,13 @@ def record_decision(
         "action": action,
         "curator_id": curator_id,
         "notes": notes,
+        "issue_reasons": issue_reasons or [],
         "edited_data": edited_data,
+        "edit_diff": (
+            _build_edit_diff(current_entity, edited_data or {})
+            if action == "edit"
+            else None
+        ),
         "created_at": time.time(),
     }
     saved = curation_repo.create_decision(db, data=decision_doc)
@@ -92,11 +110,8 @@ def record_decision(
         )
         return saved
 
-    collection = _collection_for(
-        entity_type,
-        db=db,
-        entity_key=entity_key,
-    )
+    if collection is None:
+        raise ValueError(f"Unsupported entity_type: {entity_type}")
 
     if action == "approve":
         _apply_approve(db, collection=collection, key=entity_key, curator_id=curator_id)
@@ -203,6 +218,7 @@ def batch_decide(
                 action=item["action"],
                 curator_id=item["curator_id"],
                 notes=item.get("notes"),
+                issue_reasons=item.get("issue_reasons"),
                 edited_data=item.get("edited_data"),
             )
             results.append(saved)
@@ -365,3 +381,21 @@ FOR doc IN @@col
         )
     )
     return results[0] if results else None
+
+
+def _build_edit_diff(
+    current_entity: dict[str, Any] | None,
+    edited_data: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a compact before/after diff for curator edits."""
+    changed_fields = sorted(edited_data.keys())
+    before = {
+        field: current_entity.get(field) if current_entity is not None else None
+        for field in changed_fields
+    }
+    after = {field: edited_data.get(field) for field in changed_fields}
+    return {
+        "changed_fields": changed_fields,
+        "before": before,
+        "after": after,
+    }

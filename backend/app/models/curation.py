@@ -15,6 +15,21 @@ class CurationAction(StrEnum):
     EDIT = "edit"
 
 
+class CurationIssueReason(StrEnum):
+    MISSING_EVIDENCE = "missing_evidence"
+    WRONG_CLASS = "wrong_class"
+    WRONG_PARENT = "wrong_parent"
+    WRONG_RELATIONSHIP = "wrong_relationship"
+    DUPLICATE = "duplicate"
+    TOO_GENERIC = "too_generic"
+    TOO_SPECIFIC = "too_specific"
+    HALLUCINATED = "hallucinated"
+    BAD_LABEL = "bad_label"
+    BAD_DESCRIPTION = "bad_description"
+    MISSING_PROPERTY = "missing_property"
+    DOMAIN_MISMATCH = "domain_mismatch"
+
+
 class EntityType(StrEnum):
     CLASS = "class"
     PROPERTY = "property"
@@ -35,6 +50,7 @@ class CurationDecisionCreate(BaseModel):
     action: CurationAction
     curator_id: str
     notes: str | None = None
+    issue_reasons: list[CurationIssueReason] = Field(default_factory=list)
     edited_data: dict[str, Any] | None = Field(
         None,
         description="New data when action is 'edit'; ignored for approve/reject.",
@@ -52,7 +68,9 @@ class CurationDecisionResponse(BaseModel):
     action: CurationAction
     curator_id: str
     notes: str | None = None
+    issue_reasons: list[CurationIssueReason] = Field(default_factory=list)
     edited_data: dict[str, Any] | None = None
+    edit_diff: dict[str, Any] | None = None
     created_at: float
 
     model_config = {"populate_by_name": True}
@@ -73,6 +91,7 @@ class BatchDecisionItem(BaseModel):
     action: CurationAction
     curator_id: str
     notes: str | None = None
+    issue_reasons: list[CurationIssueReason] = Field(default_factory=list)
     edited_data: dict[str, Any] | None = None
 
 

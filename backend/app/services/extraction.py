@@ -743,7 +743,7 @@ def _materialize_to_graph(
 
     class_keys: dict[str, str] = {}
     uri_to_key: dict[str, str] = {}
-    class_parent_uris: list[tuple[str, str]] = []
+    class_parent_uris: list[tuple[str, str, list[dict[str, Any]]]] = []
     deferred_rels: list[dict[str, Any]] = []
 
     for cls in classes:
@@ -762,6 +762,8 @@ def _materialize_to_graph(
             "confidence": cls_data.get("confidence", 0.0),
             "faithfulness_score": cls_data.get("faithfulness_score"),
             "semantic_validity_score": cls_data.get("semantic_validity_score"),
+            "evidence": cls_data.get("evidence", []),
+            "parent_evidence": cls_data.get("parent_evidence", []),
             "rdf_type": "owl:Class",
             "created": now,
             "expired": NEVER_EXPIRES,
@@ -775,7 +777,7 @@ def _materialize_to_graph(
 
         parent_uri = cls_data.get("parent_uri")
         if parent_uri:
-            class_parent_uris.append((key, parent_uri))
+            class_parent_uris.append((key, parent_uri, cls_data.get("parent_evidence", [])))
 
         # --- PGT-aligned property handling ---
         attributes: list[dict[str, Any]] = cls_data.get("attributes", [])
@@ -793,6 +795,7 @@ def _materialize_to_graph(
                         "description": prop.get("description", ""),
                         "target_class_uri": prop_range,
                         "confidence": prop.get("confidence", 0.0),
+                        "evidence": prop.get("evidence", []),
                     })
                 else:
                     attributes.append({
@@ -801,6 +804,7 @@ def _materialize_to_graph(
                         "description": prop.get("description", ""),
                         "range_datatype": prop_range,
                         "confidence": prop.get("confidence", 0.0),
+                        "evidence": prop.get("evidence", []),
                     })
 
         # Attributes → ontology_datatype_properties + rdfs_domain
@@ -819,6 +823,7 @@ def _materialize_to_graph(
                 "range_datatype": attr.get("range_datatype", "xsd:string"),
                 "ontology_id": ontology_id,
                 "confidence": attr.get("confidence", 0.0),
+                "evidence": attr.get("evidence", []),
                 "created": now,
                 "expired": NEVER_EXPIRES,
             }
@@ -852,6 +857,7 @@ def _materialize_to_graph(
                 "description": rel.get("description", ""),
                 "target_class_uri": rel.get("target_class_uri", ""),
                 "confidence": rel.get("confidence", 0.0),
+                "evidence": rel.get("evidence", []),
             })
 
         with contextlib.suppress(Exception):
@@ -865,7 +871,7 @@ def _materialize_to_graph(
             })
 
     # subclass_of edges
-    for child_key, parent_uri in class_parent_uris:
+    for child_key, parent_uri, parent_evidence in class_parent_uris:
         parent_key = uri_to_key.get(parent_uri)
         if not parent_key:
             parent_frag = parent_uri.split("#")[-1].split("/")[-1]
@@ -876,6 +882,7 @@ def _materialize_to_graph(
                     "_from": f"ontology_classes/{child_key}",
                     "_to": f"ontology_classes/{parent_key}",
                     "ontology_id": ontology_id,
+                    "evidence": parent_evidence,
                     "created": now,
                     "expired": NEVER_EXPIRES,
                 })
@@ -900,6 +907,7 @@ def _materialize_to_graph(
             "description": rel["description"],
             "ontology_id": ontology_id,
             "confidence": rel["confidence"],
+            "evidence": rel.get("evidence", []),
             "created": now,
             "expired": NEVER_EXPIRES,
         }

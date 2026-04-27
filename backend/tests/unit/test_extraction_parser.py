@@ -81,6 +81,62 @@ class TestParseLLMResponse:
 
         result = _parse_llm_response(raw_json, pass_number=1, model_name="test")
         assert result.classes[0].properties == []
+        assert result.classes[0].evidence == []
+        assert result.classes[0].parent_evidence == []
+
+    def test_parse_preserves_evidence_fields(self):
+        data = {
+            "classes": [
+                {
+                    "uri": "http://example.org/test#Account",
+                    "label": "Account",
+                    "description": "A financial account",
+                    "confidence": 0.9,
+                    "parent_uri": "http://example.org/test#FinancialProduct",
+                    "parent_evidence": [
+                        {
+                            "source_chunk_ids": ["chunk_7"],
+                            "evidence_text": "Accounts are financial products.",
+                            "evidence_confidence": 0.9,
+                        }
+                    ],
+                    "evidence": [
+                        {
+                            "source_chunk_ids": ["chunk_3"],
+                            "source_spans": ["line 4"],
+                            "evidence_text": "Customer accounts are opened online.",
+                            "evidence_confidence": 0.95,
+                            "extraction_rationale": "The phrase names Account as a concept.",
+                        }
+                    ],
+                    "relationships": [
+                        {
+                            "uri": "http://example.org/test#heldBy",
+                            "label": "held by",
+                            "description": "Account is held by a customer",
+                            "target_class_uri": "http://example.org/test#Customer",
+                            "confidence": 0.8,
+                            "evidence": [
+                                {
+                                    "source_chunk_ids": ["chunk_4"],
+                                    "evidence_text": "Accounts are held by customers.",
+                                    "evidence_confidence": 0.85,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        result = _parse_llm_response(json.dumps(data), pass_number=1, model_name="test")
+        cls = result.classes[0]
+
+        assert cls.evidence[0].source_chunk_ids == ["chunk_3"]
+        assert cls.parent_evidence[0].source_chunk_ids == ["chunk_7"]
+        assert cls.relationships[0].evidence[0].evidence_text == (
+            "Accounts are held by customers."
+        )
 
     def test_parse_invalid_json_raises(self):
         with pytest.raises((json.JSONDecodeError, ValueError, KeyError)):

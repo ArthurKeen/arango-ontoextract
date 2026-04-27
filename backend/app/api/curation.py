@@ -44,6 +44,7 @@ async def record_decision(body: CurationDecisionCreate) -> dict:
         action=body.action.value,
         curator_id=body.curator_id,
         notes=body.notes,
+        issue_reasons=[reason.value for reason in body.issue_reasons],
         edited_data=body.edited_data,
     )
     return result
@@ -59,6 +60,7 @@ async def batch_decide(body: BatchDecisionRequest) -> dict:
             "action": d.action.value,
             "curator_id": d.curator_id,
             "notes": d.notes,
+            "issue_reasons": [reason.value for reason in d.issue_reasons],
             "edited_data": d.edited_data,
         }
         for d in body.decisions

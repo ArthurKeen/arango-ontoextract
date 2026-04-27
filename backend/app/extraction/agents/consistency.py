@@ -14,6 +14,7 @@ from app.models.ontology import (
     ExtractedProperty,
     ExtractedRelationship,
     ExtractionResult,
+    SourceEvidence,
 )
 from app.services.confidence import _property_agreement_score
 
@@ -52,6 +53,20 @@ def _merge_descriptions(descriptions: list[str]) -> str:
     return max(descriptions, key=len)
 
 
+def _merge_evidence(evidence_lists: list[list[SourceEvidence]]) -> list[SourceEvidence]:
+    """Deduplicate source evidence while preserving first-seen order."""
+    merged: list[SourceEvidence] = []
+    seen: set[tuple[tuple[str, ...], str]] = set()
+    for evidence_list in evidence_lists:
+        for evidence in evidence_list:
+            key = (tuple(evidence.source_chunk_ids), evidence.evidence_text.strip())
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(evidence)
+    return merged
+
+
 def _merge_properties(
     property_lists: list[list[ExtractedProperty]],
 ) -> list[ExtractedProperty]:
@@ -74,6 +89,7 @@ def _merge_properties(
                 property_type=best.property_type,
                 range=best.range,
                 confidence=round(_clamp_confidence(avg_confidence), 3),
+                evidence=_merge_evidence([p.evidence for p in props]),
             )
         )
     return merged
@@ -100,6 +116,7 @@ def _merge_attributes(
                 description=best.description,
                 range_datatype=best.range_datatype,
                 confidence=round(_clamp_confidence(avg_confidence), 3),
+                evidence=_merge_evidence([a.evidence for a in attrs]),
             )
         )
     return merged
@@ -126,6 +143,7 @@ def _merge_relationships(
                 description=best.description,
                 target_class_uri=best.target_class_uri,
                 confidence=round(_clamp_confidence(avg_confidence), 3),
+                evidence=_merge_evidence([r.evidence for r in rels]),
             )
         )
     return merged
@@ -154,6 +172,7 @@ def _convert_properties_to_pgt(
                 description=prop.description,
                 target_class_uri=prop.range,
                 confidence=prop.confidence,
+                evidence=prop.evidence,
             ))
         else:
             attributes.append(ExtractedAttribute(
@@ -162,6 +181,7 @@ def _convert_properties_to_pgt(
                 description=prop.description,
                 range_datatype=prop.range,
                 confidence=prop.confidence,
+                evidence=prop.evidence,
             ))
     return attributes, relationships
 
@@ -263,7 +283,7 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
             {_relationship_key(r) for r in rels} for rels in all_relationship_lists
         ]
         combined_uris_per_pass = [
-            au | ru for au, ru in zip(attr_uris_per_pass, rel_uris_per_pass)
+            au | ru for au, ru in zip(attr_uris_per_pass, rel_uris_per_pass, strict=True)
         ]
 
         attr_agreement = round(_property_agreement_score(attr_uris_per_pass), 3)
@@ -287,8 +307,10 @@ def consistency_checker_node(state: ExtractionPipelineState) -> dict:
                 label=best_variant.label,
                 description=merged_desc,
                 parent_uri=parent_uri,
+                parent_evidence=_merge_evidence([v.parent_evidence for v in variants]),
                 classification=best_variant.classification,
                 confidence=round(agreement_ratio, 3),
+                evidence=_merge_evidence([v.evidence for v in variants]),
                 llm_confidence=round(_clamp_confidence(avg_llm_confidence), 3),
                 property_agreement=round(_clamp_confidence(prop_agreement), 3),
                 attribute_agreement=round(_clamp_confidence(attr_agreement), 3),

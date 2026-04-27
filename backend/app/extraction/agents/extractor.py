@@ -55,7 +55,15 @@ def _batch_chunks(chunks: list[dict[str, Any]], batch_size: int) -> list[str]:
         batch = chunks[i : i + batch_size]
         text_parts = []
         for j, chunk in enumerate(batch, start=i + 1):
-            text_parts.append(f"[Chunk {j}]\n{chunk.get('text', '')}")
+            chunk_id = (
+                chunk.get("_key")
+                or chunk.get("id")
+                or chunk.get("chunk_id")
+                or str(j)
+            )
+            text_parts.append(
+                f"[Chunk {j} | source_chunk_id={chunk_id}]\n{chunk.get('text', '')}"
+            )
         batches.append("\n\n".join(text_parts))
     return batches
 
@@ -85,6 +93,10 @@ def _parse_llm_response(raw_text: str, pass_number: int, model_name: str) -> Ext
             cls["attributes"] = []
         if "relationships" not in cls:
             cls["relationships"] = []
+        if "evidence" not in cls:
+            cls["evidence"] = []
+        if "parent_evidence" not in cls:
+            cls["parent_evidence"] = []
         if "confidence" in cls:
             cls["confidence"] = max(0.0, min(1.0, float(cls["confidence"])))
         for prop in cls.get("properties", []):
@@ -92,6 +104,22 @@ def _parse_llm_response(raw_text: str, pass_number: int, model_name: str) -> Ext
                 prop["confidence"] = 0.5
             else:
                 prop["confidence"] = max(0.0, min(1.0, float(prop["confidence"])))
+            if "evidence" not in prop:
+                prop["evidence"] = []
+        for attr in cls.get("attributes", []):
+            if "confidence" not in attr:
+                attr["confidence"] = 0.5
+            else:
+                attr["confidence"] = max(0.0, min(1.0, float(attr["confidence"])))
+            if "evidence" not in attr:
+                attr["evidence"] = []
+        for rel in cls.get("relationships", []):
+            if "confidence" not in rel:
+                rel["confidence"] = 0.5
+            else:
+                rel["confidence"] = max(0.0, min(1.0, float(rel["confidence"])))
+            if "evidence" not in rel:
+                rel["evidence"] = []
 
     return ExtractionResult.model_validate(data)
 

@@ -622,7 +622,7 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 | `documents` | Uploaded source documents | `_key`, `filename`, `mime_type`, `upload_date`, `org_id`, `status`, `metadata` |
 | `chunks` | Semantic chunks of documents | `_key`, `doc_id`, `text`, `chunk_index`, `embedding` (vector), `token_count` |
 | `extraction_runs` | Pipeline execution records | `_key`, `doc_id`, `model`, `prompt_version`, `started_at`, `completed_at`, `status`, `stats` |
-| `curation_decisions` | Audit trail of expert decisions | `_key`, `entity_id`, `entity_type`, `action` (approve\|reject\|merge\|edit), `user_id`, `timestamp`, `before`, `after` |
+| `curation_decisions` | Audit trail of expert decisions | `_key`, `run_id`, `entity_key`, `entity_type`, `action` (approve\|reject\|merge\|edit), `curator_id`, `notes`, `issue_reasons`, `edited_data`, `edit_diff` (`changed_fields`, `before`, `after`), `created_at` |
 | `notifications` | In-app notification queue | `_key`, `user_id`, `org_id`, `event_type`, `title`, `body`, `read`, `created_at`, `entity_ref` |
 | `organizations` | Organization / tenant records | `_key`, `name`, `slug`, `selected_ontologies` (list of registry IDs), `settings`, `created_at` |
 | `users` | User accounts and roles | `_key`, `email`, `display_name`, `org_id`, `role` (admin\|ontology_engineer\|domain_expert\|viewer), `created_at` |
@@ -632,9 +632,9 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 
 | Collection | Purpose | Key Fields |
 |------------|---------|------------|
-| `ontology_classes` | Versioned `owl:Class` / `rdfs:Class` / `skos:Concept` instances | `_key`, `uri`, `rdf_type` (owl:Class\|skos:Concept), `label`, `description`, `tier` (domain\|local), `ontology_id` (FK to registry), `org_id`, `status` (draft\|approved\|deprecated), `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
-| `ontology_object_properties` | Versioned `owl:ObjectProperty` instances (inter-class relationships). See ADR-006. | `_key`, `uri`, `label`, `description`, `ontology_id`, `confidence`, `status`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
-| `ontology_datatype_properties` | Versioned `owl:DatatypeProperty` instances (class attributes). See ADR-006. | `_key`, `uri`, `label`, `description`, `range_datatype` (e.g., `xsd:string`, `xsd:integer`), `ontology_id`, `confidence`, `status`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
+| `ontology_classes` | Versioned `owl:Class` / `rdfs:Class` / `skos:Concept` instances | `_key`, `uri`, `rdf_type` (owl:Class\|skos:Concept), `label`, `description`, `tier` (domain\|local), `ontology_id` (FK to registry), `org_id`, `status` (draft\|approved\|deprecated), `confidence`, `faithfulness_score`, `semantic_validity_score`, `evidence`, `parent_evidence`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
+| `ontology_object_properties` | Versioned `owl:ObjectProperty` instances (inter-class relationships). See ADR-006. | `_key`, `uri`, `label`, `description`, `ontology_id`, `confidence`, `evidence`, `status`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
+| `ontology_datatype_properties` | Versioned `owl:DatatypeProperty` instances (class attributes). See ADR-006. | `_key`, `uri`, `label`, `description`, `range_datatype` (e.g., `xsd:string`, `xsd:integer`), `ontology_id`, `confidence`, `evidence`, `status`, `version`, `created`, `expired`, `created_by`, `change_type`, `change_summary`, `ttlExpireAt` |
 | ~~`ontology_properties`~~ | **Deprecated** — replaced by `ontology_object_properties` + `ontology_datatype_properties` per ADR-006. Retained temporarily during migration. | |
 | `ontology_constraints` | Versioned OWL restrictions and SHACL shapes | `_key`, `ontology_id`, `constraint_type` (owl:Restriction\|sh:NodeShape\|sh:PropertyShape), `property_id`, `on_class` (target class), `restriction_type` (owl:allValuesFrom\|owl:someValuesFrom\|owl:minCardinality\|owl:maxCardinality\|owl:hasValue), `restriction_value`, `shape_uri`, `severity` (sh:Violation\|sh:Warning\|sh:Info), `sh_path`, `sh_datatype`, `sh_min_count`, `sh_max_count`, `sh_pattern`, `sh_in`, `message`, `created`, `expired`, `ttlExpireAt` |
 
@@ -955,6 +955,7 @@ RETURN { before, after }
 | FR-2.11 | Visualizer assets auto-installed | After per-ontology graph creation, ArangoDB Visualizer customizations (theme, canvas actions, saved queries, viewpoint links) are deployed for the new graph so it is immediately explorable in the ArangoDB UI. |
 | FR-2.12 | Incremental extraction into existing ontology | When a new document is added to an existing ontology (FR-1.8), the extraction pipeline runs with the existing ontology classes injected as context. The Consistency Checker compares new extractions against existing classes to avoid duplication. New classes are tagged with the same `ontology_id` and go through curation before being merged. |
 | FR-2.13 | Multi-document extraction run | The extraction API accepts `doc_ids: list[str]` (multiple documents) and an optional `target_ontology_id`. Chunks from all documents are batched and processed together. All extracted concepts share the target ontology_id. |
+| FR-2.14 | Evidence-grounded extraction schema | Every extracted class, parent link, datatype attribute, and object relationship includes source evidence: `source_chunk_ids`, optional `source_spans`, `evidence_text`, `evidence_confidence`, and `extraction_rationale`. The extraction prompt exposes stable `source_chunk_id` values in chunk headers, and Pydantic validation preserves evidence through parsing, consistency merging, result storage, and graph materialization. |
 
 **ArangoRDF Import Detail:**
 
@@ -1000,6 +1001,7 @@ ArangoRDF merges all imports into shared collections distinguished by IRI namesp
 | FR-3.3 | Extensions linked via `extends_domain` edges | Local classes that specialize domain classes have explicit subClassOf edges |
 | FR-3.4 | Organization isolation | Org A's local ontology is invisible to Org B |
 | FR-3.5 | Conflict detection | System flags when a local extraction contradicts a domain class definition |
+| FR-3.6 | Evidence preserved for Tier 2 classification | EXISTING, EXTENSION, and NEW classifications carry the same source evidence contract as Tier 1. Evidence must support both the local assertion and, when present, the parent/domain alignment rationale. |
 
 **Conflict Resolution Protocol:**
 
@@ -1079,12 +1081,12 @@ This evolution should be planned as a separate phase after the current extractio
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|-------------------|
 | FR-4.1 | Render staging graph as interactive React component | Nodes = classes, edges = relationships; zoom, pan, filter by type/tier. **Target renderer:** Sigma.js via `@react-sigma/core` with `graphology` data model (WebGL, scales to 100K+ nodes). Current v0.1.0 prototype uses React Flow (DOM-based, adequate for small graphs). |
-| FR-4.2 | Node actions: approve, reject, rename, edit properties, merge | Each action recorded in `curation_decisions` with before/after state |
+| FR-4.2 | Node actions: approve, reject, rename, edit properties, merge | Each action recorded in `curation_decisions` with structured issue reasons and, for edits, an `edit_diff` containing changed fields plus before/after values |
 | FR-4.3 | Edge actions: approve, reject, retype, reverse direction | Edge modifications validated against ontology constraints |
 | FR-4.4 | Batch operations | Select multiple nodes/edges for bulk approve/reject |
 | FR-4.5 | Diff view between staging and production | Side-by-side or overlay showing what's new, changed, removed |
 | FR-4.6 | Promote staging → production | One-click promotion of approved entities from staging to production graph |
-| FR-4.7 | Provenance display | Clicking a node shows which document chunk(s) it was extracted from, with highlighted source text |
+| FR-4.7 | Provenance and evidence display | Clicking a node or edge shows supporting `source_chunk_ids`, quoted `evidence_text`, optional spans, evidence confidence, and extraction rationale. Unsupported assertions are visually distinguishable. |
 | FR-4.8 | Confidence scores | Each extracted entity displays LLM confidence; low-confidence entities visually highlighted |
 | FR-4.9 | All visualization libraries are React-compatible | No vanilla JS graph libraries that require manual DOM manipulation; all rendering through React component tree. Sigma.js qualifies via `@react-sigma/core`. |
 | FR-4.10 | Standalone ontology graph viewer/editor (not tied to extraction run) | The curation dashboard is accessible in two modes: (1) **Staging mode** (`/curation/[runId]`) for reviewing extraction results, and (2) **Ontology mode** (`/ontology/[ontologyId]/edit`) for directly viewing and editing any approved ontology in the library. Ontology mode loads all current classes, properties, and edges for the ontology, supports the same graph visualization, node/edge actions, VCR timeline, and diff view. Enables ongoing ontology management beyond initial extraction. **Long-term target:** TopBraid Composer-class editing environment with class tree browser, property matrix, restriction editor, SHACL shapes panel, namespace manager, and validation console (see "Full Ontology Editor Vision" above). |
@@ -1101,6 +1103,7 @@ This evolution should be planned as a separate phase after the current extractio
 | FR-4.16 | Single-page workspace | All curation, editing, viewing, and quality workflows occur within a single unified workspace (`/workspace`) without page-to-page navigation. The graph canvas, asset explorer, detail panel, and VCR timeline are persistent zones. See §7.8 for full specification. |
 | FR-4.16a | Bidirectional class–graph selection sync | Clicking a class row in the Asset Explorer sidebar selects that node in the graph canvas: the camera animates to center on the node, the node receives a persistent highlight ring, and the detail panel opens. Conversely, clicking a class node in the graph canvas highlights the corresponding row in the sidebar: the ontology's class tree auto-expands if collapsed, and the row scrolls into view with a selection indicator. The same `selectedNodeKey` drives both surfaces, ensuring they are always in sync. |
 | FR-4.17 | Concurrent editing safety | Optimistic concurrency control: all write endpoints on versioned entities include a `version` field in the request. If the server's current version doesn't match, the request is rejected with `409 Conflict` and the response includes the current version. The UI detects conflicts and offers the user choices: reload (discard local changes), force overwrite, or merge. When two users have the same ontology open in the workspace, WebSocket broadcasts notify the other user of changes in real-time (entity_updated events). |
+| FR-4.18 | Structured HITL feedback taxonomy | Reject and edit actions can include zero or more issue reasons from a controlled vocabulary: `missing_evidence`, `wrong_class`, `wrong_parent`, `wrong_relationship`, `duplicate`, `too_generic`, `too_specific`, `hallucinated`, `bad_label`, `bad_description`, `missing_property`, `domain_mismatch`. These values are stored on `curation_decisions` for quality analytics and future learning loops. |
 
 ### 6.5 Temporal Time Travel & VCR Timeline (Ontology History)
 
@@ -1940,7 +1943,7 @@ The agent DAG is a small, fixed-topology graph (6 nodes) with a fork/join at the
 
 | Category | Metrics | Source Data |
 |----------|---------|-------------|
-| **Extraction Quality** | Precision (acceptance rate), recall (vs gold standard), multi-signal confidence | `curation_decisions`, `ontology_classes`, reference ontologies |
+| **Extraction Quality** | Precision (acceptance rate), recall (vs gold standard), multi-signal confidence, assertion-level evidence coverage, confidence calibration | `curation_decisions`, `ontology_classes`, `ontology_object_properties`, `ontology_datatype_properties`, `subclass_of`, reference ontologies |
 | **Curation Efficiency** | Throughput (concepts/hour), time-to-first-ontology | `curation_decisions` timestamps, `documents.uploaded_at`, `extraction_runs.completed_at` |
 | **Deduplication Quality** | Merge suggestion accuracy (accepted vs rejected) | `curation_decisions` on merge candidates |
 | **Structural Quality** | Completeness (classes with properties), coherence (cycle-free hierarchy), coverage (concepts per source chunk), orphan ratio, property richness | `ontology_classes`, `ontology_properties`, `has_property`, `subclass_of` edges |
@@ -2010,6 +2013,29 @@ An orphan class with only datatype properties scores 0.15. A well-connected clas
 1. **During pipeline execution** (after consistency checker): The faithfulness judge and semantic validator run as sub-steps, producing per-class scores stored alongside the extraction results.
 2. **During materialization** (`_materialize_to_graph()`): Structural, description, and provenance signals are computed from the graph, and the final blended score is written to each class document.
 
+#### 6.13.1a Evidence-Grounded Assertions
+
+**Problem:** Class-level provenance alone is insufficient for curation and learning. A class may be valid while one attribute, relationship, or parent link is unsupported. Without assertion-level evidence, curators cannot quickly distinguish grounded assertions from hallucinated or over-inferred structure.
+
+**Solution:** Every extracted assertion carries structured source evidence:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `source_chunk_ids` | `list[str]` | Stable chunk IDs shown in the extraction prompt and persisted from `chunks._key` where available |
+| `source_spans` | `list[str]` | Optional page/section/line/sentence references when available |
+| `evidence_text` | `string` | Shortest supporting quote from the source text |
+| `evidence_confidence` | `float` | Confidence that the quote supports the assertion |
+| `extraction_rationale` | `string` | Brief reason the evidence justifies the ontology assertion |
+
+Evidence is supported on:
+- `ExtractedClass.evidence` for the class assertion itself
+- `ExtractedClass.parent_evidence` for `rdfs:subClassOf` / parent alignment
+- `ExtractedAttribute.evidence` for datatype properties
+- `ExtractedRelationship.evidence` for object properties
+- legacy `ExtractedProperty.evidence` during migration
+
+During N-pass consistency merging, evidence lists are deduplicated and preserved. During materialization, evidence is written to `ontology_classes`, `ontology_datatype_properties`, `ontology_object_properties`, and `subclass_of` edges so both curation UI and quality metrics can inspect unsupported assertions directly.
+
 #### 6.13.2 Composite Ontology Health Score
 
 **Problem:** Individual quality metrics (completeness, orphan count, cycles) require expertise to interpret. A domain expert reviewing the ontology library needs a quick "is this ontology good?" signal.
@@ -2036,6 +2062,31 @@ An orphan class with only datatype properties scores 0.15. A well-connected clas
 
 **Where displayed:** Ontology cards in the library, quality dashboard, pipeline run metrics (for the run's target ontology).
 
+#### 6.13.2a Assertion-Level Evidence and Calibration Metrics
+
+The quality service computes assertion-level evidence coverage from the materialized graph:
+
+| Metric | Definition |
+|--------|------------|
+| `total_assertions` | Count of current class, attribute, relationship, and subclass assertions |
+| `evidenced_assertions` | Assertions with non-empty `evidence` arrays |
+| `unsupported_assertions` | `total_assertions - evidenced_assertions` |
+| `evidence_coverage` | `evidenced_assertions / total_assertions` |
+| `by_type` | Coverage breakdown for `classes`, `attributes`, `relationships`, and `subclass_links` |
+
+The quality service also computes confidence calibration from HITL decisions:
+
+| Metric | Definition |
+|--------|------------|
+| `buckets` | Confidence deciles with counts of approved, edited, and rejected decisions |
+| `acceptance_rate` | Approved decisions divided by all decisions in the bucket |
+| `edit_rate` | Edited decisions divided by all decisions in the bucket |
+| `rejection_rate` | Rejected decisions divided by all decisions in the bucket |
+| `calibration_error` | `abs(avg_confidence - acceptance_rate)` for each bucket |
+| `expected_calibration_error` | Decision-weighted mean calibration error across buckets |
+
+These metrics are intentionally observational. They do not automatically change prompts, thresholds, or model selection. Future learning loops must be versioned and explicitly gated so quality deltas can be measured before rollout.
+
 **Requirements:**
 
 | ID | Requirement | Acceptance Criteria |
@@ -2056,6 +2107,9 @@ An orphan class with only datatype properties scores 0.15. A well-connected clas
 | FR-13.15 | Per-ontology LLM-as-judge metric aggregation | The quality API aggregates `faithfulness_score` and `semantic_validity_score` from individual `ontology_classes` documents to produce per-ontology averages. These are not currently exposed — must be added to `compute_ontology_quality()`. |
 | FR-13.16 | Per-ontology estimated cost | Each ontology's estimated extraction cost (USD) is derived by tracing `ontology_registry.extraction_run_id` → `extraction_runs.stats.token_usage` and computing cost from token counts and model pricing. Displayed per-ontology on the dashboard. |
 | FR-13.17 | Qualitative evaluation display | Strengths and weaknesses from the Qualitative Evaluation Agent (§6.11) are displayed per-ontology on the dashboard, sourced from `extraction_runs.stats.qualitative_evaluation` via the ontology's linked extraction run. |
+| FR-13.18 | Assertion-level evidence coverage | Quality API returns `assertion_metrics` with total, evidenced, unsupported, and coverage values overall and by type (`classes`, `attributes`, `relationships`, `subclass_links`). Metrics are computed from current graph documents and edges carrying `evidence`. |
+| FR-13.19 | Confidence calibration from HITL decisions | Quality API returns `confidence_calibration` with confidence decile buckets, acceptance/edit/rejection rates, calibration error per bucket, and expected calibration error. These metrics are computed from `curation_decisions` joined to current class confidence values. |
+| FR-13.20 | HITL learning data captured but not auto-applied | Curation decisions preserve `issue_reasons` and `edit_diff` so feedback can become prompt examples, regression fixtures, or calibration data. The system must not automatically mutate prompts, thresholds, or model routing without an explicitly versioned learning-loop rollout. |
 
 #### 6.13.3 Ontology Quality Dashboard
 

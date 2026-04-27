@@ -234,6 +234,107 @@ class TestComputeExtractionQuality:
         assert result["time_to_ontology_ms"] is None
 
 
+class TestComputeAssertionEvidenceMetrics:
+    """Tests for assertion-level evidence coverage metrics."""
+
+    def test_returns_evidence_coverage_by_assertion_type(self):
+        from app.services.quality_metrics import compute_assertion_evidence_metrics
+
+        db = _mock_db({
+            0: [{"total": 4, "evidenced": 3}],  # classes
+            1: [{"total": 2, "evidenced": 1}],  # attributes
+            2: [{"total": 1, "evidenced": 1}],  # relationships
+            3: [{"total": 3, "evidenced": 0}],  # subclass links
+        })
+
+        result = compute_assertion_evidence_metrics(db, "onto_1")
+
+        assert result["total_assertions"] == 10
+        assert result["evidenced_assertions"] == 5
+        assert result["unsupported_assertions"] == 5
+        assert result["evidence_coverage"] == 0.5
+        assert result["by_type"]["classes"] == {
+            "total": 4,
+            "evidenced": 3,
+            "coverage": 0.75,
+        }
+        assert result["by_type"]["subclass_links"] == {
+            "total": 3,
+            "evidenced": 0,
+            "coverage": 0.0,
+        }
+
+    def test_handles_missing_assertion_collections(self):
+        from app.services.quality_metrics import compute_assertion_evidence_metrics
+
+        db = _mock_db_selective({"ontology_classes"}, {
+            0: [{"total": 1, "evidenced": 0}],
+        })
+
+        result = compute_assertion_evidence_metrics(db, "onto_1")
+
+        assert result["total_assertions"] == 1
+        assert result["evidence_coverage"] == 0.0
+        assert result["by_type"]["attributes"] == {
+            "total": 0,
+            "evidenced": 0,
+            "coverage": None,
+        }
+
+
+class TestComputeConfidenceCalibrationMetrics:
+    """Tests for confidence calibration from HITL decisions."""
+
+    def test_returns_bucketed_calibration_metrics(self):
+        from app.services.quality_metrics import compute_confidence_calibration_metrics
+
+        db = _mock_db({
+            0: [
+                {
+                    "bucket_id": 8,
+                    "total": 10,
+                    "accepted": 8,
+                    "edited": 1,
+                    "rejected": 1,
+                    "avg_confidence": 0.82,
+                },
+                {
+                    "bucket_id": 4,
+                    "total": 5,
+                    "accepted": 1,
+                    "edited": 1,
+                    "rejected": 3,
+                    "avg_confidence": 0.45,
+                },
+            ],
+        })
+
+        result = compute_confidence_calibration_metrics(db, "onto_1")
+
+        assert result["bucket_count"] == 2
+        assert result["total_decisions"] == 15
+        assert result["expected_calibration_error"] == 0.0967
+        high_bucket = result["buckets"][1]
+        assert high_bucket["bucket_min"] == 0.8
+        assert high_bucket["bucket_max"] == 0.9
+        assert high_bucket["acceptance_rate"] == 0.8
+        assert high_bucket["calibration_error"] == 0.02
+
+    def test_returns_empty_when_required_collections_missing(self):
+        from app.services.quality_metrics import compute_confidence_calibration_metrics
+
+        db = _mock_db_selective({"ontology_classes"})
+
+        result = compute_confidence_calibration_metrics(db, "onto_1")
+
+        assert result == {
+            "bucket_count": 0,
+            "total_decisions": 0,
+            "expected_calibration_error": None,
+            "buckets": [],
+        }
+
+
 class TestCountOrphans:
     """Tests for _count_orphans."""
 

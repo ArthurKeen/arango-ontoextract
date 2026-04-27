@@ -18,15 +18,42 @@ You MUST output valid JSON matching the following schema exactly:
       "label": "string (human-readable name)",
       "description": "string (1-2 sentence description)",
       "parent_uri": "string | null (URI of parent class via rdfs:subClassOf)",
+      "parent_evidence": [
+        {{
+          "source_chunk_ids": ["string"],
+          "source_spans": ["string"],
+          "evidence_text": "string",
+          "evidence_confidence": 0.0-1.0,
+          "extraction_rationale": "string"
+        }}
+      ],
       "classification": "new | existing | extension",
       "confidence": 0.0-1.0,
+      "evidence": [
+        {{
+          "source_chunk_ids": ["string"],
+          "source_spans": ["string"],
+          "evidence_text": "string",
+          "evidence_confidence": 0.0-1.0,
+          "extraction_rationale": "string"
+        }}
+      ],
       "attributes": [
         {{
           "uri": "string (namespace#attributeName)",
           "label": "string",
           "description": "string",
-          "range_datatype": "string (XSD type: xsd:string, xsd:integer, xsd:date, xsd:boolean, xsd:decimal, xsd:dateTime, xsd:float, xsd:anyURI)",
-          "confidence": 0.0-1.0
+          "range_datatype": "string (XSD datatype, e.g., xsd:string or xsd:date)",
+          "confidence": 0.0-1.0,
+          "evidence": [
+            {{
+              "source_chunk_ids": ["string"],
+              "source_spans": ["string"],
+              "evidence_text": "string",
+              "evidence_confidence": 0.0-1.0,
+              "extraction_rationale": "string"
+            }}
+          ]
         }}
       ],
       "relationships": [
@@ -35,7 +62,16 @@ You MUST output valid JSON matching the following schema exactly:
           "label": "string (verb phrase, e.g., 'holds', 'contains', 'is managed by')",
           "description": "string",
           "target_class_uri": "string (MUST be the URI of another class in this response)",
-          "confidence": 0.0-1.0
+          "confidence": 0.0-1.0,
+          "evidence": [
+            {{
+              "source_chunk_ids": ["string"],
+              "source_spans": ["string"],
+              "evidence_text": "string",
+              "evidence_confidence": 0.0-1.0,
+              "extraction_rationale": "string"
+            }}
+          ]
         }}
       ]
     }}
@@ -55,6 +91,9 @@ Guidelines:
     this same response
 - Use a SINGLE consistent URI namespace for ALL classes (e.g., http://example.org/domain#ClassName)
 - Assign confidence scores: 1.0 for explicitly stated, lower for inferred
+- Cite source evidence for every class, parent_uri, attribute, and relationship. \
+  Use the `source_chunk_id` values shown in chunk headers. Keep `evidence_text` \
+  to the shortest supporting quote from the text.
 - Set parent_uri for subclass relationships; null for root/top-level classes
 - NEVER set parent_uri to the class's own URI (a class cannot be a subclass of itself)
 - Focus on domain-specific concepts, not generic terms

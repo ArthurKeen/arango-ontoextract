@@ -236,6 +236,8 @@ def compute_ontology_quality(
         except Exception:
             log.debug("could not fetch cost for ontology %s", ontology_id, exc_info=True)
 
+    assertion_metrics = compute_assertion_evidence_metrics(db, ontology_id)
+
     return {
         "ontology_id": ontology_id,
         "name": ontology_name,
@@ -258,6 +260,65 @@ def compute_ontology_quality(
         "health_score": health_score,
         "estimated_cost": round(estimated_cost, 6) if estimated_cost is not None else None,
         "schema_metrics": schema_metrics,
+        "assertion_metrics": assertion_metrics,
+    }
+
+
+def compute_assertion_evidence_metrics(
+    db: StandardDatabase,
+    ontology_id: str,
+) -> dict[str, Any]:
+    """Compute assertion-level evidence coverage by ontology element type."""
+    by_type = {
+        "classes": _evidence_coverage_for_collection(db, "ontology_classes", ontology_id),
+        "attributes": _evidence_coverage_for_collection(
+            db, "ontology_datatype_properties", ontology_id,
+        ),
+        "relationships": _evidence_coverage_for_collection(
+            db, "ontology_object_properties", ontology_id,
+        ),
+        "subclass_links": _evidence_coverage_for_collection(db, "subclass_of", ontology_id),
+    }
+
+    total = sum(item["total"] for item in by_type.values())
+    evidenced = sum(item["evidenced"] for item in by_type.values())
+    return {
+        "total_assertions": total,
+        "evidenced_assertions": evidenced,
+        "unsupported_assertions": max(0, total - evidenced),
+        "evidence_coverage": round(evidenced / total, 4) if total else None,
+        "by_type": by_type,
+    }
+
+
+def _evidence_coverage_for_collection(
+    db: StandardDatabase,
+    collection: str,
+    ontology_id: str,
+) -> dict[str, Any]:
+    """Count active docs in a collection and how many carry source evidence."""
+    if not _has(db, collection):
+        return {"total": 0, "evidenced": 0, "coverage": None}
+
+    rows = list(run_aql(db,
+        "FOR doc IN @@col "
+        "FILTER doc.ontology_id == @oid AND doc.expired == @never "
+        "COLLECT AGGREGATE "
+        "  total = COUNT(doc), "
+        "  evidenced = SUM("
+        "    HAS(doc, 'evidence') AND IS_ARRAY(doc.evidence) AND LENGTH(doc.evidence) > 0 "
+        "    ? 1 : 0"
+        "  ) "
+        "RETURN { total, evidenced }",
+        bind_vars={"@col": collection, "oid": ontology_id, "never": NEVER_EXPIRES},
+    ))
+    row = rows[0] if rows else {}
+    total = row.get("total", 0) or 0
+    evidenced = row.get("evidenced", 0) or 0
+    return {
+        "total": total,
+        "evidenced": evidenced,
+        "coverage": round(evidenced / total, 4) if total else None,
     }
 
 
@@ -520,6 +581,86 @@ def compute_extraction_quality(
         "ontology_id": ontology_id,
         "acceptance_rate": acceptance_rate,
         "time_to_ontology_ms": time_to_ontology_ms,
+        "confidence_calibration": compute_confidence_calibration_metrics(db, ontology_id),
+    }
+
+
+def compute_confidence_calibration_metrics(
+    db: StandardDatabase,
+    ontology_id: str,
+) -> dict[str, Any]:
+    """Compare extraction confidence buckets against HITL acceptance outcomes."""
+    if not _has(db, "curation_decisions") or not _has(db, "ontology_classes"):
+        return {
+            "bucket_count": 0,
+            "total_decisions": 0,
+            "expected_calibration_error": None,
+            "buckets": [],
+        }
+
+    rows = list(run_aql(db,
+        "FOR d IN curation_decisions "
+        "FILTER d.entity_type == 'class' "
+        "FILTER d.ontology_id == @oid "
+        "  OR (HAS(d, 'run_id') AND d.run_id IN ("
+        "    FOR r IN extraction_runs "
+        "    FILTER HAS(r, 'ontology_id') AND r.ontology_id == @oid "
+        "    RETURN r._key"
+        "  )) "
+        "LET cls = DOCUMENT(CONCAT('ontology_classes/', d.entity_key)) "
+        "FILTER cls != null AND HAS(cls, 'confidence') "
+        "LET conf = TO_NUMBER(cls.confidence) "
+        "LET bucket = conf >= 1 ? 9 : FLOOR(conf * 10) "
+        "COLLECT bucket_id = bucket AGGREGATE "
+        "  total = COUNT(d), "
+        "  accepted = SUM(d.action == 'approve' ? 1 : 0), "
+        "  edited = SUM(d.action == 'edit' ? 1 : 0), "
+        "  rejected = SUM(d.action == 'reject' ? 1 : 0), "
+        "  avg_confidence = AVG(conf) "
+        "SORT bucket_id ASC "
+        "RETURN { bucket_id, total, accepted, edited, rejected, avg_confidence }",
+        bind_vars={"oid": ontology_id},
+    ))
+
+    buckets: list[dict[str, Any]] = []
+    total_decisions = 0
+    weighted_error = 0.0
+    for row in sorted(rows, key=lambda r: r.get("bucket_id", 0) or 0):
+        total = row.get("total", 0) or 0
+        if total <= 0:
+            continue
+        accepted = row.get("accepted", 0) or 0
+        edited = row.get("edited", 0) or 0
+        rejected = row.get("rejected", 0) or 0
+        avg_confidence = row.get("avg_confidence", 0.0) or 0.0
+        acceptance_rate = accepted / total
+        calibration_error = abs(avg_confidence - acceptance_rate)
+        total_decisions += total
+        weighted_error += calibration_error * total
+        bucket_id = int(row.get("bucket_id", 0) or 0)
+        buckets.append({
+            "bucket_min": round(bucket_id / 10, 1),
+            "bucket_max": round((bucket_id + 1) / 10, 1),
+            "total": total,
+            "accepted": accepted,
+            "edited": edited,
+            "rejected": rejected,
+            "avg_confidence": round(avg_confidence, 4),
+            "acceptance_rate": round(acceptance_rate, 4),
+            "edit_rate": round(edited / total, 4),
+            "rejection_rate": round(rejected / total, 4),
+            "calibration_error": round(calibration_error, 4),
+        })
+
+    return {
+        "bucket_count": len(buckets),
+        "total_decisions": total_decisions,
+        "expected_calibration_error": (
+            round(weighted_error / total_decisions, 4)
+            if total_decisions
+            else None
+        ),
+        "buckets": buckets,
     }
 
 

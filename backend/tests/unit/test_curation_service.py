@@ -37,11 +37,15 @@ class TestRecordDecision:
             entity_type="class",
             action="approve",
             curator_id="curator_a",
+            issue_reasons=["missing_evidence"],
         )
 
         assert result["_key"] == "dec1"
         assert result["action"] == "approve"
         mock_repo.create_decision.assert_called_once()
+        decision_doc = mock_repo.create_decision.call_args.kwargs["data"]
+        assert decision_doc["issue_reasons"] == ["missing_evidence"]
+        assert decision_doc["edit_diff"] is None
         mock_update.assert_called_once()
         assert mock_update.call_args.kwargs["new_data"]["status"] == "approved"
 
@@ -75,11 +79,17 @@ class TestRecordDecision:
         assert result["action"] == "reject"
         mock_cascade.assert_called_once_with(mock_db, key="cls2")
 
+    @patch("app.services.curation._get_current_by_key")
     @patch("app.services.curation.curation_repo")
     @patch("app.services.curation.update_entity")
-    def test_edit_creates_new_version_with_data(self, mock_update, mock_repo):
+    def test_edit_creates_new_version_with_data(self, mock_update, mock_repo, mock_current):
         from app.services.curation import record_decision
 
+        mock_current.return_value = {
+            "_key": "cls3",
+            "label": "Old Label",
+            "description": "Old description",
+        }
         mock_repo.create_decision.return_value = {
             "_key": "dec3",
             "_id": "curation_decisions/dec3",
@@ -100,10 +110,24 @@ class TestRecordDecision:
             entity_type="class",
             action="edit",
             curator_id="curator_a",
-            edited_data={"label": "New Label"},
+            issue_reasons=["bad_label", "bad_description"],
+            edited_data={"label": "New Label", "description": "New description"},
         )
 
         assert result["action"] == "edit"
+        decision_doc = mock_repo.create_decision.call_args.kwargs["data"]
+        assert decision_doc["issue_reasons"] == ["bad_label", "bad_description"]
+        assert decision_doc["edit_diff"] == {
+            "changed_fields": ["description", "label"],
+            "before": {
+                "description": "Old description",
+                "label": "Old Label",
+            },
+            "after": {
+                "description": "New description",
+                "label": "New Label",
+            },
+        }
         mock_update.assert_called_once()
         assert mock_update.call_args.kwargs["new_data"]["label"] == "New Label"
 
@@ -184,6 +208,7 @@ class TestBatchDecide:
                     "entity_type": "class",
                     "action": "reject",
                     "curator_id": "curator",
+                    "issue_reasons": ["hallucinated"],
                 },
             ],
         )
@@ -191,6 +216,7 @@ class TestBatchDecide:
         assert result["processed"] == 2
         assert result["succeeded"] == 2
         assert result["failed"] == 0
+        assert mock_record.call_args_list[1].kwargs["issue_reasons"] == ["hallucinated"]
 
     @patch("app.services.curation.record_decision")
     def test_captures_errors_without_aborting(self, mock_record):

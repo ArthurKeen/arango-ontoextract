@@ -1,4 +1,4 @@
-.PHONY: help setup dev infra backend frontend test test-unit test-integration test-all test-infra-up test-infra-down lint format typecheck type-check clean migrate docker-build docker-up docker-down
+.PHONY: help setup dev infra backend frontend test test-unit test-integration test-all test-infra-up test-infra-down lint format typecheck type-check clean migrate docker-build docker-up docker-down docker-unified-build docker-unified-run docker-unified-up docker-unified-down
 
 # Optional repo-root .env (BACKEND_PORT, etc.). Safe if missing.
 -include .env
@@ -122,6 +122,22 @@ docker-up: ## Start production stack (docker-compose.prod.yml)
 
 docker-down: ## Stop production stack
 	docker compose -f docker-compose.prod.yml down
+
+# ---------------------------------------------------------------------------
+# Unified Docker Image (ArangoCD Container Management)
+# ---------------------------------------------------------------------------
+
+docker-unified-build: ## Build unified AOE Docker image (backend + frontend + nginx)
+	docker build -t aoe:latest -f Dockerfile .
+
+docker-unified-run: docker-unified-build ## Build and run unified AOE image
+	docker run -p 8000:8000 --env-file .env aoe:latest
+
+docker-unified-up: ## Start unified AOE with docker-compose
+	docker compose -f docker-compose.dev.yml up -d
+
+docker-unified-down: ## Stop unified AOE with docker-compose
+	docker compose -f docker-compose.dev.yml down
 
 # ---------------------------------------------------------------------------
 # Cleanup

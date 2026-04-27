@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { api, ApiError, getApiBaseUrl, type PaginatedResponse } from "@/lib/api-client";
@@ -44,8 +44,20 @@ interface OntologyGraphData {
 }
 
 export default function OntologyEditorPage() {
-  const params = useParams();
-  const ontologyId = params.ontologyId as string;
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-gray-400 animate-pulse">Loading ontology editor...</p>
+      </div>
+    }>
+      <OntologyEditorPageInner />
+    </Suspense>
+  );
+}
+
+function OntologyEditorPageInner() {
+  const searchParams = useSearchParams();
+  const ontologyId = searchParams.get("ontologyId") || "";
 
   const [graph, setGraph] = useState<OntologyGraphData | null>(null);
   const [ontologyMeta, setOntologyMeta] = useState<OntologyRegistryEntry | null>(null);
@@ -66,6 +78,10 @@ export default function OntologyEditorPage() {
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
 
   const fetchGraph = useCallback(async () => {
+    if (!ontologyId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -188,6 +204,18 @@ export default function OntologyEditorPage() {
   const ontologyName = ontologyMeta?.name ?? ontologyId;
   const ontologyDescription = ontologyMeta?.description ?? "";
   const baseUrl = getApiBaseUrl();
+
+  if (!ontologyId && !loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-xl font-bold mb-2">No Ontology Selected</h1>
+          <p className="text-gray-500 mb-4">Please provide an ontologyId parameter.</p>
+          <Link href="/library" className="text-blue-600 hover:underline">Back to Library</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">

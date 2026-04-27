@@ -535,7 +535,7 @@ export default function LibraryPage() {
                       Open in Workspace
                     </a>
                     <a
-                      href={`/ontology/${selectedOntology._key}/edit`}
+                      href={`/ontology/edit?ontologyId=${selectedOntology._key}`}
                       className="flex-1 text-center text-xs px-3 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors font-medium"
                     >
                       Edit (Legacy)

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { api, ApiError } from "@/lib/api-client";
@@ -48,8 +48,20 @@ const DiffOverlay = dynamic(
 type SidePanel = "detail" | "provenance" | "diff" | "promote" | "history";
 
 export default function CurationPage() {
-  const params = useParams();
-  const runId = params.runId as string;
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-gray-400 animate-pulse">Loading curation workspace...</p>
+      </div>
+    }>
+      <CurationPageInner />
+    </Suspense>
+  );
+}
+
+function CurationPageInner() {
+  const searchParams = useSearchParams();
+  const runId = searchParams.get("runId") || "";
 
   const [graph, setGraph] = useState<StagingGraph | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +80,10 @@ export default function CurationPage() {
   const [diffError, setDiffError] = useState<string | null>(null);
 
   const fetchGraph = useCallback(async () => {
+    if (!runId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -256,7 +272,7 @@ export default function CurationPage() {
   }, [fetchGraph]);
 
   const fetchDiff = useCallback(async () => {
-    if (!ontologyId) return;
+    if (!ontologyId || !runId) return;
     setDiffLoading(true);
     setDiffError(null);
     try {
@@ -297,6 +313,18 @@ export default function CurationPage() {
     if (!graph) return new Set<string>();
     return new Set(graph.classes.map((c) => c._key));
   }, [graph]);
+
+  if (!runId && !loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-xl font-bold mb-2">No Run Selected</h1>
+          <p className="text-gray-500 mb-4">Please provide a runId parameter.</p>
+          <Link href="/pipeline" className="text-blue-600 hover:underline">Back to Pipeline</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">

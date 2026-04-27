@@ -428,7 +428,7 @@ export default function UploadPage() {
                     View in Library
                   </a>
                   {importResult.ontology_id && (
-                    <a href={`/ontology/${importResult.ontology_id}/edit`} className="text-sm px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                    <a href={`/ontology/edit?ontologyId=${importResult.ontology_id}`} className="text-sm px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
                       Edit Graph
                     </a>
                   )}
@@ -604,7 +604,7 @@ export default function UploadPage() {
                           {docOntologies[doc._key].map((ont) => (
                             <a
                               key={ont._key}
-                              href={`/ontology/${ont._key}/edit`}
+                              href={`/ontology/edit?ontologyId=${ont._key}`}
                               className="inline-flex items-center text-[11px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100 transition-colors"
                               title={`View ontology: ${ont.name}`}
                             >

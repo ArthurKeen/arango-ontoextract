@@ -2,9 +2,11 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import os
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     admin,
@@ -93,3 +95,18 @@ app.include_router(metrics.router)
 app.include_router(quality.router)
 app.include_router(ws_extraction.router)
 app.include_router(ws_curation.router)
+
+# Serve static frontend files if they exist (Next.js export)
+frontend_out = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "out"
+)
+# Fallback for unified Docker image structure
+if not os.path.isdir(frontend_out):
+    frontend_out = "/app/static"
+
+if os.path.isdir(frontend_out):
+    app.mount("/", StaticFiles(directory=frontend_out, html=True), name="static")
+else:
+    log.warning("frontend_out_not_found", path=frontend_out)
+
+

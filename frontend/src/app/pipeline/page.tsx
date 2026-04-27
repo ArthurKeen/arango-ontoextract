@@ -224,7 +224,7 @@ function PipelineMonitorInner() {
                         Open in Workspace
                       </a>
                       <a
-                        href={`/curation/${selectedRunId}`}
+                        href={`/curation?runId=${selectedRunId}`}
                         className="text-xs px-3 py-1 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         Curate (Legacy)

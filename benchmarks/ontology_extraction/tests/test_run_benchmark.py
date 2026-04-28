@@ -88,6 +88,8 @@ class TestRunBenchmark:
         payload = json.loads(out.read_text(encoding="utf-8"))
         assert payload["documents"] == 1
         assert "micro" in payload and "macro" in payload
+        assert payload["runtime"]["total_duration_ms"] >= 0
+        assert payload["per_document"][0]["duration_ms"] >= 0
 
     def test_cli_accepts_alias_file(self, tmp_path: Path):
         corpus = _write_fixture(tmp_path)

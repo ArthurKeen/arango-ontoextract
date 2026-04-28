@@ -2110,8 +2110,9 @@ These metrics are intentionally observational. They do not automatically change 
 | FR-13.18 | Assertion-level evidence coverage | Quality API returns `assertion_metrics` with total, evidenced, unsupported, and coverage values overall and by type (`classes`, `attributes`, `relationships`, `subclass_links`). Metrics are computed from current graph documents and edges carrying `evidence`. |
 | FR-13.19 | Confidence calibration from HITL decisions | Quality API returns `confidence_calibration` with confidence decile buckets, acceptance/edit/rejection rates, calibration error per bucket, and expected calibration error. These metrics are computed from `curation_decisions` joined to current class confidence values. |
 | FR-13.20 | HITL learning data captured but not auto-applied | Curation decisions preserve `issue_reasons` and `edit_diff` so feedback can become prompt examples, regression fixtures, or calibration data. The system must not automatically mutate prompts, thresholds, or model routing without an explicitly versioned learning-loop rollout. |
-| FR-13.21 | Gated feedback learning artifacts | The backend can derive reviewable learning artifacts from HITL feedback: prompt-guidance examples, regression candidates, action counts, and issue-reason summaries. These artifacts carry `auto_apply: false` and are safe for offline review, benchmark generation, or manually approved prompt updates. |
+| FR-13.21 | Gated feedback learning artifacts | The backend can derive reviewable learning artifacts from HITL feedback via `GET /api/v1/admin/feedback-learning`: prompt-guidance examples, regression candidates, action counts, and issue-reason summaries. These artifacts carry `auto_apply: false` and are safe for offline review, benchmark generation, or manually approved prompt updates. |
 | FR-13.22 | Alias-aware benchmark matching | Ontology extraction benchmarks support exact matching by default and optional alias-aware canonicalization via a JSON alias file. Alias groups can normalize class/entity labels and relation names before precision/recall/F1 computation, reducing false mismatches from harmless terminology differences. |
+| FR-13.23 | Benchmark runtime reporting | Ontology extraction benchmark reports include per-document `duration_ms` plus aggregate `runtime.total_duration_ms` and `runtime.avg_duration_ms`, enabling quality-per-minute comparisons across adapters, models, and prompt versions. |
 
 #### 6.13.2b Gated HITL Learning Artifacts
 
@@ -2131,7 +2132,7 @@ The service must preserve the following invariant:
 }
 ```
 
-No artifact may change production extraction behavior until it is attached to a versioned prompt/config update and evaluated against the benchmark suite.
+No artifact may change production extraction behavior until it is attached to a versioned prompt/config update and evaluated against the benchmark suite. Admin users can inspect/export these artifacts with `GET /api/v1/admin/feedback-learning`, optionally scoped by `ontology_id` and bounded by `limit`.
 
 #### 6.13.2c Alias-Aware Benchmark Matching
 
@@ -2149,6 +2150,27 @@ Benchmark scoring remains exact by default: normalized predicted classes/relatio
 ```
 
 The matcher expands each canonical term and alias into normalized alias → canonical mappings before computing class and relation precision/recall/F1. This is an evaluation-only feature and does not affect extraction output.
+
+#### 6.13.2d Benchmark Runtime Reporting
+
+Benchmark reports include runtime metadata alongside quality metrics:
+
+```json
+{
+  "runtime": {
+    "total_duration_ms": 1234.5,
+    "avg_duration_ms": 246.9
+  },
+  "per_document": [
+    {
+      "document_id": "doc-1",
+      "duration_ms": 246.9
+    }
+  ]
+}
+```
+
+This supports quality-per-minute analysis and provides the timing foundation for future cost-per-quality reporting once adapter-level token and price metadata are available.
 
 #### 6.13.3 Ontology Quality Dashboard
 
@@ -2476,6 +2498,7 @@ The `ontology_constraints` collection already exists in §5.1 with fields for `o
 |--------|------|-------------|
 | `POST` | `/api/v1/admin/reset` | **Development/demo only.** Purges all extracted data: truncates `ontology_classes`, `ontology_properties`, `ontology_constraints`, all edge collections (`subclass_of`, `has_property`, `extracted_from`, `extends_domain`, `related_to`, `imports`, `has_chunk`, `produced_by`, `equivalent_class`, `merge_candidate`), `extraction_runs`, `ontology_registry`, `curation_decisions`, `quality_history`. Removes all per-ontology named graphs (`ontology_*`). Preserves `documents` and `chunks` so re-extraction can be triggered without re-upload. Preserves ArangoDB Visualizer configuration assets (`_graphThemeStore`, `_editor_saved_queries`, `_canvasActions`, `_viewpoints`). Requires `ALLOW_SYSTEM_RESET=true` in environment. Returns `{ reset: true, collections_truncated: [...], graphs_removed: [...] }`. |
 | `POST` | `/api/v1/admin/reset/full` | **Development/demo only.** Full purge: same as soft reset plus documents and chunks. Removes all per-ontology named graphs. Requires `ALLOW_SYSTEM_RESET=true`. |
+| `GET` | `/api/v1/admin/feedback-learning` | Returns gated HITL learning artifacts for offline review/export. Query params: optional `ontology_id`, `limit` 1–1000. Response includes `auto_apply: false`, summary counts, prompt-guidance examples, and regression candidates. |
 
 **Deletion Context Summary:**
 

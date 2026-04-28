@@ -126,13 +126,19 @@ class TestScoreSets:
         assert prf.fn == 0
 
 
-def _ds(doc_id: str, cls: tuple[int, int, int], rel: tuple[int, int, int]) -> DocumentScore:
+def _ds(
+    doc_id: str,
+    cls: tuple[int, int, int],
+    rel: tuple[int, int, int],
+    duration_ms: float = 0.0,
+) -> DocumentScore:
     from benchmarks.ontology_extraction.metrics import _prf  # type: ignore[attr-defined]
 
     return DocumentScore(
         document_id=doc_id,
         classes=_prf(*cls),
         relations=_prf(*rel),
+        duration_ms=duration_ms,
     )
 
 
@@ -158,6 +164,21 @@ class TestAggregate:
         # micro relations: tp=1, fp=1, fn=2 → P=0.5 R=0.333 F1=0.4
         assert report.micro_relations.precision == pytest.approx(0.5)
         assert report.micro_relations.recall == pytest.approx(1 / 3)
+
+    def test_aggregate_reports_runtime_metrics(self):
+        scores = [
+            _ds("a", cls=(1, 0, 0), rel=(0, 0, 0), duration_ms=10.5),
+            _ds("b", cls=(1, 0, 0), rel=(0, 0, 0), duration_ms=21.5),
+        ]
+
+        report = aggregate(scores)
+        payload = report.as_dict()
+
+        assert report.total_duration_ms == pytest.approx(32.0)
+        assert report.avg_duration_ms == pytest.approx(16.0)
+        assert payload["runtime"]["total_duration_ms"] == pytest.approx(32.0)
+        assert payload["runtime"]["avg_duration_ms"] == pytest.approx(16.0)
+        assert payload["per_document"][0]["duration_ms"] == 10.5
 
     def test_macro_skips_empty_documents(self):
         scores = [

@@ -116,3 +116,49 @@ class TestResetEndpoints:
         assert result["reset"] is True
         assert result["collections_truncated"] == []
         mock_db.collection.assert_not_called()
+
+
+class TestFeedbackLearningArtifacts:
+    @pytest.mark.asyncio
+    async def test_feedback_learning_artifacts_delegates_to_service(self):
+        payload = {
+            "status": "ready",
+            "auto_apply": False,
+            "summary": {"total_examples": 1},
+            "examples": [{"decision_key": "d1"}],
+            "regression_candidates": [],
+        }
+
+        with (
+            patch("app.api.admin.get_db", return_value=MagicMock(name="db")) as mock_get_db,
+            patch(
+                "app.api.admin.build_feedback_learning_examples",
+                return_value=payload,
+            ) as mock_build,
+        ):
+            from app.api.admin import feedback_learning_artifacts
+
+            result = await feedback_learning_artifacts(ontology_id="onto_1", limit=25)
+
+        assert result == payload
+        mock_build.assert_called_once_with(
+            mock_get_db.return_value,
+            ontology_id="onto_1",
+            limit=25,
+        )
+
+    @pytest.mark.asyncio
+    async def test_feedback_learning_artifacts_wraps_service_error(self):
+        with (
+            patch("app.api.admin.get_db", return_value=MagicMock()),
+            patch(
+                "app.api.admin.build_feedback_learning_examples",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            from app.api.admin import feedback_learning_artifacts
+
+            with pytest.raises(HTTPException) as exc:
+                await feedback_learning_artifacts(ontology_id=None, limit=100)
+
+        assert exc.value.status_code == 500

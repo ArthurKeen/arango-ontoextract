@@ -22,6 +22,7 @@ import logging
 import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from time import perf_counter
 
 from benchmarks.ontology_extraction import metrics
 from benchmarks.ontology_extraction.adapters.base import ExtractionAdapter
@@ -58,7 +59,9 @@ def score_document(
     label_aliases: dict[str, str] | None = None,
     relation_aliases: dict[str, str] | None = None,
 ) -> metrics.DocumentScore:
+    started = perf_counter()
     result = adapter.extract(doc.id, doc.text)
+    duration_ms = (perf_counter() - started) * 1000
     return metrics.DocumentScore(
         document_id=doc.id,
         classes=metrics.score_sets(
@@ -72,6 +75,7 @@ def score_document(
             label_aliases=label_aliases,
             relation_aliases=relation_aliases,
         ),
+        duration_ms=duration_ms,
     )
 
 
@@ -124,6 +128,11 @@ def _print_summary(report: metrics.AggregateReport) -> None:
     print("Macro-averaged:")
     _print_prf("  classes  ", report.macro_classes)
     _print_prf("  relations", report.macro_relations)
+    print(
+        "Runtime: "
+        f"total={report.total_duration_ms:.1f}ms "
+        f"avg/document={report.avg_duration_ms:.1f}ms"
+    )
 
 
 def _print_prf(label: str, prf: metrics.PRF) -> None:

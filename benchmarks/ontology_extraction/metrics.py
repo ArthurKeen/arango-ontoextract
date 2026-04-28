@@ -189,6 +189,7 @@ class DocumentScore:
     document_id: str
     classes: PRF
     relations: PRF
+    duration_ms: float = 0.0
 
 
 @dataclass
@@ -204,10 +205,16 @@ class AggregateReport:
     micro_relations: PRF = field(default_factory=lambda: _prf(0, 0, 0))
     macro_classes: PRF = field(default_factory=lambda: _prf(0, 0, 0))
     macro_relations: PRF = field(default_factory=lambda: _prf(0, 0, 0))
+    total_duration_ms: float = 0.0
+    avg_duration_ms: float = 0.0
 
     def as_dict(self) -> dict:
         return {
             "documents": len(self.document_scores),
+            "runtime": {
+                "total_duration_ms": self.total_duration_ms,
+                "avg_duration_ms": self.avg_duration_ms,
+            },
             "micro": {
                 "classes": self.micro_classes.as_dict(),
                 "relations": self.micro_relations.as_dict(),
@@ -219,6 +226,7 @@ class AggregateReport:
             "per_document": [
                 {
                     "document_id": ds.document_id,
+                    "duration_ms": ds.duration_ms,
                     "classes": ds.classes.as_dict(),
                     "relations": ds.relations.as_dict(),
                 }
@@ -239,6 +247,8 @@ def aggregate(document_scores: list[DocumentScore]) -> AggregateReport:
     micro_tp_r = sum(d.relations.tp for d in document_scores)
     micro_fp_r = sum(d.relations.fp for d in document_scores)
     micro_fn_r = sum(d.relations.fn for d in document_scores)
+    total_duration_ms = sum(d.duration_ms for d in document_scores)
+    avg_duration_ms = total_duration_ms / len(document_scores)
 
     def _macro(getter) -> PRF:
         non_empty = [
@@ -263,4 +273,6 @@ def aggregate(document_scores: list[DocumentScore]) -> AggregateReport:
         micro_relations=_prf(micro_tp_r, micro_fp_r, micro_fn_r),
         macro_classes=_macro(lambda d: d.classes),
         macro_relations=_macro(lambda d: d.relations),
+        total_duration_ms=total_duration_ms,
+        avg_duration_ms=avg_duration_ms,
     )

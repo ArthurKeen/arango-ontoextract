@@ -1,13 +1,14 @@
-"""Admin endpoints — system reset for development/demo (PRD 7.2.1)."""
+"""Admin endpoints — system operations and review artifacts."""
 
 from __future__ import annotations
 
 import logging
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.db.client import get_db
+from app.services.feedback_learning import build_feedback_learning_examples
 
 log = logging.getLogger(__name__)
 
@@ -96,3 +97,29 @@ async def reset_all_data() -> dict:
     graphs_removed = _remove_ontology_graphs(db)
     log.warning("full system reset: truncated %s, removed graphs %s", truncated, graphs_removed)
     return {"reset": True, "collections_truncated": truncated, "graphs_removed": graphs_removed}
+
+
+@router.get("/feedback-learning")
+async def feedback_learning_artifacts(
+    ontology_id: str | None = Query(
+        default=None,
+        description="Optional ontology ID used to scope curation feedback.",
+    ),
+    limit: int = Query(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum number of curation decisions to convert into artifacts.",
+    ),
+) -> dict:
+    """Return gated HITL learning artifacts for offline review/export."""
+    try:
+        db = get_db()
+        return build_feedback_learning_examples(
+            db,
+            ontology_id=ontology_id,
+            limit=limit,
+        )
+    except Exception as exc:
+        log.exception("failed to build feedback-learning artifacts")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc

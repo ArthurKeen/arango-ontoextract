@@ -77,6 +77,87 @@ def _prop_doc(key="Person_name", label="name", ontology_id="test_onto"):
     }
 
 
+class TestDeleteOntology:
+    def test_confirm_deprecates_registry_entry_by_default(self, client):
+        with (
+            patch("app.api.ontology.registry_repo") as registry_repo,
+            patch("app.services.ontology_graphs.delete_ontology_graph", return_value=True),
+        ):
+            registry_repo.get_registry_entry.return_value = {
+                "_key": "test_onto",
+                "name": "Test Ontology",
+                "status": "active",
+            }
+
+            resp = client.delete("/api/v1/ontology/library/test_onto?confirm=true")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "deprecated"
+        assert data["registry_deleted"] is False
+        registry_repo.deprecate_registry_entry.assert_called_once_with("test_onto")
+        registry_repo.delete_registry_entry.assert_not_called()
+
+    def test_hard_delete_removes_registry_entry(self, client):
+        with (
+            patch("app.api.ontology.registry_repo") as registry_repo,
+            patch("app.services.ontology_graphs.delete_ontology_graph", return_value=True),
+        ):
+            registry_repo.get_registry_entry.return_value = {
+                "_key": "test_onto",
+                "name": "Test Ontology",
+                "status": "active",
+            }
+            registry_repo.delete_registry_entry.return_value = True
+
+            resp = client.delete(
+                "/api/v1/ontology/library/test_onto?confirm=true&hard_delete=true"
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "deleted"
+        assert data["registry_deleted"] is True
+        registry_repo.delete_registry_entry.assert_called_once_with("test_onto")
+        registry_repo.deprecate_registry_entry.assert_not_called()
+
+    def test_hard_delete_removes_already_deprecated_registry_entry(self, client):
+        with (
+            patch("app.api.ontology.registry_repo") as registry_repo,
+            patch("app.services.ontology_graphs.delete_ontology_graph", return_value=False),
+        ):
+            registry_repo.get_registry_entry.return_value = {
+                "_key": "test_onto",
+                "name": "Test Ontology",
+                "status": "deprecated",
+            }
+            registry_repo.delete_registry_entry.return_value = True
+
+            resp = client.delete(
+                "/api/v1/ontology/library/test_onto?confirm=true&hard_delete=true"
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "deleted"
+        assert data["registry_deleted"] is True
+        registry_repo.delete_registry_entry.assert_called_once_with("test_onto")
+        registry_repo.deprecate_registry_entry.assert_not_called()
+
+    def test_soft_delete_already_deprecated_still_returns_400(self, client):
+        with patch("app.api.ontology.registry_repo") as registry_repo:
+            registry_repo.get_registry_entry.return_value = {
+                "_key": "test_onto",
+                "name": "Test Ontology",
+                "status": "deprecated",
+            }
+
+            resp = client.delete("/api/v1/ontology/library/test_onto?confirm=true")
+
+        assert resp.status_code == 400
+        assert "already deprecated" in resp.text
+
+
 class TestGetClassDetail:
     def test_returns_class_with_attributes_and_relationships(self, client, _mock_db):
         cls = _class_doc()

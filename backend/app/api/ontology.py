@@ -287,12 +287,18 @@ async def list_ontology_releases(
 async def delete_ontology(
     ontology_id: str,
     confirm: bool = Query(False, description="Set to true to actually delete"),
+    hard_delete: bool = Query(
+        False,
+        description="When true, also remove the ontology_registry entry after expiring contents",
+    ),
 ) -> dict:
-    """Deprecate an ontology with cascade analysis (PRD FR-8.13).
+    """Delete or deprecate an ontology with cascade analysis (PRD FR-8.13).
 
     Uses temporal soft-delete: sets ``expired = now`` on all classes,
     properties, and edges so the VCR timeline can still show historical
-    state.  The registry entry is marked ``deprecated`` (not removed).
+    state.  By default the registry entry is marked ``deprecated``. With
+    ``hard_delete=true`` the registry entry is removed after the contents
+    are expired, which is useful for cleaning up test/duplicate ontologies.
     Per-ontology named graph is removed (it references the same shared
     collections, and expired entities are filtered out by queries).
 
@@ -302,7 +308,7 @@ async def delete_ontology(
     if entry is None:
         raise NotFoundError(f"Ontology '{ontology_id}' not found")
 
-    if entry.get("status") == "deprecated":
+    if entry.get("status") == "deprecated" and not hard_delete:
         raise ValidationError(f"Ontology '{ontology_id}' is already deprecated")
 
     db = get_db()
@@ -416,14 +422,21 @@ async def delete_ontology(
 
     graph_deleted = delete_ontology_graph(ontology_id, db=db)
 
-    registry_repo.deprecate_registry_entry(ontology_id)
+    if hard_delete:
+        registry_deleted = registry_repo.delete_registry_entry(ontology_id)
+        status = "deleted"
+    else:
+        registry_repo.deprecate_registry_entry(ontology_id)
+        registry_deleted = False
+        status = "deprecated"
 
     return {
         "ontology_id": ontology_id,
-        "status": "deprecated",
+        "status": status,
         "expired_at": now,
         "expired_counts": expired_counts,
         "graph_deleted": graph_deleted,
+        "registry_deleted": registry_deleted,
         "dependent_ontologies": dependents,
     }
 

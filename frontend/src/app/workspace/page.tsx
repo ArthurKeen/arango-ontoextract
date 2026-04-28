@@ -9,6 +9,7 @@ import OntologyRenameDialog from "@/components/workspace/OntologyRenameDialog";
 import OntologyReleaseDialog from "@/components/workspace/OntologyReleaseDialog";
 import CreateOntologyDialog from "@/components/workspace/CreateOntologyDialog";
 import ManageImportsOverlay from "@/components/workspace/ManageImportsOverlay";
+import FeedbackLearningOverlay from "@/components/workspace/FeedbackLearningOverlay";
 import CanvasLensLegend from "@/components/workspace/CanvasLensLegend";
 import EmptyCanvasState from "@/components/workspace/EmptyCanvasState";
 import FloatingDetailPanel from "@/components/workspace/FloatingDetailPanel";
@@ -134,6 +135,10 @@ function WorkspacePageInner() {
   const [manageImports, setManageImports] = useState<{
     key: string;
     name: string;
+  } | null>(null);
+  const [feedbackLearning, setFeedbackLearning] = useState<{
+    ontologyId?: string | null;
+    ontologyName?: string | null;
   } | null>(null);
 
   const [classes, setClasses] = useState<OntologyClass[]>([]);
@@ -626,20 +631,46 @@ function WorkspacePageInner() {
 
   const deleteOntology = useCallback(async (key: string) => {
     try {
-      await api.del(`/api/v1/ontology/library/${key}?confirm=true`);
+      const confirmed = confirm(
+        `Delete ontology "${key}"? This removes it from the ontology list and expires its contents.`,
+      );
+      if (!confirmed) {
+        return;
+      }
+      await api.del(`/api/v1/ontology/library/${key}?confirm=true&hard_delete=true`);
       if (selectedOntologyId === key) {
         setSelectedOntologyId(null);
+        setOntologyName(null);
+        setOntologyTier(null);
         setClasses([]);
+        setProperties([]);
         setEdges([]);
       }
+      setExplorerLibraryNonce((n) => n + 1);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        if (selectedOntologyId === key) {
+          setSelectedOntologyId(null);
+          setOntologyName(null);
+          setOntologyTier(null);
+          setClasses([]);
+          setProperties([]);
+          setEdges([]);
+        }
+        setExplorerLibraryNonce((n) => n + 1);
+        return;
+      }
       console.error("Failed to delete ontology", err);
     }
   }, [selectedOntologyId]);
 
   const deleteDocument = useCallback(async (key: string) => {
     try {
-      await api.del(`/api/v1/documents/${key}`);
+      await api.del(`/api/v1/documents/${key}?confirm=true`);
+      setInfoPanelItem((current) => (
+        current?.type === "document" && current.data._key === key ? null : current
+      ));
+      setExplorerLibraryNonce((n) => n + 1);
     } catch (err) {
       console.error("Failed to delete document", err);
     }
@@ -887,6 +918,15 @@ function WorkspacePageInner() {
             onClick: () => fetchOntologyQualityReport(data),
           },
           {
+            label: "View Feedback Learning", icon: "📊",
+            onClick: () => {
+              setFeedbackLearning({
+                ontologyId: ontKey || null,
+                ontologyName: String(data.name ?? data.label ?? ontKey),
+              });
+            },
+          },
+          {
             label: "Export",
             icon: "📤",
             submenu: [
@@ -1026,6 +1066,11 @@ function WorkspacePageInner() {
             label: "New Ontology…",
             icon: "➕",
             onClick: () => setShowCreateOntology(true),
+          },
+          {
+            label: "Review Feedback Learning",
+            icon: "📊",
+            onClick: () => setFeedbackLearning({ ontologyId: null, ontologyName: null }),
           },
         ];
       case "step": {
@@ -1435,6 +1480,14 @@ function WorkspacePageInner() {
           ontologyName={manageImports.name}
           onClose={() => setManageImports(null)}
           onChanged={() => setExplorerLibraryNonce((n) => n + 1)}
+        />
+      )}
+
+      {feedbackLearning && (
+        <FeedbackLearningOverlay
+          ontologyId={feedbackLearning.ontologyId}
+          ontologyName={feedbackLearning.ontologyName}
+          onClose={() => setFeedbackLearning(null)}
         />
       )}
     </div>

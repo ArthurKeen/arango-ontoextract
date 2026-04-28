@@ -1,4 +1,4 @@
-.PHONY: help setup dev infra backend frontend test test-unit test-integration test-all test-infra-up test-infra-down lint format typecheck type-check clean migrate docker-build docker-up docker-down docker-unified-build docker-unified-run docker-unified-up docker-unified-down
+.PHONY: help setup dev infra backend frontend test test-unit test-integration test-all test-infra-up test-infra-down lint format typecheck type-check clean migrate docker-build docker-up docker-down docker-unified-build docker-unified-run docker-unified-up docker-unified-down package-arango-manual
 
 # Optional repo-root .env (BACKEND_PORT, etc.). Safe if missing.
 -include .env
@@ -138,6 +138,13 @@ docker-unified-up: ## Start unified AOE with docker-compose
 
 docker-unified-down: ## Stop unified AOE with docker-compose
 	docker compose -f docker-compose.dev.yml down
+
+# ---------------------------------------------------------------------------
+# Arango Container Manager — manual packaging (tar.gz + uv + pyproject.toml)
+# ---------------------------------------------------------------------------
+
+package-arango-manual: ## Build aoe-myservice.tar.gz (flat: entrypoint + pyproject at archive root)
+	bash scripts/package-arango-manual.sh
 
 # ---------------------------------------------------------------------------
 # Cleanup

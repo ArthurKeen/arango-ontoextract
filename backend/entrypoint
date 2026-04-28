@@ -1,0 +1,115 @@
+entrypoint = __file__
+
+import os
+import shutil
+import subprocess
+import sys
+
+
+def _ensure_dependencies(root: str) -> None:
+    """Install deps into this interpreter (migrations / uvicorn).
+
+    Prefer ``uv pip install`` — target venvs often have no ``pip`` module; uv installs without it.
+    """
+    if os.environ.get("AOE_SKIP_UV_SYNC", "").lower() in ("1", "true", "yes"):
+        return
+    uv = shutil.which("uv")
+    lock = os.path.join(root, "uv.lock")
+    if uv:
+        if os.path.isfile(lock):
+            print("==> uv sync (lockfile)...", flush=True)
+            subprocess.run(
+                [uv, "sync", "--no-dev", "-p", sys.executable, "--frozen"],
+                cwd=root,
+                check=True,
+                env=os.environ,
+            )
+        print(
+            "==> uv pip install -e . (into this interpreter; no bundled pip required)...",
+            flush=True,
+        )
+        subprocess.run(
+            [
+                uv,
+                "pip",
+                "install",
+                "-e",
+                ".",
+                "--python",
+                sys.executable,
+            ],
+            cwd=root,
+            check=True,
+            env=os.environ,
+        )
+        return
+
+    pip_chk = subprocess.run(
+        [sys.executable, "-m", "pip", "--version"],
+        cwd=root,
+        capture_output=True,
+    )
+    if pip_chk.returncode != 0:
+        print("==> ensurepip (venv has no pip module)...", flush=True)
+        subprocess.run(
+            [sys.executable, "-m", "ensurepip", "--upgrade"],
+            cwd=root,
+            check=True,
+            env=os.environ,
+        )
+    print("==> pip install -e . ...", flush=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade-strategy",
+            "only-if-needed",
+            "-e",
+            ".",
+        ],
+        cwd=root,
+        check=True,
+        env=os.environ,
+    )
+
+
+def main() -> None:
+    root = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(root)
+    _ensure_dependencies(root)
+    prev = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = root + (os.pathsep + prev if prev else "")
+
+    listen_port = os.environ.get("PORT") or os.environ.get("BACKEND_PORT") or "8000"
+    workers = os.environ.get("BACKEND_WORKERS", "1")
+
+    print(f"==> AOE backend starting ({root})", flush=True)
+    print(f"==> Listening on 0.0.0.0:{listen_port} (workers={workers})", flush=True)
+
+    print("==> Running database migrations...", flush=True)
+    subprocess.run(
+        [sys.executable, "-m", "migrations.runner"],
+        cwd=root,
+        check=True,
+    )
+
+    print("==> Starting uvicorn...", flush=True)
+    argv = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        str(listen_port),
+        "--workers",
+        str(workers),
+    ]
+    os.execvp(sys.executable, argv)
+
+
+if __name__ == "__main__":
+    main()

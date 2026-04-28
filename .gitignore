@@ -23,6 +23,7 @@ venv/
 env/
 .python-version
 uv.lock
+!backend/uv.lock
 
 # Testing / Coverage
 .pytest_cache/

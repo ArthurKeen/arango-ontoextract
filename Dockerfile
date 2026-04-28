@@ -18,6 +18,10 @@ WORKDIR /app
 COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY frontend/ .
 
+# Same-origin API behind nginx in unified image; override at build if needed (see Makefile).
+ARG NEXT_PUBLIC_API_URL=/api/v1
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build  # produces .next/standalone/
 
@@ -63,9 +67,11 @@ COPY --from=frontend-build /app/public ./frontend/public
 COPY nginx/proxy.conf /etc/nginx/nginx.conf
 
 
-# Copy entrypoint
+# Copy entrypoint(s). Root `entrypoint` satisfies platforms that extract project.tar.gz
+# and require a top-level entrypoint file; it delegates to the full startup script.
 COPY scripts/docker/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+COPY entrypoint /entrypoint
+RUN chmod +x /docker-entrypoint.sh /entrypoint
 
 # Create non-root user
 RUN groupadd -r aoe && useradd -r -g aoe aoe \
@@ -81,5 +87,5 @@ EXPOSE 8000
 ENV NODE_ENV=production
 ENV HOSTNAME="0.0.0.0"
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+ENTRYPOINT ["/entrypoint"]
 CMD []

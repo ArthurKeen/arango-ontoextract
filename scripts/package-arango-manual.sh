@@ -33,6 +33,11 @@ if [[ -f "${REPO_ROOT}/backend/uv.lock" ]]; then
 fi
 cp "${REPO_ROOT}/backend/entrypoint" "${STAGE}/${NAME}/entrypoint"
 chmod +x "${STAGE}/${NAME}/entrypoint"
+# Optional: ship repo-root .env so Container Manager picks up ARANGO_* without duplicating env in UI.
+# Do not commit secrets; use UI env vars for production when preferred.
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+	cp "${REPO_ROOT}/.env" "${STAGE}/${NAME}/.env"
+fi
 
 # Strip remaining extended attributes on macOS (avoids provenance/quarantine xattrs in PAX headers).
 if [[ "$(uname -s)" == "Darwin" ]] && command -v xattr >/dev/null 2>&1; then

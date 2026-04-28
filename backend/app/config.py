@@ -1,8 +1,29 @@
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _resolved_env_files() -> tuple[str, ...]:
+    """Paths to optional `.env` files — stable regardless of process cwd.
+
+    - Monorepo: repo-root ``.env`` (backend/app/config → ../../.env).
+    - Flat deploy ``/project``: ``/project/.env`` beside ``app/``.
+
+    A cwd-relative ``../.env`` breaks when cwd is ``/project`` (becomes ``/.env``).
+    """
+    here = Path(__file__).resolve()
+    bundle = here.parents[1] / ".env"
+    paths: list[Path] = []
+    if len(here.parents) >= 3:
+        repo = here.parents[2] / ".env"
+        if here.parents[2] != Path("/") and repo.is_file():
+            paths.append(repo)
+    if bundle.is_file() and bundle.resolve() not in {p.resolve() for p in paths}:
+        paths.append(bundle)
+    return tuple(str(p) for p in paths)
 
 
 class DeploymentMode(StrEnum):
@@ -12,7 +33,11 @@ class DeploymentMode(StrEnum):
 
 
 class Settings(BaseSettings):
-    model_config = {"env_file": "../.env", "env_file_encoding": "utf-8", "extra": "ignore"}
+    model_config = SettingsConfigDict(
+        env_file=_resolved_env_files() or None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_env: str = "development"
     app_log_level: str = "INFO"

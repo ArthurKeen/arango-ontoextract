@@ -4,9 +4,8 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 
 from app.api import (
     admin,
@@ -31,8 +30,9 @@ from app.api.rate_limit import RateLimitMiddleware
 from app.config import settings
 from app.db.client import close_db
 from app.frontend_static import resolve_frontend_out_dir
-from app.minimal_login import render_minimal_login_html
 from app.middleware.strip_service_prefix import StripServicePrefixMiddleware
+from app.minimal_login import render_minimal_login_html
+from app.static_export_app import NextStaticExportApp
 
 logging.basicConfig(
     level=getattr(logging, settings.app_log_level.upper(), logging.INFO),
@@ -111,10 +111,18 @@ app.include_router(ws_curation.router)
 _frontend_dir = resolve_frontend_out_dir(
     __file__,
     override=settings.frontend_static_root or None,
+    service_url_path_prefix=settings.service_url_path_prefix,
 )
 if _frontend_dir is not None:
     log.info("static_frontend_mounted", directory=str(_frontend_dir))
-    app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="static")
+    # NextStaticExportApp adds <path>.html fallback so flat exports
+    # (library.html, workspace.html, …) resolve from clean URLs without
+    # requiring trailingSlash=true on the Next build. See app/static_export_app.py.
+    app.mount(
+        "/",
+        NextStaticExportApp(directory=str(_frontend_dir), html=True),
+        name="static",
+    )
 else:
     log.warning(
         "frontend_out_not_found - SPA routes (/workspace, /pipeline, ...) will 404; "

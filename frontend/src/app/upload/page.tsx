@@ -308,9 +308,10 @@ export default function UploadPage() {
     <main className="min-h-screen bg-gray-50 text-gray-900">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center gap-4">
-          <Link href="/" className="text-gray-400 hover:text-gray-600 text-sm">
+          {/* Raw <a> so the trailing slash survives — Next <Link href="/"> drops it. */}
+          <a href={withBasePath("/")} className="text-gray-400 hover:text-gray-600 text-sm">
             ← Home
-          </Link>
+          </a>
           <h1 className="text-2xl font-bold">
             {mode === "extract" ? "Upload Document" : "Import Ontology"}
           </h1>

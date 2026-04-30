@@ -345,12 +345,13 @@ export default function LibraryPage() {
             >
               Dashboard
             </Link>
-            <Link
-              href="/"
+            {/* Raw <a> so the trailing slash survives — Next <Link href="/"> drops it. */}
+            <a
+              href={withBasePath("/")}
               className="text-sm text-gray-500 hover:text-gray-700"
             >
               Home
-            </Link>
+            </a>
           </div>
         </div>
       </header>

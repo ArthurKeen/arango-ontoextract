@@ -34,6 +34,18 @@ describe("base-path", () => {
     expect(withBasePath("/prefix/workspace")).toBe("/prefix/workspace");
   });
 
+  it("withBasePath('/') returns base + trailing slash so home anchors land on `/<prefix>/`", () => {
+    process.env.NEXT_PUBLIC_BASE_PATH = "/_service/uds/_db/ontoextract/arango-ontoextract";
+    expect(withBasePath("/")).toBe(
+      "/_service/uds/_db/ontoextract/arango-ontoextract/",
+    );
+  });
+
+  it("withBasePath('/') stays '/' when no base path is configured", () => {
+    process.env.NEXT_PUBLIC_BASE_PATH = "";
+    expect(withBasePath("/")).toBe("/");
+  });
+
   it("getBasePath strips trailing slash", () => {
     process.env.NEXT_PUBLIC_BASE_PATH = "/prefix/";
     expect(getBasePath()).toBe("/prefix");

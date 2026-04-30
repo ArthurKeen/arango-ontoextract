@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -68,6 +68,15 @@ function PipelineMonitorInner() {
       setResetBusy(false);
     }
   }
+
+  // Stable handler so child components (RunList, PipelineHistorySlider) don't
+  // see a new reference on every parent render — which would re-fire their
+  // dependent effects and (combined with bidirectional sync) used to spin the
+  // page into a render loop.
+  const handleSelectRun = useCallback((id: string) => {
+    setSelectedRunId(id);
+    setSidebarOpen(false);
+  }, []);
 
   const tabs: { key: DetailTab; label: string }[] = [
     { key: "metrics", label: "Metrics" },
@@ -166,10 +175,7 @@ function PipelineMonitorInner() {
         >
           <RunList
             key={runListKey}
-            onSelectRun={(id) => {
-              setSelectedRunId(id);
-              setSidebarOpen(false);
-            }}
+            onSelectRun={handleSelectRun}
             selectedRunId={selectedRunId}
           />
         </aside>
@@ -178,10 +184,7 @@ function PipelineMonitorInner() {
         <div className="flex-1 flex flex-col min-h-[calc(100vh-73px)]">
           {/* Pipeline history slider — always visible */}
           <PipelineHistorySlider
-            onSelectRun={(id) => {
-              setSelectedRunId(id);
-              setSidebarOpen(false);
-            }}
+            onSelectRun={handleSelectRun}
             selectedRunId={selectedRunId}
           />
 

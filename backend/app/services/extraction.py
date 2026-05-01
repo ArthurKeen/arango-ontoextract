@@ -14,6 +14,7 @@ import time
 import uuid
 from typing import Any, cast
 
+from arango.collection import StandardCollection
 from arango.database import StandardDatabase
 
 from app.api.errors import NotFoundError
@@ -978,7 +979,14 @@ def _materialize_to_graph(
     if db.has_collection("has_chunk"):
         has_chunk_col = db.collection("has_chunk")
     else:
-        has_chunk_col = db.create_collection("has_chunk", edge=True)
+        # ``create_collection`` is typed as ``StandardCollection | AsyncJob |
+        # BatchJob | None`` because the same handle is reused for batch / async
+        # execution; on a ``StandardDatabase`` only ``StandardCollection`` is
+        # ever returned for a successful create.
+        has_chunk_col = cast(
+            StandardCollection,
+            db.create_collection("has_chunk", edge=True),
+        )
     if db.has_collection("chunks"):
         chunk_docs = list(
             run_aql(

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -117,8 +117,11 @@ class TestExtractionFlow:
             fixture_idx += 1
             return _make_mock_llm_response(fname)
 
+        # Extractor calls `await llm.ainvoke(...)`; AsyncMock(side_effect=...) wraps
+        # the sync fixture-builder in a coroutine returning the same response.
         mock_llm = MagicMock()
         mock_llm.invoke = mock_invoke
+        mock_llm.ainvoke = AsyncMock(side_effect=mock_invoke)
 
         with (
             patch("app.services.extraction.get_db", return_value=test_db),
@@ -156,6 +159,7 @@ class TestExtractionFlow:
 
         mock_llm = MagicMock()
         mock_llm.invoke = mock_invoke
+        mock_llm.ainvoke = AsyncMock(side_effect=mock_invoke)
 
         with (
             patch("app.services.extraction.get_db", return_value=test_db),

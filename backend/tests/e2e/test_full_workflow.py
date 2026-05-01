@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -278,6 +278,7 @@ class TestFullWorkflow:
 
         mock_llm = MagicMock()
         mock_llm.invoke = mock_invoke
+        mock_llm.ainvoke = AsyncMock(side_effect=mock_invoke)
 
         with (
             patch("app.services.extraction.get_db", return_value=test_db),

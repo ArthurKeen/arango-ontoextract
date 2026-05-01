@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 import tiktoken
 from openai import AsyncOpenAI
@@ -29,7 +30,7 @@ _TIKTOKEN_MODEL = "cl100k_base"
 
 
 def _get_client() -> AsyncOpenAI:
-    kwargs: dict = {"api_key": settings.openai_api_key, "timeout": 20.0}
+    kwargs: dict[str, Any] = {"api_key": settings.openai_api_key, "timeout": 20.0}
     if settings.openai_base_url:
         kwargs["base_url"] = settings.openai_base_url
     return AsyncOpenAI(**kwargs)

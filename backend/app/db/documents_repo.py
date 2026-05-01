@@ -31,9 +31,9 @@ def create_document(
     mime_type: str,
     file_hash: str,
     org_id: str | None = None,
-    metadata: dict | None = None,
+    metadata: dict[str, Any] | None = None,
     db: StandardDatabase | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Insert a new document record.  Returns the full stored document."""
     db = db or get_db()
     col = db.collection(DOCUMENTS_COLLECTION)
@@ -51,7 +51,7 @@ def create_document(
     return result["new"]
 
 
-def get_document(doc_id: str, *, db: StandardDatabase | None = None) -> dict | None:
+def get_document(doc_id: str, *, db: StandardDatabase | None = None) -> dict[str, Any] | None:
     """Return a single document by ``_key``, or ``None``."""
     db = db or get_db()
     col = db.collection(DOCUMENTS_COLLECTION)
@@ -70,7 +70,7 @@ def list_documents(
     org_id: str | None = None,
     status: str | None = None,
     db: StandardDatabase | None = None,
-) -> PaginatedResponse[dict]:
+) -> PaginatedResponse[dict[str, Any]]:
     """Paginated document listing with optional filters."""
     db = db or get_db()
     filters: dict[str, Any] = {}
@@ -97,7 +97,7 @@ def update_document_status(
     *,
     error_message: str | None = None,
     db: StandardDatabase | None = None,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Set the processing status on a document.  Returns updated doc."""
     db = db or get_db()
     col = db.collection(DOCUMENTS_COLLECTION)
@@ -128,7 +128,7 @@ def update_document_metadata(
     file_hash: str | None = None,
     chunk_count: int | None = None,
     db: StandardDatabase | None = None,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Merge-update editable metadata fields on a document."""
     db = db or get_db()
     col = db.collection(DOCUMENTS_COLLECTION)
@@ -175,7 +175,7 @@ def hard_delete_document(doc_id: str, *, db: StandardDatabase | None = None) -> 
 
 def get_document_affected_ontologies(
     doc_id: str, *, db: StandardDatabase | None = None
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Return ontologies with active provenance edges from a document."""
     db = db or get_db()
     if not db.has_collection("extracted_from"):
@@ -234,7 +234,7 @@ def delete_document(
     *,
     confirm: bool = False,
     db: StandardDatabase | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Delete a document with cascade analysis and provenance expiration."""
     db = db or get_db()
     affected_ontologies = get_document_affected_ontologies(doc_id, db=db)
@@ -259,7 +259,11 @@ def delete_document(
     }
 
 
-def find_document_by_hash(file_hash: str, *, db: StandardDatabase | None = None) -> dict | None:
+def find_document_by_hash(
+    file_hash: str,
+    *,
+    db: StandardDatabase | None = None,
+) -> dict[str, Any] | None:
     """Look up an active document by its SHA-256 hash."""
     db = db or get_db()
     query = """\
@@ -276,10 +280,10 @@ FOR doc IN @@col
 
 
 def create_chunks(
-    chunks: list[dict],
+    chunks: list[dict[str, Any]],
     *,
     db: StandardDatabase | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Bulk-insert chunk documents.  Returns inserted docs with ``_key``."""
     db = db or get_db()
 
@@ -315,7 +319,7 @@ def get_chunks_for_document(
     limit: int = 25,
     cursor: str | None = None,
     db: StandardDatabase | None = None,
-) -> PaginatedResponse[dict]:
+) -> PaginatedResponse[dict[str, Any]]:
     """Paginated chunk listing for a document, ordered by ``chunk_index``."""
     db = db or get_db()
     return paginate(
@@ -329,7 +333,7 @@ def get_chunks_for_document(
     )
 
 
-def get_chunk_by_id(chunk_id: str, *, db: StandardDatabase | None = None) -> dict | None:
+def get_chunk_by_id(chunk_id: str, *, db: StandardDatabase | None = None) -> dict[str, Any] | None:
     """Return a single chunk by ``_key``."""
     db = db or get_db()
     col = db.collection(CHUNKS_COLLECTION)

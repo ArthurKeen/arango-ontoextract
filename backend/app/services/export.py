@@ -174,7 +174,7 @@ def export_ontology(ontology_id: str, fmt: str = "turtle") -> str:
     return serialized
 
 
-def export_jsonld(ontology_id: str) -> dict:
+def export_jsonld(ontology_id: str) -> dict[str, Any]:
     """Export an ontology as JSON-LD.
 
     Returns:

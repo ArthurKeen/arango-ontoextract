@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import structlog
 from fastapi import FastAPI
@@ -61,7 +62,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     log.info("shutdown_complete")
 
 
-_fastapi_kw: dict = {
+_fastapi_kw: dict[str, Any] = {
     "title": "Arango-OntoExtract",
     "description": "LLM-driven ontology extraction and curation platform",
     "version": "0.1.0",

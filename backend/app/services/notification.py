@@ -41,7 +41,7 @@ def _now_iso() -> str:
 def _get_redis():
     """Lazy Redis connection for pub/sub. Returns None if unavailable."""
     try:
-        import redis as redis_lib  # type: ignore[import-untyped]
+        import redis as redis_lib
 
         return redis_lib.Redis.from_url(settings.redis_url, decode_responses=True)
     except Exception:
@@ -58,7 +58,7 @@ def create_notification(
     message: str,
     metadata: dict[str, Any] | None = None,
     db: StandardDatabase | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Create and persist a notification, then publish to Redis Pub/Sub."""
     db = db or get_db()
     col = db.collection(NOTIFICATIONS_COLLECTION)
@@ -82,7 +82,7 @@ def create_notification(
     return notification
 
 
-def _publish_to_redis(notification: dict) -> None:
+def _publish_to_redis(notification: dict[str, Any]) -> None:
     """Best-effort publish to Redis Pub/Sub."""
     r = _get_redis()
     if r is None:
@@ -112,7 +112,7 @@ def list_notifications(
     limit: int = 25,
     cursor: str | None = None,
     db: StandardDatabase | None = None,
-) -> PaginatedResponse[dict]:
+) -> PaginatedResponse[dict[str, Any]]:
     """Paginated notifications for a user, newest first."""
     db = db or get_db()
     return paginate(
@@ -131,7 +131,7 @@ def mark_as_read(
     user_id: str,
     *,
     db: StandardDatabase | None = None,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Mark a notification as read. Returns updated doc or None."""
     db = db or get_db()
     col = db.collection(NOTIFICATIONS_COLLECTION)

@@ -145,7 +145,7 @@ async def list_runs(
     cursor: str | None = Query(None, description="Pagination cursor"),
     limit: int = Query(25, ge=1, le=100, description="Page size"),
     status: str | None = Query(None, description="Filter by status"),
-) -> dict:
+) -> dict[str, Any]:
     """List extraction runs with enriched metadata."""
     db = get_db()
     result = extraction_service.list_runs(
@@ -232,14 +232,14 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}")
-async def get_run(run_id: str) -> dict:
+async def get_run(run_id: str) -> dict[str, Any]:
     """Get extraction run status and stats."""
     db = get_db()
     return extraction_service.get_run(db, run_id=run_id)
 
 
 @router.delete("/runs/{run_id}")
-async def delete_run(run_id: str) -> dict:
+async def delete_run(run_id: str) -> dict[str, Any]:
     """Delete an extraction run and its results document."""
     db = get_db()
     if not db.has_collection("extraction_runs"):
@@ -256,7 +256,7 @@ async def delete_run(run_id: str) -> dict:
 
 
 @router.get("/runs/{run_id}/steps")
-async def get_run_steps(run_id: str) -> dict:
+async def get_run_steps(run_id: str) -> dict[str, Any]:
     """Get per-agent step detail: inputs, outputs, token usage, errors, duration."""
     db = get_db()
     steps = extraction_service.get_run_steps(db, run_id=run_id)
@@ -264,7 +264,7 @@ async def get_run_steps(run_id: str) -> dict:
 
 
 @router.get("/runs/{run_id}/results")
-async def get_run_results(run_id: str) -> dict:
+async def get_run_results(run_id: str) -> dict[str, Any]:
     """Get extracted entities from a run."""
     db = get_db()
     return extraction_service.get_run_results(db, run_id=run_id)
@@ -283,7 +283,7 @@ async def retry_run(run_id: str) -> RetryResponse:
 
 
 @router.get("/runs/{run_id}/cost")
-async def get_run_cost(run_id: str) -> dict:
+async def get_run_cost(run_id: str) -> dict[str, Any]:
     """Get LLM cost breakdown: tokens by model, estimated cost."""
     db = get_db()
     return extraction_service.get_run_cost(db, run_id=run_id)

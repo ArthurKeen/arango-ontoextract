@@ -134,7 +134,7 @@ def _run_schema_mapper_extract(
     mapper: tuple[Any, ...],
 ) -> tuple[str, dict[str, Any]]:
     analyzer_cls, export_owl, fingerprint_fn, snapshot_fn = mapper
-    from arango import ArangoClient
+    from arango.client import ArangoClient
 
     client = ArangoClient(hosts=config.target_host, verify_override=config.verify_tls)
     try:
@@ -181,7 +181,7 @@ def _stub_extract_schema(config: SchemaExtractionConfig) -> str:
     Connects to the target ArangoDB, lists collections and edges,
     and produces a basic OWL Turtle representation.
     """
-    from arango import ArangoClient
+    from arango.client import ArangoClient
     from rdflib import OWL, RDF, RDFS, Graph, Literal, Namespace, URIRef
 
     client = ArangoClient(hosts=config.target_host, verify_override=config.verify_tls)

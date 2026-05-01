@@ -54,7 +54,7 @@ _CONFIDENCE_HIGH = 0.8
 _CONFIDENCE_LOW = 0.5
 
 
-def filter_agent_node(state: ExtractionPipelineState) -> dict:
+def filter_agent_node(state: ExtractionPipelineState) -> dict[str, Any]:
     """LangGraph node: pre-curation filtering and annotation.
 
     1. Removes noise: generic terms, single-word classes with low confidence

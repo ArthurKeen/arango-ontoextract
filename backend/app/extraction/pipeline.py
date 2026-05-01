@@ -68,7 +68,7 @@ def _should_proceed_to_staging(state: ExtractionPipelineState) -> str:
     return "continue"
 
 
-def build_pipeline() -> StateGraph:
+def build_pipeline() -> StateGraph[Any]:
     """Construct the LangGraph StateGraph for extraction.
 
     Pipeline topology (parallel fork/join after consistency checker):

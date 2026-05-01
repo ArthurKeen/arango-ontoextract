@@ -17,7 +17,7 @@ from app.extraction.state import ExtractionPipelineState, StepLog
 log = logging.getLogger(__name__)
 
 
-def er_agent_node(state: ExtractionPipelineState) -> dict:
+def er_agent_node(state: ExtractionPipelineState) -> dict[str, Any]:
     """LangGraph node: run entity resolution against existing ontology classes.
 
     Takes the consistency-checked extraction results, compares them against
@@ -94,7 +94,7 @@ def er_agent_node(state: ExtractionPipelineState) -> dict:
 def _run_er_matching(
     *,
     run_id: str,
-    extracted_classes: list,
+    extracted_classes: list[Any],
     ontology_id: str,
 ) -> dict[str, Any]:
     """Run ER matching for extracted classes against existing ontology."""
@@ -163,7 +163,7 @@ FOR cls IN ontology_classes
 def _create_extension_edges(
     *,
     run_id: str,
-    extracted_classes: list,
+    extracted_classes: list[Any],
     ontology_id: str,
 ) -> int:
     """Create extends_domain edges for EXTENSION-classified entities."""

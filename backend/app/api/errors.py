@@ -60,7 +60,7 @@ def _error_body(
     code: str,
     message: str,
     details: dict[str, Any] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     return {
         "error": {
             "code": code,

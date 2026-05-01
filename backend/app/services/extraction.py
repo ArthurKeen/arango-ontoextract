@@ -426,7 +426,7 @@ def list_runs(
     cursor: str | None = None,
     limit: int = 25,
     status: str | None = None,
-) -> PaginatedResponse[dict]:
+) -> PaginatedResponse[dict[str, Any]]:
     """List extraction runs with cursor-based pagination."""
     if db is None:
         db = get_db()

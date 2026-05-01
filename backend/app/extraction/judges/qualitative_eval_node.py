@@ -76,7 +76,7 @@ def _parse_json_response(raw_text: str) -> dict[str, Any]:
 
 async def _invoke_llm_json(
     llm: Any,
-    messages: list,
+    messages: list[Any],
     schema: dict[str, Any],
 ) -> dict[str, Any]:
     """Invoke the LLM with structured output, falling back to text parsing."""

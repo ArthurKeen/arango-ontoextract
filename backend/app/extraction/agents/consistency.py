@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
+from typing import Any
 
 from app.config import settings
 from app.extraction.state import ExtractionPipelineState, StepLog
@@ -188,7 +189,7 @@ def _convert_properties_to_pgt(
     return attributes, relationships
 
 
-def consistency_checker_node(state: ExtractionPipelineState) -> dict:
+def consistency_checker_node(state: ExtractionPipelineState) -> dict[str, Any]:
     """LangGraph node: filter extraction results by cross-pass agreement.
 
     Keeps concepts appearing in >= M of N passes and assigns confidence

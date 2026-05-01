@@ -116,7 +116,7 @@ def ensure_ontology_graph(
 def list_ontology_graphs(
     *,
     db: StandardDatabase | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """List all per-ontology named graphs."""
     db = db or get_db()
     graphs = []

@@ -289,7 +289,7 @@ def _import_with_rdflib_fallback(
     }
 
     property_ids: dict[str, str] = {}
-    property_meta: list[dict] = []
+    property_meta: list[dict[str, Any]] = []
 
     for rdf_type, property_kind in (
         (OWL.ObjectProperty, "object"),
@@ -300,7 +300,7 @@ def _import_with_rdflib_fallback(
             domain = rdf_graph.value(URIRef(prop_uri), RDFS.domain)
             range_value = rdf_graph.value(URIRef(prop_uri), RDFS.range)
 
-            prop_data: dict = {
+            prop_data: dict[str, Any] = {
                 "uri": prop_uri,
                 "label": _label_for(rdf_graph, URIRef(prop_uri)),
                 "description": _comment_for(rdf_graph, URIRef(prop_uri)),

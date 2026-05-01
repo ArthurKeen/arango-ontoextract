@@ -1,7 +1,7 @@
 import logging
 from typing import Any, cast
 
-from arango import ArangoClient
+from arango.client import ArangoClient
 from arango.database import StandardDatabase
 
 import app.config as app_config

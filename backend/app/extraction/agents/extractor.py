@@ -34,7 +34,7 @@ def _get_llm(model_name: str) -> Any:
         return ChatAnthropic(
             model=model_name,  # type: ignore[call-arg]
             api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
-            max_tokens=4096,  # type: ignore[call-arg]
+            max_tokens=4096,
         )
     from langchain_openai import ChatOpenAI
 
@@ -302,7 +302,7 @@ async def _run_single_pass(
     return pass_result, all_errors, pass_tokens
 
 
-async def extractor_node(state: ExtractionPipelineState) -> dict:
+async def extractor_node(state: ExtractionPipelineState) -> dict[str, Any]:
     """LangGraph node: run N-pass extraction concurrently with self-correction."""
     start = time.time()
     run_id = state.get("run_id", "unknown")

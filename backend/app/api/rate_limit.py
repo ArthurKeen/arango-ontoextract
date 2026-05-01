@@ -46,8 +46,8 @@ def _get_redis():
         return None
 
     try:
-        import redis  # type: ignore[import-untyped]
-        from redis.exceptions import RedisError  # type: ignore[import-untyped]
+        import redis
+        from redis.exceptions import RedisError
     except Exception:
         log.warning("redis_import_failed_rate_limit_pass_through")
         _redis_unavailable_until = now + _REDIS_BACKOFF_SECONDS

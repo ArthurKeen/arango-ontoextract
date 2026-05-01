@@ -4,6 +4,19 @@
 
 Arango-OntoExtract (AOE) is designed to deploy alongside an ArangoDB Cloud deployment using ArangoCD's Container Management Service. This guide covers both cloud and standalone deployment options.
 
+> **Two deployment paths exist — pick one per environment.**
+>
+> | Path | Use when | Documented in |
+> |------|----------|--------------|
+> | **Unified Docker image** (this doc) | You have an OCI registry and want a single image that bundles nginx + Next + Python | `docs/arango-cloud-deployment.md` (here) |
+> | **Manual packaging** (`.tar.gz` + `py13base` + `uv`) | Your platform is the **Arango Container Manager** with `py13base`, and you want operations to mirror how Arango itself ships services | [`docs/container-manager-deployment.md`](./container-manager-deployment.md) |
+>
+> Both paths share the same `Settings`, migrations, and frontend code; they
+> differ only in how the bundle is built and how the frontend is served. If
+> your environment sits behind a path-prefix ingress (e.g. BYOC under
+> `/_service/uds/_db/<db>/<svc>`), also read
+> [`docs/path-prefix-routing.md`](./path-prefix-routing.md).
+
 ## Prerequisites
 
 - Active ArangoDB Cloud account

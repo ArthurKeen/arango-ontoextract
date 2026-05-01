@@ -62,3 +62,4 @@ logs/
 # Data (local uploads, temp files)
 data/uploads/
 data/tmp/
+*.tar.gz

@@ -143,21 +143,26 @@ def setup_tracing(app: FastAPI) -> None:
 
     trace.set_tracer_provider(provider)
 
-    # FastAPI: every HTTP request becomes a server span with route,
-    # method, status code. Names are derived from the route pattern
-    # (``/api/v1/ontology/{ontology_id}``) so cardinality is bounded.
-    FastAPIInstrumentor.instrument_app(app)
+    # Install the ASGI/library instrumentation ONLY when tracing is enabled.
+    # The FastAPI instrumentor computes span details (route resolution) on every
+    # request BEFORE the sampler runs, so an ALWAYS_OFF sampler does not spare
+    # that work -- and on FastAPI >= 0.139 the lazy ``_IncludedRouter`` placeholder
+    # has no ``.path``, which makes the instrumentor raise on OPTIONS preflights
+    # (500 -> no CORS headers -> the browser UI can't call the API). Enabling
+    # tracing already requires a restart (this runs at startup), so gating the
+    # hooks here loses nothing: flip ``otel_enabled`` + restart and they install.
+    if settings.otel_enabled:
+        # FastAPI: every HTTP request becomes a server span with route, method,
+        # status code. Route-pattern names keep cardinality bounded.
+        FastAPIInstrumentor.instrument_app(app)
 
-    # HTTPX: every outbound call (LLM providers, third-party APIs)
-    # becomes a client span. Links to the current trace, so an
-    # extraction request shows its LLM calls as children.
-    HTTPXClientInstrumentor().instrument()
+        # HTTPX: every outbound call (LLM providers, third-party APIs) becomes a
+        # client span linked to the current trace.
+        HTTPXClientInstrumentor().instrument()
 
-    # Logging: inject trace_id / span_id into stdlib log records so
-    # ``structlog`` output (which wraps stdlib logging) carries them
-    # too. Lets operators jump from a log line to the trace in
-    # Jaeger / Tempo.
-    LoggingInstrumentor().instrument(set_logging_format=False)
+        # Logging: inject trace_id / span_id into stdlib log records so structlog
+        # output carries them too (jump from a log line to the trace).
+        LoggingInstrumentor().instrument(set_logging_format=False)
 
     _TRACING_INITIALIZED = True
 

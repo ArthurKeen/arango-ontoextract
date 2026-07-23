@@ -129,6 +129,58 @@ class TestSetupTracing:
             setup_tracing(app)
             setup_tracing(app)
 
+    def test_disabled_does_not_install_instrumentation(self, _reset_tracing_state) -> None:
+        """Regression: with tracing OFF (the default), the FastAPI/HTTPX/logging
+        instrumentors must NOT be installed.
+
+        The FastAPI instrumentor computes route details on every request BEFORE
+        the sampler runs, and on FastAPI >= 0.139 that raises on the lazy
+        ``_IncludedRouter`` (no ``.path``) during an OPTIONS preflight -> 500 ->
+        no CORS headers -> the browser UI can't call the API. So the disabled
+        path must skip ``instrument_app`` entirely, not merely drop spans.
+        """
+        from app.observability import tracing as t
+
+        app = FastAPI()
+        with (
+            patch("app.observability.tracing.settings") as ms,
+            patch.object(t, "FastAPIInstrumentor") as mk_fastapi,
+            patch.object(t, "HTTPXClientInstrumentor") as mk_httpx,
+            patch.object(t, "LoggingInstrumentor") as mk_log,
+        ):
+            ms.otel_enabled = False
+            ms.otel_service_name = "test"
+            ms.app_env = "test"
+            ms.otel_exporter_otlp_endpoint = ""
+            ms.otel_trace_sample_rate = 1.0
+            t.setup_tracing(app)
+
+        mk_fastapi.instrument_app.assert_not_called()
+        mk_httpx.assert_not_called()
+        mk_log.assert_not_called()
+
+    def test_enabled_installs_instrumentation(self, _reset_tracing_state) -> None:
+        """When tracing is ON, the instrumentors ARE installed (flip + restart)."""
+        from app.observability import tracing as t
+
+        app = FastAPI()
+        with (
+            patch("app.observability.tracing.settings") as ms,
+            patch.object(t, "FastAPIInstrumentor") as mk_fastapi,
+            patch.object(t, "HTTPXClientInstrumentor") as mk_httpx,
+            patch.object(t, "LoggingInstrumentor") as mk_log,
+        ):
+            ms.otel_enabled = True
+            ms.otel_service_name = "test"
+            ms.app_env = "test"
+            ms.otel_exporter_otlp_endpoint = ""
+            ms.otel_trace_sample_rate = 1.0
+            t.setup_tracing(app)
+
+        mk_fastapi.instrument_app.assert_called_once_with(app)
+        mk_httpx.assert_called_once()
+        mk_log.assert_called_once()
+
     def test_enabled_with_otlp_endpoint_picks_otlp_exporter(self, _reset_tracing_state) -> None:
         """When ``otel_enabled=True`` and an OTLP endpoint is set,
         the OTLP gRPC exporter must be selected. We patch the

@@ -42,79 +42,91 @@ export function buildCanvasContextMenu(
   _data: Record<string, unknown>,
   actions: WorkspaceContextMenuActions,
 ): ContextMenuItem[] {
-  const items: ContextMenuItem[] = [
-    {
-      label: "View As",
-      icon: "👁",
-      submenu: LENS_OPTIONS.map((opt) => ({
-        label: opt.label,
-        checked: actions.activeLens === opt.id,
-        onClick: () => actions.setActiveLens(opt.id),
-      })),
-    },
-    {
-      label: "Graph Style",
-      icon: "📐",
-      submenu: [
-        {
-          label: "Network (circles)",
-          checked: actions.graphViewMode === "network",
-          onClick: () => actions.setGraphViewMode("network"),
-        },
-        {
-          label: "Box & Arrow (UML)",
-          checked: actions.graphViewMode === "box-arrow",
-          onClick: () => actions.setGraphViewMode("box-arrow"),
-        },
-      ],
-    },
-  ];
+  // Empty canvas (no ontology loaded) — opened from the empty state or the
+  // "Ontologies" asset group. The view/layout/fit knobs have no graph to act
+  // on, so show only the ontology-level actions (New Ontology…, Extract…, …).
+  const empty = Boolean((_data as { empty?: boolean } | undefined)?.empty);
 
-  // Layout / Edge Style only make sense for the Network (Sigma) renderer;
-  // Box & Arrow uses an explicit dagre-style layout that doesn't expose the
-  // same knobs.
-  if (actions.graphViewMode === "network") {
+  const items: ContextMenuItem[] = [];
+
+  if (!empty) {
     items.push(
       {
-        label: "Layout",
-        icon: "🔄",
-        submenu: [
-          { label: "Force-Directed", onClick: () => actions.relayout("force") },
-          { label: "Circular", onClick: () => actions.relayout("circular") },
-          { label: "Grid", onClick: () => actions.relayout("grid") },
-          { label: "Random", onClick: () => actions.relayout("random") },
-        ],
+        label: "View As",
+        icon: "👁",
+        submenu: LENS_OPTIONS.map((opt) => ({
+          label: opt.label,
+          checked: actions.activeLens === opt.id,
+          onClick: () => actions.setActiveLens(opt.id),
+        })),
       },
       {
-        label: "Edge Style",
-        icon: "〰",
+        label: "Graph Style",
+        icon: "📐",
         submenu: [
-          { label: "Curved", onClick: () => actions.setEdgeStyle("curved") },
-          { label: "Straight", onClick: () => actions.setEdgeStyle("straight") },
+          {
+            label: "Network (circles)",
+            checked: actions.graphViewMode === "network",
+            onClick: () => actions.setGraphViewMode("network"),
+          },
+          {
+            label: "Box & Arrow (UML)",
+            checked: actions.graphViewMode === "box-arrow",
+            onClick: () => actions.setGraphViewMode("box-arrow"),
+          },
         ],
       },
+    );
+
+    // Layout / Edge Style only make sense for the Network (Sigma) renderer;
+    // Box & Arrow uses an explicit dagre-style layout that doesn't expose the
+    // same knobs.
+    if (actions.graphViewMode === "network") {
+      items.push(
+        {
+          label: "Layout",
+          icon: "🔄",
+          submenu: [
+            { label: "Force-Directed", onClick: () => actions.relayout("force") },
+            { label: "Circular", onClick: () => actions.relayout("circular") },
+            { label: "Grid", onClick: () => actions.relayout("grid") },
+            { label: "Random", onClick: () => actions.relayout("random") },
+          ],
+        },
+        {
+          label: "Edge Style",
+          icon: "〰",
+          submenu: [
+            { label: "Curved", onClick: () => actions.setEdgeStyle("curved") },
+            { label: "Straight", onClick: () => actions.setEdgeStyle("straight") },
+          ],
+        },
+      );
+    }
+
+    items.push(
+      { label: "separator1", separator: true },
+      {
+        label: "Fit All Nodes",
+        icon: "⬜",
+        onClick: () => {
+          actions.closeContextMenu();
+          actions.fitAllNodes();
+        },
+      },
+      {
+        label: "Center View",
+        icon: "🎯",
+        onClick: () => {
+          actions.closeContextMenu();
+          actions.centerView();
+        },
+      },
+      { label: "sep-new-ont", separator: true },
     );
   }
 
   items.push(
-    { label: "separator1", separator: true },
-    {
-      label: "Fit All Nodes",
-      icon: "⬜",
-      onClick: () => {
-        actions.closeContextMenu();
-        actions.fitAllNodes();
-      },
-    },
-    {
-      label: "Center View",
-      icon: "🎯",
-      onClick: () => {
-        actions.closeContextMenu();
-        actions.centerView();
-      },
-    },
-    { label: "sep-new-ont", separator: true },
     {
       label: "New Ontology…",
       icon: "➕",

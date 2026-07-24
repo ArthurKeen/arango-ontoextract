@@ -1438,7 +1438,23 @@ function WorkspacePageInner() {
 
               )
             ) : (
-              <EmptyCanvasState />
+              <div
+                className="h-full"
+                onContextMenu={(e) => {
+                  // No ontology on the canvas: still open the canvas/ontology
+                  // menu (New Ontology…, Extract…, Align…) instead of the
+                  // browser's native menu — the empty state advertises it.
+                  e.preventDefault();
+                  setContextMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    type: "canvas",
+                    data: { empty: true },
+                  });
+                }}
+              >
+                <EmptyCanvasState />
+              </div>
             )}
 
             {/* Floating detail panel */}

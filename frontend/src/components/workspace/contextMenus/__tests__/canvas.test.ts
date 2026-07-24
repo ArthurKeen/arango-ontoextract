@@ -92,6 +92,26 @@ describe("buildCanvasContextMenu", () => {
     ]);
   });
 
+  it("empty mode (no ontology on canvas) shows only ontology actions, no graph knobs", () => {
+    const actions = makeActions({ graphViewMode: "network" });
+    const items = buildCanvasContextMenu({ empty: true }, actions);
+
+    const visibleLabels = items.filter((it) => !it.separator).map((it) => it.label);
+
+    // No graph-only knobs when there is no graph to act on...
+    expect(visibleLabels).not.toContain("View As");
+    expect(visibleLabels).not.toContain("Graph Style");
+    expect(visibleLabels).not.toContain("Layout");
+    expect(visibleLabels).not.toContain("Fit All Nodes");
+    expect(visibleLabels).not.toContain("Center View");
+    // ...but the ontology-creation actions the empty state promises ARE present.
+    expect(visibleLabels).toContain("New Ontology…");
+    expect(visibleLabels).toContain("Extract from ArangoDB…");
+    expect(visibleLabels).toContain("Extract from Relational DB…");
+    // The first item is not a leading separator.
+    expect(items[0]?.separator).toBeFalsy();
+  });
+
   it("hides Layout and Edge Style in box-arrow mode", () => {
     const actions = makeActions({ graphViewMode: "box-arrow" });
     const items = buildCanvasContextMenu({}, actions);

@@ -359,6 +359,10 @@ export default function AssetExplorer({
           count={filteredOnt.length}
           expanded={expanded.ontologies}
           onToggle={() => toggleSection("ontologies")}
+          onHeaderContextMenu={(e) => {
+            e.preventDefault();
+            onContextMenu(e, "canvas", { empty: !selectedOntologyId });
+          }}
           headerAction={
             onOpenCatalogBrowser
               ? {
@@ -458,6 +462,7 @@ function Section({
   onToggle,
   children,
   headerAction,
+  onHeaderContextMenu,
 }: {
   id: string;
   icon: string;
@@ -469,10 +474,16 @@ function Section({
   /** Optional small button rendered after the count in the section header.
    *  Stops click propagation so it never accidentally toggles the section. */
   headerAction?: { title: string; icon: string; onClick: () => void };
+  /** Right-click on the section header (e.g. the Ontologies group opens the
+   *  canvas/ontology context menu even when no ontology is on the canvas). */
+  onHeaderContextMenu?: (e: React.MouseEvent) => void;
 }) {
   return (
     <div data-testid={`section-${id}`}>
-      <div className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide hover:bg-gray-50 transition-colors">
+      <div
+        onContextMenu={onHeaderContextMenu}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide hover:bg-gray-50 transition-colors"
+      >
         <button
           onClick={onToggle}
           className="flex items-center gap-2 flex-1 text-left"

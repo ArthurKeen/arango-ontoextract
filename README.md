@@ -17,15 +17,22 @@ flowchart LR
     MCP["MCP Server<br/>(FastMCP)"]
     AI["AI Agents<br/>(Cursor, Claude)"]
 
-    subgraph Pipeline["LangGraph Pipeline (6 agents)"]
+    subgraph Pipeline["LangGraph Pipeline (9 nodes)"]
         direction TB
-        P1["Strategy → LLM"]
-        P2["Consistency"]
-        P3["Quality Judge"]
-        P4["ER"]
-        P5["Pre-Curation Filter"]
-        P1 --> P2 --> P3
-        P3 --> P4 --> P5
+        P1["Strategy"]
+        P2["Domain Segmenter"]
+        P3["Extractor (LLM)"]
+        P4["Consistency"]
+        P5["Quality Judge"]
+        P6["ER"]
+        P7["Belief Revision"]
+        P8["Structural Gate"]
+        P9["Pre-Curation Filter"]
+        P1 --> P2 --> P3 --> P4
+        P4 --> P5 & P6
+        P5 --> P7
+        P6 --> P7
+        P7 --> P8 --> P9
     end
 
     subgraph Arango["ArangoDB (multi-model)"]
@@ -266,10 +273,10 @@ live Swagger docs at http://localhost:8010/docs.
 | Belief revision | Done | §6.16 / ADR-008: per-concept touchpoint verdicts (REINFORCED / REFINED / GAP-FILLING / REDUNDANT / CONTRADICTED / UNCERTAIN), Levi-identity revisions on the temporal substrate, Revisions Inbox + consolidation passes, LLM revision agent behind a circuit breaker, 6 MCP tools. Source-*change* cascade (schema/doc updates or deletions propagating retractions) is the remaining gap — planned as work item AL.12, see [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md). |
 | Entity Resolution | Partial | Hand-rolled blocking/scoring + workspace **Find Duplicates…** overlay; full `arango-entity-resolution` library integration deferred |
 | Cross-Tier ER | Partial | Find overlaps between local and domain ontologies |
-| Multi-source ontology alignment | Planned | No primitive yet merges N independently-built source ontologies into a reconciled **master**. Building blocks exist (effective-graph union + import **conflict flagging**, the cross-tier overlap-candidate finder, pairwise class merge), but no alignment/resolution orchestration. This is the Contextual Data Fabric M3 / RE-2 role — a build, not a confirm. **Spec: PRD §6.17 (FR-17.1–13) + [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md)** (supersedes the first-cut `docs/multi-source-alignment.md`). |
+| Multi-source ontology alignment | Done | §6.17 / Stream 20: aligns N independently-built source ontologies into a reconciled **master** — candidate generation, LLM-assisted adjudication, incoherence detection + minimally-destructive repair, a classical-anchor ensemble with hallucination control, a P/R/F1 + OAEI-Interactive evaluation harness, and iterative refinement (scoped re-align on source change). Exposed via `/api/v1/alignment` and 6 MCP tools. **Spec: PRD §6.17 (FR-17.1–13) + [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md).** |
 | Staging → Production | Done | Promote approved entities with temporal versioning |
 | Import/Export | Done | OWL/TTL import and TTL/JSON-LD/CSV export |
-| MCP Server | Done | 18 tools for AI agent integration (stdio + SSE) |
+| MCP Server | Done | 32 tools for AI agent integration (stdio + SSE) |
 | Pipeline Monitor | Done | Real-time Agent DAG with WebSocket events |
 | ArangoDB Visualizer | Done | Custom themes, canvas actions, saved queries |
 | Auth (JWT + RBAC) | Done | 4 roles, org-scoped, API key auth for MCP |
@@ -285,7 +292,7 @@ arango-ontoextract/
 │   │   ├── api/                   # REST endpoints (documents, extraction, ontology, curation, er)
 │   │   ├── db/                    # ArangoDB repositories and client
 │   │   ├── extraction/            # LangGraph pipeline, agents, prompts
-│   │   │   ├── agents/            # Strategy, extractor, consistency, ER, filter
+│   │   │   ├── agents/            # Strategy, segmenter, extractor, consistency, quality judge, ER, belief revision, structural gate, filter
 │   │   │   ├── prompts/           # Per-domain prompt templates (Tier 1, Tier 2)
 │   │   │   ├── pipeline.py        # StateGraph definition
 │   │   │   └── state.py           # Pipeline state schema
@@ -342,6 +349,7 @@ make infra-reset       # Stop and delete volumes
 make backend           # Backend dev server (hot-reload, default port 8010)
 make frontend          # Frontend dev server (port 3000)
 make migrate           # Apply pending database migrations
+make doctor            # Preflight: validate config, ArangoDB, Redis, LLM keys+models
 
 # Quality
 make test              # Run all backend tests
@@ -438,6 +446,18 @@ make clean             # Remove caches and build artifacts
 | `GET` | `/api/v1/er/config` | Get ER config |
 | `PUT` | `/api/v1/er/config` | Update ER config |
 
+### Alignment
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/alignment/sessions` | Create an alignment session over ≥2 ontologies (generates candidates) |
+| `GET` | `/api/v1/alignment/sessions/{session_id}` | Session status |
+| `GET` | `/api/v1/alignment/sessions/{session_id}/candidates` | List candidate correspondences |
+| `POST` | `/api/v1/alignment/sessions/{session_id}/adjudicate` | Adjudicate candidates (auto-accept + LLM) |
+| `POST` | `/api/v1/alignment/sessions/{session_id}/materialize` | Materialize the reconciled master |
+| `POST` | `/api/v1/alignment/sessions/{session_id}/refresh` | Re-align the subset affected by a source change |
+| `POST` | `/api/v1/alignment/candidates/{correspondence_key}/{decision}` | Accept/reject one correspondence |
+
 ### Quality
 
 | Method | Path | Description |
@@ -446,6 +466,18 @@ make clean             # Remove caches and build artifacts
 | `GET` | `/api/v1/quality/{ontology_id}` | Merged structural + extraction quality for one ontology |
 | `GET` | `/api/v1/quality/{ontology_id}/evaluation` | Strengths / weaknesses text |
 | `GET` | `/api/v1/quality/{ontology_id}/class-scores` | Per-class faithfulness / validity for charts |
+
+### Revisions (Belief Revision)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/revisions/inbox` | Pending items flagged for curation |
+| `GET` | `/api/v1/revisions` | List revisions (filterable, newest-first) |
+| `GET` | `/api/v1/revisions/entity/{entity_id}` | Revisions for one entity |
+| `GET` | `/api/v1/revisions/{revision_key}` | Get one revision |
+| `POST` | `/api/v1/revisions/{revision_key}/accept` | Accept a revision |
+| `POST` | `/api/v1/revisions/{revision_key}/reject` | Reject a revision |
+| `POST` | `/api/v1/revisions/{revision_key}/modify` | Modify a revision |
 
 ### WebSocket
 
@@ -457,7 +489,7 @@ Full interactive docs at `/docs`. Full static reference: [docs/api-reference.md]
 
 ## MCP Tools
 
-The AOE MCP server exposes 18 tools to AI agents. Connect via stdio (Cursor/Claude Desktop) or SSE (custom clients).
+The AOE MCP server exposes 32 tools to AI agents. Connect via stdio (Cursor/Claude Desktop) or SSE (custom clients).
 
 | Tool | Description |
 |------|-------------|
@@ -479,6 +511,20 @@ The AOE MCP server exposes 18 tools to AI agents. Connect via stdio (Cursor/Clau
 | `run_entity_resolution` | Trigger ER |
 | `explain_entity_match` | Match details |
 | `get_entity_clusters` | WCC clusters |
+| `preview_relational_schema` | Preview a relational DB's tables/columns/FKs |
+| `extract_relational_schema` | Extract an ontology from a relational DB |
+| `list_revisions_inbox` | Pending belief-revision items for curation |
+| `list_recent_revisions` | Recent revisions (newest-first, filterable) |
+| `get_revision` | Fetch one revision record |
+| `decide_revision` | Accept / reject / modify a revision |
+| `run_consolidation` | Trigger an ontology-wide consolidation pass |
+| `get_circuit_breaker_state` | LLM revision-agent circuit-breaker state |
+| `align_ontologies` | Create an alignment session over ≥2 ontologies |
+| `adjudicate_alignment` | Auto-accept high-confidence, LLM the rest |
+| `list_correspondences` | List a session's candidate correspondences |
+| `accept_correspondence` | Accept a candidate correspondence |
+| `reject_correspondence` | Reject a candidate correspondence |
+| `materialize_master` | Build the reconciled master ontology |
 
 See [docs/mcp-server.md](docs/mcp-server.md) for connection instructions and full tool catalog.
 

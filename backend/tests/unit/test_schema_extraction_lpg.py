@@ -79,16 +79,39 @@ class TestFormatLabel:
 
 
 class TestDetectField:
-    def test_picks_field_with_most_distinct_values(self) -> None:
-        db = MagicMock()
-
+    def _stats_fake(self, stats: dict[str, dict[str, int]]):
         def fake(_db, query, bind_vars=None):
             f = (bind_vars or {}).get("f")
-            return iter({"label": ["A", "B", "C"], "type": ["X"]}.get(f, []))
+            if "UNIQUE(vals)" in query and f in stats:  # _lpg_field_stats
+                return iter([stats[f]])
+            return iter([])
 
-        with patch("app.services.schema_extraction.run_aql", side_effect=fake):
-            got = _lpg_detect_field(db, "Node", ("type", "label", "@type"))
-        assert got == "label"  # 3 distinct > 1 distinct
+        return fake
+
+    def test_picks_categorical_type_over_high_cardinality_identifier(self) -> None:
+        # 'name' is present on every doc with ~all-distinct values (an identifier);
+        # 'type' repeats across docs (3 distinct / 100) -> the real discriminator.
+        db = MagicMock()
+        stats = {
+            "type": {"present": 100, "distinct": 3},
+            "name": {"present": 100, "distinct": 97},
+        }
+        # Candidate order puts 'name' first to prove selection is by shape, not order.
+        with patch("app.services.schema_extraction.run_aql", side_effect=self._stats_fake(stats)):
+            got = _lpg_detect_field(db, "Node", ("name", "type"))
+        assert got == "type"
+
+    def test_rejects_identifier_field_entirely(self) -> None:
+        db = MagicMock()
+        stats = {"name": {"present": 100, "distinct": 100}}  # all unique -> not a type
+        with patch("app.services.schema_extraction.run_aql", side_effect=self._stats_fake(stats)):
+            assert _lpg_detect_field(db, "Node", ("name",)) is None
+
+    def test_rejects_single_valued_field(self) -> None:
+        db = MagicMock()
+        stats = {"type": {"present": 100, "distinct": 1}}  # only one value -> useless
+        with patch("app.services.schema_extraction.run_aql", side_effect=self._stats_fake(stats)):
+            assert _lpg_detect_field(db, "Node", ("type",)) is None
 
 
 class TestLpgExtract:
@@ -147,13 +170,21 @@ class TestLpgExtract:
 
 
 class TestDiscoveryHint:
-    def test_suggests_lpg_when_categorical_field_present(self) -> None:
+    def test_suggests_lpg_with_the_categorical_type_field(self) -> None:
         db = MagicMock()
 
         def fake(_db, query, bind_vars=None):
             f = (bind_vars or {}).get("f")
-            # 'label' is categorical on Node; edge 'label' present on relations
-            return iter({"label": ["Company", "Filing", "Metric"]}.get(f, []))
+            if "UNIQUE(vals)" in query:  # _lpg_field_stats
+                # 'type' is categorical; 'name' is an identifier (all-distinct).
+                if f == "type":
+                    return iter([{"present": 100, "distinct": 3}])
+                if f == "name":
+                    return iter([{"present": 100, "distinct": 100}])
+                return iter([{"present": 0, "distinct": 0}])
+            if "COLLECT v = d" in query and f == "type":  # sample_types
+                return iter(["ORG", "COMP", "GPE"])
+            return iter([])
 
         graphs = [
             {
@@ -166,8 +197,9 @@ class TestDiscoveryHint:
         with patch("app.services.schema_extraction.run_aql", side_effect=fake):
             hint = _lpg_discovery_hint(db, graphs, [])
         assert hint["suggested"] is True
-        assert hint["vertex_type_field"] == "label"
-        assert "Company" in hint["sample_types"]
+        assert hint["vertex_type_field"] == "type"  # not the high-cardinality name
+        assert hint["edge_label_field"] == "type"
+        assert hint["sample_types"] == ["COMP", "GPE", "ORG"]  # sorted distinct
 
     def test_not_suggested_when_no_categorical_field(self) -> None:
         db = MagicMock()
@@ -175,3 +207,36 @@ class TestDiscoveryHint:
             hint = _lpg_discovery_hint(db, [], [{"name": "logs", "type": "document"}])
         assert hint["suggested"] is False
         assert hint["vertex_type_field"] is None
+
+
+class TestEndpointTypesFromEdge:
+    def test_domain_range_from_edge_endpoint_type_fields_no_document_lookup(self) -> None:
+        # Edges carry _fromType/_toType (arango-cypher-py GENERIC_WITH_TYPE); the
+        # extractor must use them and NOT issue a DOCUMENT() endpoint lookup.
+        db = MagicMock()
+        db.graphs.return_value = _FINREFLECT_GRAPHS
+        db.collections.return_value = _FINREFLECT_COLLECTIONS
+        used_document_lookup = {"flag": False}
+
+        def fake(_db, query, bind_vars=None):
+            if "DOCUMENT(e._from)" in query:
+                used_document_lookup["flag"] = True
+            if "ATTRIBUTES(e" in query:  # endpoint-type field detection
+                return iter([["_from", "_to", "type", "_fromType", "_toType"]])
+            if "COLLECT v = d" in query:  # class type values
+                return iter(["Company", "Filing"])
+            if "UNSET" in query:
+                return iter([])
+            if "RETURN {pred:" in query or "pred: e[@lf]" in query:
+                return iter([{"pred": "FILED", "f": "Company", "t": "Filing"}])
+            return iter([])
+
+        cfg = _config(vertex_type_field="type", edge_label_field="type", sample_fields=False)
+        with patch("app.services.schema_extraction.run_aql", side_effect=fake):
+            ttl, _ = _lpg_extract_schema(cfg, db=db)
+        g = Graph()
+        g.parse(data=ttl, format="turtle")
+
+        assert (NS["FILED"], RDFS.domain, NS["Company"]) in g
+        assert (NS["FILED"], RDFS.range, NS["Filing"]) in g
+        assert used_document_lookup["flag"] is False  # endpoints came from the edge

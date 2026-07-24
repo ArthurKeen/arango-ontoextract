@@ -1184,8 +1184,17 @@ def _direct_extract_schema(
 # ---------------------------------------------------------------------------
 
 # Candidate discriminator fields, in preference order, for auto-detection.
-LPG_VERTEX_TYPE_CANDIDATES = ("label", "type", "@type", "_type", "category", "entity_type")
-LPG_EDGE_LABEL_CANDIDATES = ("label", "type", "relation", "relationship", "predicate")
+# ``type`` first: it is the arango-cypher-py / Neo4j-export convention for the
+# LABEL-style type field. ``label``/``name`` come LAST because in most LPGs they
+# hold the entity's *display name* (high cardinality) — the opposite of a type
+# discriminator, which is what made the first cut extract one "class" per entity.
+LPG_VERTEX_TYPE_CANDIDATES = ("type", "@type", "_type", "entity_type", "category", "label")
+LPG_EDGE_LABEL_CANDIDATES = ("type", "relation", "relationship", "predicate", "label")
+
+# Edges may carry their endpoint *types* directly (arango-cypher-py's
+# GENERIC_WITH_TYPE convention), avoiding a per-edge DOCUMENT() lookup.
+LPG_EDGE_FROM_TYPE_FIELDS = ("_fromType", "fromType", "_from_type")
+LPG_EDGE_TO_TYPE_FIELDS = ("_toType", "toType", "_to_type")
 
 
 def _format_label(value: str, fmt: str) -> str:
@@ -1223,18 +1232,43 @@ def _lpg_distinct_values(db: Any, col: str, field: str, *, cap: int = 500) -> li
     return [str(v) for v in rows if v is not None and str(v).strip()]
 
 
+def _lpg_field_stats(db: Any, col: str, field: str, *, sample: int = 300) -> tuple[int, int]:
+    """Return ``(present, distinct)`` for ``field`` over a sample of ``col``."""
+    rows = list(
+        run_aql(
+            db,
+            """
+            LET vals = (FOR d IN @@col LIMIT @sample FILTER d[@f] != null RETURN d[@f])
+            RETURN {present: LENGTH(vals), distinct: LENGTH(UNIQUE(vals))}
+            """,
+            bind_vars={"@col": col, "f": field, "sample": sample},
+        )
+    )
+    if not rows or not isinstance(rows[0], dict):
+        return (0, 0)
+    return (int(rows[0].get("present") or 0), int(rows[0].get("distinct") or 0))
+
+
 def _lpg_detect_field(db: Any, col: str, candidates: tuple[str, ...]) -> str | None:
-    """Pick the candidate field with the most distinct values (>=1), else None."""
-    best: str | None = None
-    best_n = 0
+    """Pick a *categorical* discriminator field (a type), not an identifier.
+
+    A type field partitions the collection into a small number of repeated
+    values, so ``distinct << present``. The first candidate (in preference order)
+    that is present on most sampled docs and whose values repeat (distinct >= 2
+    and average group size >= 2, i.e. ``distinct <= present / 2``) wins. This
+    deliberately rejects the high-cardinality *name* field that a max-distinct
+    heuristic would wrongly select (one class per entity).
+    """
     for f in candidates:
         try:
-            n = len(set(_lpg_distinct_values(db, col, f, cap=50)))
+            present, distinct = _lpg_field_stats(db, col, f)
         except Exception:
             continue
-        if n > best_n:
-            best, best_n = f, n
-    return best if best_n >= 1 else None
+        if present == 0 or distinct < 2:
+            continue
+        if distinct <= max(2, present // 2):
+            return f
+    return None
 
 
 def _lpg_extract_schema(
@@ -1395,25 +1429,73 @@ def _lpg_add_class(
     g.add((cls_uri, aoe_ns.sourceCollection, Literal(col)))
 
 
+def _lpg_detect_endpoint_type_fields(db: Any, edge_col: str) -> tuple[str | None, str | None]:
+    """Find the edge fields that carry endpoint types (``_fromType``/``_toType``)."""
+    present = {str(k) for k in _lpg_edge_field_names(db, edge_col)}
+    from_f = next((f for f in LPG_EDGE_FROM_TYPE_FIELDS if f in present), None)
+    to_f = next((f for f in LPG_EDGE_TO_TYPE_FIELDS if f in present), None)
+    return from_f, to_f
+
+
+def _lpg_edge_field_names(db: Any, edge_col: str, *, sample: int = 50) -> set[str]:
+    rows = run_aql(
+        db,
+        "FOR e IN @@col LIMIT @sample RETURN ATTRIBUTES(e, true)",
+        bind_vars={"@col": edge_col, "sample": sample},
+    )
+    names: set[str] = set()
+    for r in rows:
+        if isinstance(r, list):
+            names.update(str(x) for x in r)
+    return names
+
+
 def _lpg_sample_predicates(
     db: Any, edge_col: str, label_field: str, type_field: str | None, *, scan: int = 3000
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Sample edges -> ``(predicate -> from-type set, predicate -> to-type set)``."""
+    """Sample edges -> ``(predicate -> from-type set, predicate -> to-type set)``.
+
+    Endpoint types are read from the edge's own ``_fromType`` / ``_toType`` fields
+    when present (the arango-cypher-py GENERIC_WITH_TYPE convention — no per-edge
+    DOCUMENT() lookup); otherwise they fall back to ``DOCUMENT(e._from)[type_field]``.
+    """
     domains: dict[str, set[str]] = {}
     ranges: dict[str, set[str]] = {}
-    if not type_field:
-        # Still surface predicates even without endpoint types.
+
+    from_f, to_f = _lpg_detect_endpoint_type_fields(db, edge_col)
+
+    if not type_field and not (from_f and to_f):
+        # No way to resolve endpoint types; still surface the predicates.
         for pred in _lpg_distinct_values(db, edge_col, label_field):
             domains.setdefault(pred, set())
             ranges.setdefault(pred, set())
         return domains, ranges
+
+    # Prefer the edge-carried endpoint type; only fall back to a per-edge
+    # DOCUMENT() lookup when that endpoint field is absent and a vertex type
+    # field is known. ``@tf`` is bound only if a DOCUMENT branch actually uses it
+    # (ArangoDB rejects unreferenced bind vars).
+    if from_f:
+        f_expr = f"e[{_aql_str(from_f)}]"
+    elif type_field:
+        f_expr = "DOCUMENT(e._from)[@tf]"
+    else:
+        f_expr = "null"
+    if to_f:
+        t_expr = f"e[{_aql_str(to_f)}]"
+    elif type_field:
+        t_expr = "DOCUMENT(e._to)[@tf]"
+    else:
+        t_expr = "null"
+    bind: dict[str, Any] = {"@col": edge_col, "scan": scan, "lf": label_field}
+    if type_field and (not from_f or not to_f):
+        bind["tf"] = type_field
     rows = run_aql(
         db,
-        "FOR e IN @@col LIMIT @scan "
-        "  FILTER e[@lf] != null "
-        "  LET ft = DOCUMENT(e._from)[@tf] LET tt = DOCUMENT(e._to)[@tf] "
-        "  RETURN {pred: e[@lf], f: ft, t: tt}",
-        bind_vars={"@col": edge_col, "scan": scan, "lf": label_field, "tf": type_field},
+        f"FOR e IN @@col LIMIT @scan "
+        f"  FILTER e[@lf] != null "
+        f"  RETURN {{pred: e[@lf], f: {f_expr}, t: {t_expr}}}",
+        bind_vars=bind,
     )
     for r in rows:
         pred = str(r.get("pred") or "").strip()
@@ -1426,6 +1508,12 @@ def _lpg_sample_predicates(
         if r.get("t"):
             ranges[pred].add(str(r["t"]))
     return domains, ranges
+
+
+def _aql_str(field: str) -> str:
+    """Quote a field name as an AQL string literal (fields here are our own
+    constants / detected attribute names, never user free-text)."""
+    return '"' + str(field).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _lpg_sample_datatype_props(

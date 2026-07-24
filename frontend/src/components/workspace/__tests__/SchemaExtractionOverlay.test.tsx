@@ -425,6 +425,76 @@ describe("SchemaExtractionOverlay", () => {
     expect(onImported).toHaveBeenCalledWith("schema_social_abc123");
   });
 
+  it("auto-enables LPG mode from discovery and posts LPG params (FR-9.14/9.15)", async () => {
+    mockedGet.mockImplementation((url: string) =>
+      url.startsWith("/api/v1/ontology/library")
+        ? Promise.resolve(REGISTRY_RESPONSE)
+        : Promise.reject(new Error(`unexpected GET ${url}`)),
+    );
+    const lpgTopology = {
+      target_host: "http://host:8530",
+      target_db: "fin",
+      graphs: [
+        {
+          name: "FinReflectKG",
+          edge_definitions: [
+            {
+              edge_collection: "relations",
+              from_vertex_collections: ["Node"],
+              to_vertex_collections: ["Node"],
+            },
+          ],
+          vertex_collections: ["Node"],
+          orphan_collections: [],
+        },
+      ],
+      loose_collections: [],
+      lpg: {
+        suggested: true,
+        vertex_type_field: "label",
+        edge_label_field: "label",
+        sample_types: ["Company", "Filing"],
+        candidate_vertex_fields: ["label", "type"],
+        candidate_edge_fields: ["label"],
+      },
+    };
+    mockedPost.mockImplementation((url: string) => {
+      if (url === "/api/v1/ontology/schema/graphs") return Promise.resolve(lpgTopology);
+      if (url === "/api/v1/ontology/schema/extract") return Promise.resolve(EXTRACT_RESPONSE);
+      return Promise.reject(new Error(`unexpected POST ${url}`));
+    });
+
+    render(<SchemaExtractionOverlay onClose={jest.fn()} onImported={jest.fn()} />);
+    fireEvent.change(screen.getByLabelText(/^Database$/), { target: { value: "fin" } });
+    fireEvent.click(screen.getByRole("button", { name: /Connect & Discover/i }));
+    await screen.findByTestId("schema-extraction-preview-step");
+
+    // The detected LPG shape auto-enables the toggle + prefills the type field.
+    expect(
+      (screen.getByTestId("schema-extraction-lpg-toggle") as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("schema-extraction-lpg-type-field") as HTMLInputElement).value,
+    ).toBe("label");
+
+    // Pick a label format, then extract.
+    fireEvent.change(screen.getByTestId("schema-extraction-lpg-format"), {
+      target: { value: "title_case" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Extract & Import/i }));
+    await screen.findByTestId("schema-extraction-result-step");
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      "/api/v1/ontology/schema/extract",
+      expect.objectContaining({
+        lpg_mode: true,
+        vertex_type_field: "label",
+        edge_label_field: "label",
+        label_format: "title_case",
+      }),
+    );
+  });
+
   it("passes a partial graph_names array when not all graphs are selected", async () => {
     await advanceToPreview();
     // Uncheck analytics_graph so only social_graph remains.

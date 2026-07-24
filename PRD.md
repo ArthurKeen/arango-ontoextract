@@ -1634,6 +1634,7 @@ Ontology in the AOE Library
 | Named graph definitions | Relationship scoping |
 | Collection indexes | Constraints / key properties |
 | Field value frequencies | Enumeration candidates |
+| Vertex type field / edge label field (LPG mode, FR-9.14) | Classes / object properties (one per distinct value) |
 
 **Requirements:**
 
@@ -1652,6 +1653,8 @@ Ontology in the AOE Library
 | FR-9.11 | Schema-derived ontology auto-imports | When extracting from a graph schema, the user can optionally select existing ontologies from the library to import. The schema-derived ontology gets `imports` edges to the selected ontologies. Entity resolution runs between the schema-derived classes and imported classes to suggest `owl:equivalentClass` or `rdfs:subClassOf` alignments (e.g., a `customers` collection maps to `schema:Person` from Schema.org). |
 | FR-9.12 | Index and constraint mapping | ArangoDB persistent/hash/fulltext/geo/TTL indexes on collections are mapped to ontology constraints: unique indexes → cardinality restrictions, required fields (from schema validation rules if present) → `owl:minCardinality 1`, geo indexes → GeoSPARQL property hints. These feed into the `ontology_constraints` collection (§6.14). |
 | FR-9.13 | Schema extraction UI with graph selection | The schema extraction UI displays discovered named graphs from the target database. Users select which graph(s) to extract, preview the vertex/edge collection mapping, and optionally select base ontologies to import. A "Preview" step shows the proposed class/property/edge mapping before committing to extraction. |
+| FR-9.14 | Labeled property graph (LPG) extraction | When entity and relationship *types* are encoded as a **discriminator field on a single collection** — the Neo4j-style LPG / "one `Node` vertex collection + one `relations` edge collection" pattern — rather than as separate collections, the extractor derives **classes from the distinct values of a vertex type field** (auto-detect candidates: `label`, `type`, `@type`, `_type`; user-overridable) and **object properties from the distinct values of an edge label field** (candidates: `label`, `type`, `relation`), with `rdfs:domain`/`rdfs:range` inferred by sampling each predicate's endpoint node types. LPG mode is **auto-detected** (a vertex collection carrying a high-cardinality categorical field and/or an edge collection whose from/to is a single generic vertex collection) and **opt-in/overridable** in the UI; when off, the collection-per-type mapping (FR-9.10) applies. Without this, a single-collection LPG collapses to one catch-all class per collection (e.g., a `Node` collection → a single `Node` class), silently losing every domain type — a correctness failure, not a cosmetic one. |
+| FR-9.15 | Configurable class/property label source + format | The extraction UI lets the user specify **which field supplies the class label and which supplies the property/predicate label** (the LPG discriminator fields of FR-9.14, defaulting to the auto-detected field but overridable), and a **label format** applied to the derived labels — one of `raw` (verbatim), `title_case`, `snake_case`, `camel_case` (default: `raw`), with optional namespace/prefix stripping. The preview reflects the chosen field + format before extraction commits. In collection-per-type mode the format applies to collection-derived labels; in LPG mode it applies to the discriminator values. |
 
 **Named Graph Extraction Model:**
 
@@ -1679,6 +1682,26 @@ Ontology Classes:        Ontology Object Properties:
   │ body: str│
   └──────────┘
 ```
+
+**Labeled Property Graph (single-collection) Extraction Model (FR-9.14):**
+
+```
+Single-collection LPG (e.g. FinReflectKG):
+  Collections:  Node (all entities)   relations (all edges)
+  Node docs:    { _key, label: "Company",  name: "Acme", ... }
+                { _key, label: "Filing",   period: "Q3",  ... }
+  relations:    { _from: Node/.., _to: Node/.., label: "FILED" }
+
+           ↓  collection-per-type (FR-9.10)          ↓  LPG mode (FR-9.14)
+
+  Classes: Node                              Classes: Company, Filing, ...  (DISTINCT Node.label)
+  ObjProp: relations (Node → Node)           ObjProp: FILED (Company → Filing), ...  (DISTINCT relations.label,
+                                                       domain/range from sampled endpoints)
+```
+
+Collection-per-type yields a single catch-all `Node` class; LPG mode recovers the real
+domain types by reading the discriminator field's distinct values (the same LPG lens a
+Cypher engine such as `arango-cypher-py` applies natively).
 
 **Use Cases:**
 

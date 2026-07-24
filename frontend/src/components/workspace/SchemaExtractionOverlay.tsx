@@ -71,12 +71,24 @@ interface LooseCollection {
   count: number | null;
 }
 
+interface LpgHint {
+  suggested: boolean;
+  vertex_type_field: string | null;
+  edge_label_field: string | null;
+  sample_types: string[];
+  candidate_vertex_fields: string[];
+  candidate_edge_fields: string[];
+}
+
 interface GraphsResponse {
   target_host: string;
   target_db: string;
   graphs: GraphTopology[];
   loose_collections: LooseCollection[];
+  lpg?: LpgHint;
 }
+
+type LabelFormat = "raw" | "title_case" | "snake_case" | "camel_case";
 
 interface ExtractResponse {
   run_id: string;
@@ -134,6 +146,11 @@ type StepState =
       sampleFields: boolean;
       fieldSampleLimit: number;
       imports: Set<string>;
+      // FR-9.14 / FR-9.15 — labeled property graph mode + label controls.
+      lpgMode: boolean;
+      vertexTypeField: string;
+      edgeLabelField: string;
+      labelFormat: LabelFormat;
       submitting: boolean;
       error: string | null;
     }
@@ -301,6 +318,9 @@ export default function SchemaExtractionOverlay({ onClose, onImported }: Props) 
       );
       // Default: every discovered graph selected, loose collections on.
       const selectedGraphs = new Set(topology.graphs.map((g) => g.name));
+      // FR-9.14: if the backend detected a labeled-property-graph shape, default
+      // LPG mode on and prefill the discriminator fields it found.
+      const lpg = topology.lpg;
       setState({
         step: "preview",
         topology,
@@ -309,6 +329,10 @@ export default function SchemaExtractionOverlay({ onClose, onImported }: Props) 
         sampleFields: true,
         fieldSampleLimit: 10,
         imports: new Set(),
+        lpgMode: lpg?.suggested ?? false,
+        vertexTypeField: lpg?.vertex_type_field ?? "",
+        edgeLabelField: lpg?.edge_label_field ?? "",
+        labelFormat: "raw",
         submitting: false,
         error: null,
       });
@@ -355,6 +379,16 @@ export default function SchemaExtractionOverlay({ onClose, onImported }: Props) 
           sample_fields: state.sampleFields,
           field_sample_limit: state.fieldSampleLimit,
           imports: Array.from(state.imports),
+          // FR-9.14 / FR-9.15 — LPG mode + label controls. Empty field strings
+          // become null so the backend auto-detects.
+          lpg_mode: state.lpgMode,
+          vertex_type_field: state.lpgMode
+            ? state.vertexTypeField.trim() || null
+            : null,
+          edge_label_field: state.lpgMode
+            ? state.edgeLabelField.trim() || null
+            : null,
+          label_format: state.labelFormat,
           ontology_label: connection.ontology_label.trim() || undefined,
           ontology_id: connection.ontology_id.trim() || undefined,
         },
@@ -454,6 +488,23 @@ export default function SchemaExtractionOverlay({ onClose, onImported }: Props) 
                 else next.add(id);
                 setState({ ...state, imports: next });
               }}
+              lpgMode={state.lpgMode}
+              vertexTypeField={state.vertexTypeField}
+              edgeLabelField={state.edgeLabelField}
+              labelFormat={state.labelFormat}
+              lpgHint={state.topology.lpg}
+              onToggleLpg={(v) =>
+                state.step === "preview" && setState({ ...state, lpgMode: v })
+              }
+              onVertexTypeField={(v) =>
+                state.step === "preview" && setState({ ...state, vertexTypeField: v })
+              }
+              onEdgeLabelField={(v) =>
+                state.step === "preview" && setState({ ...state, edgeLabelField: v })
+              }
+              onLabelFormat={(v) =>
+                state.step === "preview" && setState({ ...state, labelFormat: v })
+              }
             />
           )}
           {state.step === "result" && <ResultStep result={state.result} />}
@@ -641,6 +692,15 @@ interface PreviewStepProps {
   onToggleSample: (v: boolean) => void;
   onSampleLimit: (v: number) => void;
   onToggleImport: (id: string) => void;
+  lpgMode: boolean;
+  vertexTypeField: string;
+  edgeLabelField: string;
+  labelFormat: LabelFormat;
+  lpgHint?: LpgHint;
+  onToggleLpg: (v: boolean) => void;
+  onVertexTypeField: (v: string) => void;
+  onEdgeLabelField: (v: string) => void;
+  onLabelFormat: (v: LabelFormat) => void;
 }
 
 function PreviewStep({
@@ -658,6 +718,15 @@ function PreviewStep({
   onToggleSample,
   onSampleLimit,
   onToggleImport,
+  lpgMode,
+  vertexTypeField,
+  edgeLabelField,
+  labelFormat,
+  lpgHint,
+  onToggleLpg,
+  onVertexTypeField,
+  onEdgeLabelField,
+  onLabelFormat,
 }: PreviewStepProps) {
   const summary = useMemo(
     () => summarizeExtraction(topology, selectedGraphs, includeLoose),
@@ -777,6 +846,72 @@ function PreviewStep({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+      </section>
+
+      <section data-testid="schema-extraction-lpg">
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+          Labeled property graph
+        </h3>
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={lpgMode}
+            onChange={(e) => onToggleLpg(e.target.checked)}
+            data-testid="schema-extraction-lpg-toggle"
+            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          Types are stored in a field (derive classes/relations from field values)
+        </label>
+        {lpgHint?.suggested && (
+          <p className="mt-1 text-[11px] text-emerald-700">
+            Detected an LPG shape — e.g. types{" "}
+            <span className="font-mono">
+              {lpgHint.sample_types.slice(0, 4).join(", ")}
+              {lpgHint.sample_types.length > 4 ? " …" : ""}
+            </span>
+            . Without this, a single vertex collection collapses to one class.
+          </p>
+        )}
+        {lpgMode && (
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label className="text-xs text-gray-700">
+              Vertex type field
+              <input
+                type="text"
+                value={vertexTypeField}
+                placeholder="auto-detect"
+                onChange={(e) => onVertexTypeField(e.target.value)}
+                data-testid="schema-extraction-lpg-type-field"
+                className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <label className="text-xs text-gray-700">
+              Edge label field
+              <input
+                type="text"
+                value={edgeLabelField}
+                placeholder="auto-detect"
+                onChange={(e) => onEdgeLabelField(e.target.value)}
+                data-testid="schema-extraction-lpg-edge-field"
+                className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <label className="text-xs text-gray-700">
+              Label format
+              <select
+                value={labelFormat}
+                onChange={(e) => onLabelFormat(e.target.value as LabelFormat)}
+                data-testid="schema-extraction-lpg-format"
+                className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="raw">raw</option>
+                <option value="title_case">Title Case</option>
+                <option value="snake_case">snake_case</option>
+                <option value="camel_case">camelCase</option>
+              </select>
+            </label>
           </div>
         )}
       </section>

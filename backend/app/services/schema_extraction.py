@@ -35,6 +35,7 @@ document → chunk → LangGraph pipeline.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -144,6 +145,31 @@ class SchemaExtractionConfig(BaseModel):
             "``owl:imports`` triple on the generated ontology resource; the standard "
             "post-import sync wires the ``imports`` edges to the registry."
         ),
+    )
+    # FR-9.14 — labeled property graph (LPG) extraction. When ``lpg_mode`` is
+    # True, entity/relationship *types* are read from a discriminator FIELD on a
+    # single vertex/edge collection (the "one Node + one relations collection"
+    # pattern) instead of one-class-per-collection: classes come from the DISTINCT
+    # values of ``vertex_type_field`` and object properties from the DISTINCT
+    # values of ``edge_label_field`` (domain/range inferred from sampled
+    # endpoints). When the fields are None they are auto-detected. Default off, so
+    # the collection-per-type mapping (FR-9.10) is unchanged.
+    lpg_mode: bool = Field(
+        default=False,
+        description="Treat the source as a labeled property graph (types in a field, FR-9.14).",
+    )
+    vertex_type_field: str | None = Field(
+        default=None,
+        description="LPG: field on vertex docs holding the class label (auto-detect when None).",
+    )
+    edge_label_field: str | None = Field(
+        default=None,
+        description="LPG: field on edge docs holding the predicate label (auto-detect when None).",
+    )
+    # FR-9.15 — label formatting applied to derived class/property labels.
+    label_format: Literal["raw", "title_case", "snake_case", "camel_case"] = Field(
+        default="raw",
+        description="Format applied to derived class/property labels (FR-9.15).",
     )
     use_llm_inference: bool = Field(
         default=False,
@@ -395,9 +421,58 @@ def list_named_graphs(config: SchemaExtractionConfig) -> dict[str, Any]:
             "target_db": config.target_db,
             "graphs": graphs,
             "loose_collections": loose,
+            # FR-9.14: suggest LPG mode + prefill the discriminator fields when a
+            # vertex collection encodes entity types in a field.
+            "lpg": _lpg_discovery_hint(db, graphs, loose),
         }
     finally:
         client.close()
+
+
+def _lpg_discovery_hint(
+    db: Any, graphs: list[dict[str, Any]], loose: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Detect a labeled-property-graph shape for the discovery response (FR-9.14).
+
+    Suggests LPG mode when a vertex collection carries a *categorical* type field
+    (>=2 distinct values), and prefills the vertex type field + edge label field.
+    """
+    vertex_cols: set[str] = set()
+    edge_cols: set[str] = set()
+    for gd in graphs:
+        vertex_cols.update(gd.get("vertex_collections") or [])
+        for ed in gd.get("edge_definitions") or []:
+            if ed.get("edge_collection"):
+                edge_cols.add(ed["edge_collection"])
+    for c in loose:
+        (edge_cols if c.get("type") == "edge" else vertex_cols).add(c["name"])
+
+    vt_field: str | None = None
+    sample_types: list[str] = []
+    for col in sorted(vertex_cols):
+        f = _lpg_detect_field(db, col, LPG_VERTEX_TYPE_CANDIDATES)
+        if not f:
+            continue
+        vals = sorted(set(_lpg_distinct_values(db, col, f, cap=25)))
+        if len(vals) >= 2:  # genuinely categorical -> LPG signal
+            vt_field, sample_types = f, vals[:12]
+            break
+
+    edge_field: str | None = None
+    for col in sorted(edge_cols):
+        f = _lpg_detect_field(db, col, LPG_EDGE_LABEL_CANDIDATES)
+        if f:
+            edge_field = f
+            break
+
+    return {
+        "suggested": vt_field is not None,
+        "vertex_type_field": vt_field,
+        "edge_label_field": edge_field,
+        "sample_types": sample_types,
+        "candidate_vertex_fields": list(LPG_VERTEX_TYPE_CANDIDATES),
+        "candidate_edge_fields": list(LPG_EDGE_LABEL_CANDIDATES),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1104,6 +1179,312 @@ def _direct_extract_schema(
             client.close()
 
 
+# ---------------------------------------------------------------------------
+# FR-9.14 / FR-9.15 -- labeled property graph (single-collection) extraction
+# ---------------------------------------------------------------------------
+
+# Candidate discriminator fields, in preference order, for auto-detection.
+LPG_VERTEX_TYPE_CANDIDATES = ("label", "type", "@type", "_type", "category", "entity_type")
+LPG_EDGE_LABEL_CANDIDATES = ("label", "type", "relation", "relationship", "predicate")
+
+
+def _format_label(value: str, fmt: str) -> str:
+    """Apply FR-9.15 label formatting to a raw discriminator value."""
+    s = str(value).strip()
+    if not s or fmt == "raw":
+        return s
+    # Insert a space at camelCase boundaries, then split on any non-alphanumeric.
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", s)
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", spaced) if p]
+    if not parts:
+        return s
+    if fmt == "title_case":
+        return " ".join(p[:1].upper() + p[1:].lower() for p in parts)
+    if fmt == "snake_case":
+        return "_".join(p.lower() for p in parts)
+    if fmt == "camel_case":
+        return parts[0].lower() + "".join(p[:1].upper() + p[1:].lower() for p in parts[1:])
+    return s
+
+
+def _lpg_localname(value: str) -> str:
+    """Namespace-safe local name for a class/predicate IRI from a raw value."""
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", str(value).strip()).strip("_")
+    return cleaned or "value"
+
+
+def _lpg_distinct_values(db: Any, col: str, field: str, *, cap: int = 500) -> list[str]:
+    """Distinct non-empty values of ``field`` across ``col`` (capped)."""
+    rows = run_aql(
+        db,
+        "FOR d IN @@col FILTER d[@f] != null COLLECT v = d[@f] LIMIT @cap RETURN v",
+        bind_vars={"@col": col, "f": field, "cap": cap},
+    )
+    return [str(v) for v in rows if v is not None and str(v).strip()]
+
+
+def _lpg_detect_field(db: Any, col: str, candidates: tuple[str, ...]) -> str | None:
+    """Pick the candidate field with the most distinct values (>=1), else None."""
+    best: str | None = None
+    best_n = 0
+    for f in candidates:
+        try:
+            n = len(set(_lpg_distinct_values(db, col, f, cap=50)))
+        except Exception:
+            continue
+        if n > best_n:
+            best, best_n = f, n
+    return best if best_n >= 1 else None
+
+
+def _lpg_extract_schema(
+    config: SchemaExtractionConfig,
+    db: Any | None = None,
+) -> tuple[str, dict[str, str]]:
+    """Labeled-property-graph extraction (FR-9.14): types live in a field.
+
+    Classes are the DISTINCT values of the vertex type field; object properties
+    are the DISTINCT values of the edge label field, with rdfs:domain/range
+    inferred from sampled endpoint types. Returns ``(ttl, uri_to_collection)``
+    like :func:`_direct_extract_schema`.
+    """
+    from rdflib import OWL, RDF, RDFS, XSD, Graph, Literal, Namespace, URIRef
+
+    own_connection = db is None
+    client = None
+    if own_connection:
+        client, db = _connect_target(config)
+    assert db is not None
+
+    try:
+        ns = Namespace(f"http://aoe.example.org/schema/{config.target_db}#")
+        aoe_ns = Namespace("http://aoe.example.org/vocab#")
+        g = Graph()
+        g.bind("owl", OWL)
+        g.bind("rdfs", RDFS)
+        g.bind("rdf", RDF)
+        g.bind("xsd", XSD)
+        g.bind("schema", ns)
+        g.bind("aoe", aoe_ns)
+
+        ont_uri = URIRef(str(ns).rstrip("#"))
+        g.add((ont_uri, RDF.type, OWL.Ontology))
+        g.add((ont_uri, RDFS.label, Literal(f"Schema of {config.target_db} (LPG)")))
+        for imported_id in config.imports:
+            g.add((ont_uri, OWL.imports, URIRef(f"http://example.org/ontology/{imported_id}")))
+
+        # Resolve the vertex + edge collections in scope from the selected named
+        # graphs' edge definitions (+ loose collections). Mirrors the direct
+        # walk's topology discovery, but here each collection is an LPG store.
+        graphs_raw = cast("list[dict[str, Any]]", db.graphs())
+        all_cols = cast("list[dict[str, Any]]", db.collections())
+        col_types = {c["name"]: c.get("type", 2) for c in all_cols}
+        if config.graph_names is not None:
+            wanted = set(config.graph_names)
+            graphs_to_walk = [gd for gd in graphs_raw if gd.get("name") in wanted]
+        else:
+            graphs_to_walk = list(graphs_raw)
+
+        vertex_cols: set[str] = set()
+        edge_cols: set[str] = set()
+        for gd in graphs_to_walk:
+            for ed in gd.get("edge_definitions") or []:
+                if ed.get("edge_collection"):
+                    edge_cols.add(ed["edge_collection"])
+                vertex_cols.update(ed.get("from_vertex_collections") or [])
+                vertex_cols.update(ed.get("to_vertex_collections") or [])
+            vertex_cols.update(gd.get("orphan_collections") or [])
+        in_graph = vertex_cols | edge_cols
+        if config.include_loose:
+            for c in all_cols:
+                if c.get("system") or c["name"] in in_graph:
+                    continue
+                (edge_cols if col_types.get(c["name"]) == 3 else vertex_cols).add(c["name"])
+
+        type_field = config.vertex_type_field
+        edge_field = config.edge_label_field
+        uri_to_collection: dict[str, str] = {}
+        # value (raw) -> class URI, shared across vertex collections so an edge
+        # endpoint's type resolves to its class regardless of which collection.
+        value_to_class: dict[str, URIRef] = {}
+
+        # --- Classes: DISTINCT type-field values per vertex collection ---------
+        for col in sorted(vertex_cols):
+            tf = type_field or _lpg_detect_field(db, col, LPG_VERTEX_TYPE_CANDIDATES)
+            if not tf:
+                # No discriminator: fall back to one class for the collection.
+                cls_uri = ns[_lpg_localname(col)]
+                _lpg_add_class(
+                    g, cls_uri, _format_label(col, config.label_format), col, ns, aoe_ns, config
+                )
+                uri_to_collection[str(cls_uri)] = col
+                continue
+            for raw in _lpg_distinct_values(db, col, tf):
+                cls_uri = ns[_lpg_localname(raw)]
+                _lpg_add_class(
+                    g, cls_uri, _format_label(raw, config.label_format), col, ns, aoe_ns, config
+                )
+                g.add((cls_uri, aoe_ns.lpgTypeValue, Literal(raw)))
+                g.add((cls_uri, aoe_ns.lpgTypeField, Literal(tf)))
+                uri_to_collection[str(cls_uri)] = col
+                value_to_class[raw] = cls_uri
+
+            # Datatype properties per type (fields differ by type in an LPG).
+            if config.sample_fields:
+                _lpg_sample_datatype_props(g, db, col, tf, value_to_class, ns, aoe_ns, config)
+
+        # --- Object properties: DISTINCT edge-label values per edge collection -
+        for col in sorted(edge_cols):
+            lf = edge_field or _lpg_detect_field(db, col, LPG_EDGE_LABEL_CANDIDATES)
+            tf = type_field or _lpg_detect_field(
+                db, next(iter(sorted(vertex_cols)), col), LPG_VERTEX_TYPE_CANDIDATES
+            )
+            if not lf:
+                # No label field: one object property for the whole edge collection.
+                obj_uri = ns[_lpg_localname(col)]
+                g.add((obj_uri, RDF.type, OWL.ObjectProperty))
+                g.add((obj_uri, RDFS.label, Literal(_format_label(col, config.label_format))))
+                g.add((obj_uri, aoe_ns.sourceDb, Literal(config.target_db)))
+                g.add((obj_uri, aoe_ns.sourceCollection, Literal(col)))
+                uri_to_collection[str(obj_uri)] = col
+                continue
+            pred_domains, pred_ranges = _lpg_sample_predicates(db, col, lf, tf)
+            for pred in sorted(pred_domains):
+                obj_uri = ns[_lpg_localname(pred)]
+                g.add((obj_uri, RDF.type, OWL.ObjectProperty))
+                g.add((obj_uri, RDFS.label, Literal(_format_label(pred, config.label_format))))
+                g.add((obj_uri, aoe_ns.lpgLabelValue, Literal(pred)))
+                g.add((obj_uri, aoe_ns.sourceDb, Literal(config.target_db)))
+                g.add((obj_uri, aoe_ns.sourceCollection, Literal(col)))
+                for dv in sorted(pred_domains[pred]):
+                    dom = value_to_class.get(dv) or ns[_lpg_localname(dv)]
+                    g.add((obj_uri, RDFS.domain, dom))
+                for rv in sorted(pred_ranges.get(pred, set())):
+                    rng = value_to_class.get(rv) or ns[_lpg_localname(rv)]
+                    g.add((obj_uri, RDFS.range, rng))
+                uri_to_collection[str(obj_uri)] = col
+
+        ttl = g.serialize(format="turtle")
+        log.info(
+            "LPG schema extraction complete",
+            extra={
+                "target_db": config.target_db,
+                "vertex_collections": sorted(vertex_cols),
+                "edge_collections": sorted(edge_cols),
+                "classes": sum(1 for _ in g.subjects(RDF.type, OWL.Class)),
+                "object_properties": sum(1 for _ in g.subjects(RDF.type, OWL.ObjectProperty)),
+                "label_format": config.label_format,
+            },
+        )
+        return ttl, uri_to_collection
+    finally:
+        if own_connection and client is not None:
+            client.close()
+
+
+def _lpg_add_class(
+    g: Any, cls_uri: Any, label: str, col: str, ns: Any, aoe_ns: Any, config: Any
+) -> None:
+    from rdflib import OWL, RDF, RDFS, Literal
+
+    if (cls_uri, RDF.type, OWL.Class) in g:
+        return
+    g.add((cls_uri, RDF.type, OWL.Class))
+    g.add((cls_uri, RDFS.label, Literal(label)))
+    g.add((cls_uri, aoe_ns.sourceDb, Literal(config.target_db)))
+    g.add((cls_uri, aoe_ns.sourceCollection, Literal(col)))
+
+
+def _lpg_sample_predicates(
+    db: Any, edge_col: str, label_field: str, type_field: str | None, *, scan: int = 3000
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Sample edges -> ``(predicate -> from-type set, predicate -> to-type set)``."""
+    domains: dict[str, set[str]] = {}
+    ranges: dict[str, set[str]] = {}
+    if not type_field:
+        # Still surface predicates even without endpoint types.
+        for pred in _lpg_distinct_values(db, edge_col, label_field):
+            domains.setdefault(pred, set())
+            ranges.setdefault(pred, set())
+        return domains, ranges
+    rows = run_aql(
+        db,
+        "FOR e IN @@col LIMIT @scan "
+        "  FILTER e[@lf] != null "
+        "  LET ft = DOCUMENT(e._from)[@tf] LET tt = DOCUMENT(e._to)[@tf] "
+        "  RETURN {pred: e[@lf], f: ft, t: tt}",
+        bind_vars={"@col": edge_col, "scan": scan, "lf": label_field, "tf": type_field},
+    )
+    for r in rows:
+        pred = str(r.get("pred") or "").strip()
+        if not pred:
+            continue
+        domains.setdefault(pred, set())
+        ranges.setdefault(pred, set())
+        if r.get("f"):
+            domains[pred].add(str(r["f"]))
+        if r.get("t"):
+            ranges[pred].add(str(r["t"]))
+    return domains, ranges
+
+
+def _lpg_sample_datatype_props(
+    g: Any,
+    db: Any,
+    col: str,
+    type_field: str,
+    value_to_class: dict[str, Any],
+    ns: Any,
+    aoe_ns: Any,
+    config: Any,
+    *,
+    max_types: int = 40,
+) -> None:
+    """Per-type field sampling -> datatype properties (domain = the type's class)."""
+    from rdflib import OWL, RDF, RDFS, Literal, URIRef
+
+    types = _lpg_distinct_values(db, col, type_field, cap=max_types)
+    for raw in types:
+        cls_uri = value_to_class.get(raw)
+        if cls_uri is None:
+            continue
+        docs = list(
+            run_aql(
+                db,
+                "FOR d IN @@col FILTER d[@tf] == @t LIMIT @lim "
+                "RETURN UNSET(d, '_key', '_id', '_rev', '_from', '_to')",
+                bind_vars={
+                    "@col": col,
+                    "tf": type_field,
+                    "t": raw,
+                    "lim": config.field_sample_limit,
+                },
+            )
+        )
+        field_types: dict[str, str] = {}
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            for k, v in doc.items():
+                if k == type_field:
+                    continue
+                xsd = _infer_xsd_type(v)
+                if xsd is None:
+                    continue
+                if field_types.setdefault(k, xsd) != xsd:
+                    field_types[k] = "http://www.w3.org/2001/XMLSchema#string"
+        local = _lpg_localname(raw)
+        for fname, xsd_iri in field_types.items():
+            prop_uri = ns[f"{local}.{fname}"]
+            g.add((prop_uri, RDF.type, OWL.DatatypeProperty))
+            g.add((prop_uri, RDFS.label, Literal(fname)))
+            g.add((prop_uri, RDFS.domain, cls_uri))
+            g.add((prop_uri, RDFS.range, URIRef(xsd_iri)))
+            g.add((prop_uri, aoe_ns.sourceDb, Literal(config.target_db)))
+            g.add((prop_uri, aoe_ns.sourceCollection, Literal(col)))
+            g.add((prop_uri, aoe_ns.sourceField, Literal(fname)))
+
+
 def _stub_extract_schema(config: SchemaExtractionConfig) -> str:
     """Back-compat alias retained for callers/tests that don't need the
     URI → collection map. Equivalent to ``_direct_extract_schema(config)[0]``.
@@ -1232,7 +1613,22 @@ def extract_schema(config: SchemaExtractionConfig) -> dict[str, Any]:
     try:
         mapper = _try_import_schema_mapper()
         uri_to_collection: dict[str, str] = {}
-        if mapper is not None:
+        provenance: dict[str, Any]
+        if config.lpg_mode:
+            # FR-9.14: types live in a field, not in collection names. This is a
+            # fundamentally different mapping than the analyzer / collection-per-
+            # type paths, so LPG mode takes precedence over both.
+            ttl_content, uri_to_collection = _lpg_extract_schema(config)
+            provenance = {
+                "mode": "lpg",
+                "extraction_source": config.extraction_source,
+                "graphs_filter": list(config.graph_names) if config.graph_names else None,
+                "vertex_type_field": config.vertex_type_field,
+                "edge_label_field": config.edge_label_field,
+                "label_format": config.label_format,
+                "auto_imports": list(config.imports),
+            }
+        elif mapper is not None:
             ttl_content, provenance = _run_schema_mapper_extract(config, mapper)
             # schema_analyzer doesn't currently surface a URI → collection
             # map, so per-class provenance stamping is a no-op on this path.

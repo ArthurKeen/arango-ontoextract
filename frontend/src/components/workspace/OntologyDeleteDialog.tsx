@@ -33,6 +33,23 @@ import {
   type OntologyDeletionImpact,
 } from "@/lib/ontologyDeletionImpact";
 
+/**
+ * Whether the typed confirmation matches the ontology name closely enough to
+ * enable Delete. Case-sensitive and trimmed (so it stays a deliberate gate), but
+ * the system-generated ``Schema: `` label prefix on ArangoDB-extracted ontologies
+ * is optional — users kept typing the meaningful name without the prefix they
+ * never chose, which left Delete stuck disabled. Exported for testing.
+ */
+export function ontologyDeleteConfirmMatches(typed: string, ontologyName: string): boolean {
+  const t = typed.trim();
+  if (!t) return false;
+  const name = ontologyName.trim();
+  if (t === name) return true;
+  // Accept the name with a leading auto-generated "<Prefix>: " stripped.
+  const stripped = name.replace(/^[A-Za-z][\w-]*:\s*/, "");
+  return stripped !== name && t === stripped;
+}
+
 export interface OntologyDeleteDialogProps {
   ontologyId: string;
   ontologyName: string;
@@ -106,7 +123,7 @@ export default function OntologyDeleteDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const typedMatches = typed === ontologyName;
+  const typedMatches = ontologyDeleteConfirmMatches(typed, ontologyName);
   const canConfirm = state.kind === "ready" && typedMatches;
 
   const titleId = "ontology-delete-dialog-title";
@@ -163,7 +180,7 @@ export default function OntologyDeleteDialog({
             htmlFor="ontology-delete-typed-name"
             className="block text-xs font-medium text-gray-600 mb-1"
           >
-            Type the ontology name to confirm:
+            Type the ontology name to confirm (the shown prefix is optional):
           </label>
           <input
             ref={inputRef}

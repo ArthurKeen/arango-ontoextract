@@ -15,7 +15,9 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import OntologyDeleteDialog from "../OntologyDeleteDialog";
+import OntologyDeleteDialog, {
+  ontologyDeleteConfirmMatches,
+} from "../OntologyDeleteDialog";
 
 const apiGet = jest.fn();
 
@@ -261,5 +263,55 @@ describe("OntologyDeleteDialog", () => {
     expect(apiGet).toHaveBeenLastCalledWith(
       "/api/v1/ontology/library/ont-2/deletion-impact",
     );
+  });
+
+  it("accepts the name without the auto-generated 'Schema: ' prefix", async () => {
+    apiGet.mockResolvedValue(makeImpact());
+    const onConfirm = jest.fn();
+
+    render(
+      <OntologyDeleteDialog
+        ontologyId="ont-fin"
+        ontologyName="Schema: FinReflectKgOneShard"
+        onClose={() => {}}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const input = await screen.findByPlaceholderText("Schema: FinReflectKgOneShard");
+    const confirm = screen.getByRole("button", { name: /^Delete$/ });
+
+    // The meaningful name without the system prefix now enables Delete.
+    fireEvent.change(input, { target: { value: "FinReflectKgOneShard" } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith("ont-fin");
+  });
+});
+
+describe("ontologyDeleteConfirmMatches", () => {
+  it("matches the exact full name", () => {
+    expect(ontologyDeleteConfirmMatches("Demo Ontology", "Demo Ontology")).toBe(true);
+  });
+
+  it("matches the name with the auto prefix stripped (and trims)", () => {
+    expect(
+      ontologyDeleteConfirmMatches("FinReflectKgOneShard", "Schema: FinReflectKgOneShard"),
+    ).toBe(true);
+    expect(
+      ontologyDeleteConfirmMatches("  Schema: FinReflectKgOneShard  ", "Schema: FinReflectKgOneShard"),
+    ).toBe(true);
+  });
+
+  it("rejects a wrong name, empty input, and a case mismatch", () => {
+    expect(ontologyDeleteConfirmMatches("Wrong", "Schema: FinReflectKgOneShard")).toBe(false);
+    expect(ontologyDeleteConfirmMatches("", "Schema: FinReflectKgOneShard")).toBe(false);
+    expect(ontologyDeleteConfirmMatches("finreflectkgoneshard", "Schema: FinReflectKgOneShard")).toBe(
+      false,
+    );
+  });
+
+  it("does not strip when the name has no prefix (suffix alone is not enough)", () => {
+    expect(ontologyDeleteConfirmMatches("Ontology", "Demo Ontology")).toBe(false);
   });
 });

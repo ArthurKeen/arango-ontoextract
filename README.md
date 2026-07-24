@@ -612,10 +612,9 @@ guide; the short version:
 - **Improve the docs** → PRs against `docs/` and `README.md` are
   reviewed on the same path as code.
 
-The project is currently distributed under a private,
-all-rights-reserved license (see [License](#license)); please open
-an issue before investing time in a substantial code contribution.
+The project is distributed under the MIT License (see
+[License](#license)); contributions are welcome via PR.
 
 ## License
 
-Private — all rights reserved.
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Arthur Keen.

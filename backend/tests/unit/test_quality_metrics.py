@@ -813,3 +813,37 @@ class TestComputeAboxMetrics:
         assert m["total_individuals"] == 0
         assert m["individual_grounding_rate"] is None
         assert m["typed_rate"] is None
+
+
+class TestComputeAboxMetricsExtended:
+    """AB-PR6 / FR-18.10 additions: merge stats + constraint-violation count."""
+
+    def test_merge_and_constraint_counts(self):
+        from app.services import abox_validation
+        from app.services.ontology_rule_engine import RuleEngineReport, Violation
+        from app.services.quality_metrics import compute_abox_metrics
+
+        db = _mock_db(
+            {
+                0: [  # individuals: one golden survivor absorbed 2 dups; one plain
+                    {"grounded": True, "typed": True, "merged": 2},
+                    {"grounded": True, "typed": True, "merged": 0},
+                ],
+                1: [{"grounded": True}],  # one assertion
+            }
+        )
+        report = RuleEngineReport(
+            ontology_id="o1",
+            violations=[
+                Violation(abox_validation.RULE_ABOX_CARDINALITY, "error", ("i", "p"), "over max"),
+                Violation(abox_validation.RULE_ABOX_DANGLING_TYPE, "error", ("i", "c"), "no class"),
+                # ungrounded is a grounding-rate signal, NOT a constraint violation:
+                Violation(abox_validation.RULE_ABOX_UNGROUNDED, "warning", ("i",), "no span"),
+            ],
+        )
+        with patch.object(abox_validation, "validate_abox", return_value=report):
+            m = compute_abox_metrics(db, "o1")
+
+        assert m["merged_individuals"] == 1
+        assert m["absorbed_individuals"] == 2
+        assert m["constraint_violations"] == 2  # cardinality + dangling; not ungrounded

@@ -367,6 +367,9 @@ def compute_abox_metrics(
         "individual_grounding_rate": None,
         "assertion_grounding_rate": None,
         "typed_rate": None,
+        "merged_individuals": 0,
+        "absorbed_individuals": 0,
+        "constraint_violations": 0,
     }
     if not _has(db, "ontology_individuals", existing):
         return empty
@@ -385,7 +388,10 @@ def compute_abox_metrics(
                 FOR e IN rdf_type
                   FILTER e._from == i._id AND e.expired == @never RETURN 1
               ) > 0
-              RETURN {grounded: grounded, typed: typed}
+              RETURN {
+                grounded: grounded, typed: typed,
+                merged: LENGTH(i.merged_from == null ? [] : i.merged_from)
+              }
             """,
             bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
         )
@@ -393,6 +399,11 @@ def compute_abox_metrics(
     total_ind = len(ind_rows)
     grounded_ind = sum(1 for r in ind_rows if r.get("grounded"))
     typed_ind = sum(1 for r in ind_rows if r.get("typed"))
+    # Canonicalization / merge stats (AB-PR3): a golden survivor records the keys
+    # it absorbed in ``merged_from``. Count survivors that merged, and the total
+    # duplicates they absorbed.
+    merged_ind = sum(1 for r in ind_rows if int(r.get("merged") or 0) > 0)
+    absorbed_ind = sum(int(r.get("merged") or 0) for r in ind_rows)
 
     total_assert = 0
     grounded_assert = 0
@@ -415,6 +426,27 @@ def compute_abox_metrics(
         total_assert = len(a_rows)
         grounded_assert = sum(1 for r in a_rows if r.get("grounded"))
 
+    # Constraint-violation count: reuse the AB-PR5 validator and count the actual
+    # constraint breaches (cardinality + dangling type refs); the ungrounded rule
+    # is already reflected in the grounding rate above. Guarded so a validation
+    # hiccup can't break the metrics payload.
+    constraint_violations = 0
+    try:
+        from app.services.abox_validation import (
+            RULE_ABOX_CARDINALITY,
+            RULE_ABOX_DANGLING_TYPE,
+            validate_abox,
+        )
+
+        vreport = validate_abox(db, ontology_id)
+        constraint_violations = sum(
+            1
+            for v in vreport.violations
+            if v.rule_id in (RULE_ABOX_CARDINALITY, RULE_ABOX_DANGLING_TYPE)
+        )
+    except Exception:
+        log.warning("abox constraint-violation count failed", exc_info=True)
+
     return {
         "total_individuals": total_ind,
         "total_assertions": total_assert,
@@ -426,6 +458,9 @@ def compute_abox_metrics(
             round(grounded_assert / total_assert, 4) if total_assert else None
         ),
         "typed_rate": round(typed_ind / total_ind, 4) if total_ind else None,
+        "merged_individuals": merged_ind,
+        "absorbed_individuals": absorbed_ind,
+        "constraint_violations": constraint_violations,
     }
 
 

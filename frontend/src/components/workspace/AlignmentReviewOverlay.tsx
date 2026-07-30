@@ -246,6 +246,21 @@ export default function AlignmentReviewOverlay({
 
   const acceptedCount = candidates.filter((c) => c.status === "accepted").length;
 
+  // DualLoop re-rank (FR-17.8): still-pending pairs first, and within those the
+  // ones the ensemble flagged (hallucination=2 / disagreement=1) ahead of the
+  // rest, then by confidence. Because it derives from `candidates`, each
+  // accept/reject re-sorts — decided pairs sink and the next most important
+  // borderline pair surfaces to the top of the review queue.
+  const reviewPriority = (c: Correspondence): number => c.adjudication?.review_priority ?? 0;
+  const sortedCandidates = [...candidates].sort((a, b) => {
+    const aPending = a.status === "candidate" ? 0 : 1;
+    const bPending = b.status === "candidate" ? 0 : 1;
+    if (aPending !== bPending) return aPending - bPending;
+    const byPriority = reviewPriority(b) - reviewPriority(a);
+    if (byPriority !== 0) return byPriority;
+    return b.confidence - a.confidence;
+  });
+
   return (
     <div
       className="fixed top-20 right-6 z-[9000] w-[600px] max-h-[80vh] flex flex-col bg-white rounded-2xl shadow-2xl ring-1 ring-slate-200"
@@ -376,7 +391,7 @@ export default function AlignmentReviewOverlay({
             )}
 
             <ul className="space-y-2">
-              {candidates.map((c) => (
+              {sortedCandidates.map((c) => (
                 <li
                   key={c._key}
                   className="border border-slate-200 rounded-lg p-3"

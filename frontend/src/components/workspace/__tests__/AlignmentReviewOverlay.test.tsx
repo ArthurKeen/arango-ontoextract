@@ -206,3 +206,43 @@ test("surfaces the coherence-repair removals after materialize (AL-PR7)", async 
   expect(repair).toHaveTextContent("removed 1 correspondence");
   expect(repair).toHaveTextContent("c9");
 });
+
+test("re-ranks flagged pending correspondences to the top (DualLoop, FR-17.8)", async () => {
+  apiGet.mockImplementation((path: string) => {
+    if (path.startsWith("/api/v1/ontology/library")) {
+      return Promise.resolve({
+        data: [
+          { _key: "ont1", name: "Alpha" },
+          { _key: "ont2", name: "Beta" },
+        ],
+      });
+    }
+    if (path.includes("/candidates")) {
+      return Promise.resolve({
+        session_id: "S1",
+        count: 2,
+        candidates: [
+          // higher confidence but no flag — should sort BELOW the flagged one
+          { ...CANDIDATE, _key: "c_plain", confidence: 0.95, adjudication: null },
+          // lower confidence but hallucination-flagged (review_priority 2) — top
+          {
+            ...CANDIDATE,
+            _key: "c_flag",
+            confidence: 0.6,
+            adjudication: { method: "llm", hallucination: true, review_priority: 2 },
+          },
+        ],
+      });
+    }
+    return Promise.resolve({});
+  });
+  renderOverlay();
+  fireEvent.click(await screen.findByTestId("alignment-source-ont2"));
+  fireEvent.click(screen.getByTestId("alignment-run"));
+  await screen.findByTestId("alignment-candidate-c_flag");
+
+  const rows = screen.getAllByTestId(/^alignment-candidate-/);
+  // flagged pair floats above the higher-confidence unflagged pair
+  expect(rows[0]).toHaveAttribute("data-testid", "alignment-candidate-c_flag");
+  expect(rows[1]).toHaveAttribute("data-testid", "alignment-candidate-c_plain");
+});

@@ -3520,3 +3520,91 @@ class TestCqScopeInjection:
         mock_cq.assert_not_called()
         # off-flag: no CQ marker leaks into the prompt context
         assert "CQ_SCOPE" not in mock_run_pipeline.call_args.kwargs["domain_context"]
+
+
+class TestAboxTrigger:
+    """FR-18.11: execute_run runs A-box extraction only when extract_abox is set."""
+
+    def _run_record(self):
+        return {
+            "_key": "run_ab",
+            "doc_id": "doc_1",
+            "doc_ids": ["doc_1"],
+            "status": "running",
+            "stats": {
+                "passes": 1,
+                "consistency_threshold": 0.7,
+                "token_usage": {},
+                "errors": [],
+                "step_logs": [],
+            },
+        }
+
+    def _pipeline_state(self):
+        return {
+            "consistency_result": _make_result(classes=[]),
+            "errors": [],
+            "step_logs": [],
+            "token_usage": {},
+            "extraction_passes": [],
+        }
+
+    def _patches(self):
+        return [
+            patch(
+                "app.services.abox_extraction.extract_and_materialize_abox", new_callable=AsyncMock
+            ),
+            patch("app.db.quality_history_repo.record_event_snapshot"),
+            patch("app.services.extraction._create_produced_by_edge"),
+            patch("app.services.extraction._auto_register_ontology", return_value="onto_ab"),
+            patch("app.services.extraction._materialize_to_graph"),
+            patch("app.services.extraction._store_results"),
+            patch("app.services.extraction._load_document_chunks", return_value=[{"text": "hi"}]),
+            patch("app.services.extraction.run_pipeline", new_callable=AsyncMock),
+            patch("app.services.extraction.doc_get"),
+            patch("app.services.extraction._get_collection"),
+            patch("app.services.extraction.get_db"),
+        ]
+
+    async def _run(self, *, extract_abox: bool):
+        import contextlib
+
+        from app.services import extraction
+        from app.services.extraction import execute_run
+
+        with contextlib.ExitStack() as stack:
+            mocks = [stack.enter_context(p) for p in self._patches()]
+            abox_mock = mocks[0]
+            mock_doc_get = mocks[8]
+            mock_get_col = mocks[9]
+            mock_get_db = mocks[10]
+            mock_run_pipeline = mocks[7]
+            mock_get_db.return_value = MagicMock()
+            mock_get_col.return_value = MagicMock()
+            mock_doc_get.side_effect = [
+                self._run_record(),
+                {"_key": "run_ab", "status": "completed"},
+            ]
+            mock_run_pipeline.return_value = self._pipeline_state()
+            abox_mock.return_value = {"individuals": 3, "assertions": 2}
+            # keep the global flag off so we exercise the request-flag path
+            with patch.object(extraction.settings, "extract_abox", False):
+                await execute_run(
+                    run_id="run_ab",
+                    document_ids=["doc_1"],
+                    event_callback=MagicMock(),
+                    extract_abox=extract_abox,
+                )
+            return abox_mock
+
+    @pytest.mark.asyncio
+    async def test_extracts_abox_when_flag_on(self):
+        abox_mock = await self._run(extract_abox=True)
+        abox_mock.assert_awaited_once()
+        assert abox_mock.await_args.kwargs["ontology_id"] == "onto_ab"
+        assert abox_mock.await_args.kwargs["chunks"] == [{"text": "hi"}]
+
+    @pytest.mark.asyncio
+    async def test_skips_abox_when_flag_off(self):
+        abox_mock = await self._run(extract_abox=False)
+        abox_mock.assert_not_awaited()

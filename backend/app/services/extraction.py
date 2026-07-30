@@ -172,6 +172,7 @@ async def execute_run(
     domain_ontology_ids: list[str] | None = None,
     target_ontology_id: str | None = None,
     base_ontology_ids: list[str] | None = None,
+    extract_abox: bool = False,
 ) -> dict[str, Any]:
     """Execute the extraction pipeline for an existing run record.
 
@@ -524,6 +525,30 @@ async def execute_run(
                             validity_scores=final_state.get("validity_scores"),
                         )
                 _create_produced_by_edge(db, ontology_id=ontology_id, run_id=run_id)
+
+                # Stream 21 (FR-18.11): optionally extract the assertion graph
+                # (A-box) from the same chunks into the just-materialized
+                # ontology. Triggered by the request flag or the global
+                # settings.extract_abox. Non-fatal: an A-box failure must never
+                # abort the (already-successful) T-box run.
+                if extract_abox or settings.extract_abox:
+                    try:
+                        from app.services.abox_extraction import extract_and_materialize_abox
+
+                        abox_result = await extract_and_materialize_abox(
+                            db, ontology_id=ontology_id, chunks=chunks
+                        )
+                        col.update({"_key": run_id, "abox": abox_result})
+                        log.info(
+                            "A-box extracted",
+                            extra={"run_id": run_id, "ontology_id": ontology_id, **abox_result},
+                        )
+                    except Exception:
+                        log.warning(
+                            "A-box extraction failed (non-fatal)",
+                            exc_info=True,
+                            extra={"run_id": run_id, "ontology_id": ontology_id},
+                        )
 
                 # H.8 -- record `owl:imports` edges from this new
                 # ontology to every base ontology declared on the

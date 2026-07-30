@@ -57,12 +57,17 @@ class RetryResponse(BaseModel):
 async def start_extraction(
     body: StartRunRequest,
     background_tasks: BackgroundTasks,
+    extract_abox: bool = Query(
+        False,
+        description="Also extract the assertion graph (A-box) into the resulting ontology.",
+    ),
 ) -> StartRunResponse:
     """Trigger ontology extraction on one or more documents.
 
     Creates the run record immediately and dispatches the pipeline
     as a background task so the HTTP response returns without waiting
-    for the full extraction to complete.
+    for the full extraction to complete. ``extract_abox=true`` additionally
+    materializes typed individuals + assertions from the same chunks.
     """
     doc_ids = _resolve_doc_ids(body)
     db = get_db()
@@ -94,6 +99,7 @@ async def start_extraction(
         domain_ontology_ids=ontology_ids or None,
         target_ontology_id=body.target_ontology_id,
         base_ontology_ids=body.base_ontology_ids,
+        extract_abox=extract_abox,
     )
     return StartRunResponse(
         run_id=run_record["_key"],

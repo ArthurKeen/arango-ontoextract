@@ -128,3 +128,81 @@ test("adjudicate calls the endpoint and refetches", async () => {
     ).toBe(true),
   );
 });
+
+test("shows a hallucination badge for an ungrounded LLM correspondence (AL-PR8)", async () => {
+  apiGet.mockImplementation((path: string) => {
+    if (path.startsWith("/api/v1/ontology/library")) {
+      return Promise.resolve({
+        data: [
+          { _key: "ont1", name: "Alpha" },
+          { _key: "ont2", name: "Beta" },
+        ],
+      });
+    }
+    if (path.includes("/candidates")) {
+      return Promise.resolve({
+        session_id: "S1",
+        count: 1,
+        candidates: [
+          {
+            ...CANDIDATE,
+            adjudication: {
+              method: "llm",
+              verdict: "equivalent",
+              recommendation: "review",
+              hallucination: true,
+              disagreement: true,
+            },
+          },
+        ],
+      });
+    }
+    return Promise.resolve({});
+  });
+  renderOverlay();
+  fireEvent.click(await screen.findByTestId("alignment-source-ont2"));
+  fireEvent.click(screen.getByTestId("alignment-run"));
+
+  expect(await screen.findByTestId("alignment-badge-hallucination-c1")).toBeInTheDocument();
+  // hallucination supersedes the disagreement badge (don't double-flag)
+  expect(screen.queryByTestId("alignment-badge-disagreement-c1")).not.toBeInTheDocument();
+});
+
+test("surfaces the coherence-repair removals after materialize (AL-PR7)", async () => {
+  apiPost.mockImplementation((path: string) => {
+    if (path === "/api/v1/alignment/sessions") {
+      return Promise.resolve({ _key: "S1", candidate_count: 1 });
+    }
+    if (path.endsWith("/materialize")) {
+      return Promise.resolve({
+        master_id: "M1",
+        class_count: 1,
+        equivalence_edges: 2,
+        repair: {
+          removed: 1,
+          removals: [
+            {
+              correspondence_key: "c9",
+              confidence: 0.55,
+              resolves_conflict: { a: ["oa", "X"], b: ["oa", "Z"] },
+            },
+          ],
+        },
+      });
+    }
+    return Promise.resolve({});
+  });
+  renderOverlay();
+  fireEvent.click(await screen.findByTestId("alignment-source-ont2"));
+  fireEvent.click(screen.getByTestId("alignment-run"));
+  await screen.findByTestId("alignment-candidate-c1");
+  fireEvent.click(screen.getByTestId("alignment-accept-c1"));
+  await waitFor(() =>
+    expect(screen.getByTestId("alignment-materialize")).not.toBeDisabled(),
+  );
+  fireEvent.click(screen.getByTestId("alignment-materialize"));
+
+  const repair = await screen.findByTestId("alignment-repair");
+  expect(repair).toHaveTextContent("removed 1 correspondence");
+  expect(repair).toHaveTextContent("c9");
+});

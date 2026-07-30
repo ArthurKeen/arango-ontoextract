@@ -80,8 +80,20 @@ export function buildOntologyContextMenu(
       },
     },
     {
-      label: "View Dependency Graph…",
+      // Stream 20: align this ontology with others into a reconciled master.
+      // Mirrors the canvas menu's "Align Ontologies…" so curators can reach it
+      // straight from the ontology row (discoverability).
+      label: "Align Ontologies…",
       icon: "🔗",
+      onClick: () => {
+        if (!ontKey) return;
+        const n = String(data.name ?? data.label ?? ontKey).trim();
+        actions.setAlignmentReview({ key: ontKey, name: n || ontKey });
+      },
+    },
+    {
+      label: "View Dependency Graph…",
+      icon: "🕸",
       onClick: () => {
         if (!ontKey) return;
         const n = String(data.name ?? data.label ?? ontKey).trim();

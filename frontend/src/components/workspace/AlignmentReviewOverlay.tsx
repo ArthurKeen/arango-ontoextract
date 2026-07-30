@@ -35,7 +35,22 @@ interface Correspondence {
   confidence: number;
   type: string;
   status: string;
-  adjudication?: { method?: string; verdict?: string; recommendation?: string } | null;
+  adjudication?: {
+    method?: string;
+    verdict?: string;
+    recommendation?: string;
+    // AL-PR8 classical-anchor ensemble signals.
+    hallucination?: boolean;
+    disagreement?: boolean;
+    review_priority?: number;
+  } | null;
+}
+
+// AL-PR7 coherence-repair removals returned by materialize.
+interface RepairRemoval {
+  correspondence_key?: string;
+  confidence?: number;
+  resolves_conflict?: { a?: string[]; b?: string[] };
 }
 
 interface SessionResponse {
@@ -58,6 +73,7 @@ interface MaterializeResponse {
   master_id: string;
   class_count: number;
   equivalence_edges: number;
+  repair?: { removed: number; removals: RepairRemoval[] };
 }
 
 interface Props {
@@ -97,6 +113,9 @@ export default function AlignmentReviewOverlay({
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [masterId, setMasterId] = useState<string | null>(null);
+  const [repair, setRepair] = useState<{ removed: number; removals: RepairRemoval[] } | null>(
+    null,
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -203,7 +222,12 @@ export default function AlignmentReviewOverlay({
         {},
       );
       setMasterId(res.master_id);
-      setToast(`Master ${res.master_id}: ${res.class_count} class(es)`);
+      setRepair(res.repair ?? null);
+      const removed = res.repair?.removed ?? 0;
+      setToast(
+        `Master ${res.master_id}: ${res.class_count} class(es)` +
+          (removed ? `, ${removed} removed for coherence` : ""),
+      );
       onChanged?.();
     } catch (err) {
       setError(errMsg(err, "Materialization failed"));
@@ -320,6 +344,37 @@ export default function AlignmentReviewOverlay({
               </div>
             )}
 
+            {repair && repair.removed > 0 && (
+              <div
+                className="mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2"
+                data-testid="alignment-repair"
+              >
+                <div className="font-medium">
+                  Coherence repair removed {repair.removed} correspondence
+                  {repair.removed === 1 ? "" : "s"} to keep the master satisfiable (a
+                  declared-disjoint pair would otherwise have been merged):
+                </div>
+                <ul className="mt-1 space-y-0.5">
+                  {repair.removals.slice(0, 8).map((r, i) => (
+                    <li key={r.correspondence_key ?? i} className="text-amber-700">
+                      • {r.correspondence_key ?? "?"}
+                      {typeof r.confidence === "number"
+                        ? ` (confidence ${Math.round(r.confidence * 100)}%)`
+                        : ""}
+                      {r.resolves_conflict?.a && r.resolves_conflict?.b
+                        ? ` — resolved ${(r.resolves_conflict.a ?? []).join("/")} ≢ ${(
+                            r.resolves_conflict.b ?? []
+                          ).join("/")}`
+                        : ""}
+                    </li>
+                  ))}
+                  {repair.removals.length > 8 && (
+                    <li className="text-amber-600">+{repair.removals.length - 8} more…</li>
+                  )}
+                </ul>
+              </div>
+            )}
+
             <ul className="space-y-2">
               {candidates.map((c) => (
                 <li
@@ -332,7 +387,28 @@ export default function AlignmentReviewOverlay({
                       {c.source_a.label ?? c.source_a.entity_key} ↔{" "}
                       {c.source_b.label ?? c.source_b.entity_key}
                     </span>
-                    <span className="text-xs text-slate-500">{c.type}</span>
+                    <span className="flex items-center gap-1.5">
+                      {c.adjudication?.hallucination ? (
+                        <span
+                          data-testid={`alignment-badge-hallucination-${c._key}`}
+                          title="LLM proposed this match with no grounded source anchor — never auto-accepted; confirm with care."
+                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700"
+                        >
+                          ⚠ hallucination
+                        </span>
+                      ) : (
+                        c.adjudication?.disagreement && (
+                          <span
+                            data-testid={`alignment-badge-disagreement-${c._key}`}
+                            title="LLM verdict disagrees with the classical (lexical/structural) anchor — prioritized for review."
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
+                          >
+                            ⚠ disagreement
+                          </span>
+                        )
+                      )}
+                      <span className="text-xs text-slate-500">{c.type}</span>
+                    </span>
                   </div>
                   <div className="mt-1 flex items-center gap-2">
                     <div className="h-1.5 w-28 rounded bg-slate-100">

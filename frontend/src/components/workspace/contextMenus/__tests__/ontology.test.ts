@@ -80,6 +80,7 @@ describe("buildOntologyContextMenu", () => {
       "Edit name & description",
       "Release",
       "Manage Imports",
+      "Align Ontologies…",
       "View Dependency Graph…",
       "Compare Schema Evolution…",
       "View Quality Report",
@@ -91,6 +92,21 @@ describe("buildOntologyContextMenu", () => {
       "Export",
       "Delete",
     ]);
+  });
+
+  it("Align Ontologies… opens the alignment overlay for this ontology", () => {
+    const actions = makeActions();
+    const items = buildOntologyContextMenu(
+      { _key: "ont-1", name: "WTW Ontology" },
+      actions,
+    );
+    const align = items.find((it) => it.label === "Align Ontologies…");
+    expect(align).toBeDefined();
+    align?.onClick?.();
+    expect(actions.setAlignmentReview).toHaveBeenCalledWith({
+      key: "ont-1",
+      name: "WTW Ontology",
+    });
   });
 
   it("Compare Schema Evolution… seeds the schema diff overlay with key + name", () => {

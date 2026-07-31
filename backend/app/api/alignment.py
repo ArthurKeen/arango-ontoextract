@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.config import settings
 from app.services import alignment as alignment_svc
 
 log = logging.getLogger(__name__)
@@ -44,8 +45,15 @@ class RefreshRequest(BaseModel):
 
 @router.post("/sessions")
 async def create_session(body: CreateSessionRequest) -> dict[str, Any]:
-    """Create a session, generate candidate correspondences, and persist them."""
+    """Create a session, generate candidate correspondences, and persist them.
+
+    When the embedding pre-filter is enabled (FR-17.2), first populate entity
+    embeddings + the vector index for the sources so candidate generation can
+    retrieve top-k neighbours instead of scoring the full cross-source product.
+    """
     try:
+        if settings.alignment_embedding_prefilter_enabled:
+            await alignment_svc.ensure_alignment_embeddings(None, body.source_ontology_ids)
         return alignment_svc.create_alignment_session(
             source_ontology_ids=body.source_ontology_ids,
             min_score=body.min_score,

@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     #: is never auto-accepted (routed to review); LLM-vs-classical disagreements are
     #: prioritized (PRD §6.17 FR-17.9 / FR-17.10).
     alignment_classical_anchor_threshold: float = 0.6
+    #: Stream 20 AL-PR11 (PRD §6.17 FR-17.2) — narrow the candidate set with an
+    #: embedding top-k vector retrieval before scoring, instead of the full
+    #: cross-source product. Off by default so small use-case-scoped masters keep
+    #: exhaustive O(n·m) recall; enable for large sources where n·m is prohibitive.
+    #: When on, entities lacking an embedding fall back to the full product so no
+    #: class is silently dropped.
+    alignment_embedding_prefilter_enabled: bool = False
+    #: FR-17.2 — per source entity, how many nearest cross-source neighbours to
+    #: retain as scoring candidates when the embedding pre-filter is on.
+    alignment_prefilter_k: int = 20
     #: Stream 21 — enable assertion-graph (A-box) extraction (PRD §6.18). Gates
     #: any pipeline-driven A-box run; the service is also invocable explicitly.
     extract_abox: bool = False

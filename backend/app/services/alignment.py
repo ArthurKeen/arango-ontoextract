@@ -8,12 +8,13 @@ populated by ``ontology_embeddings`` (SF.1) when present. Only pairs at or above
 ``min_score`` become candidate correspondences; each carries per-signal scores, a
 confidence, and a *provisional* type by score band.
 
-Scope note (P1): this scores all cross-source pairs, which is fine for the small,
-use-case-scoped masters P1 targets (CDF M3). For large sources, narrow the
-candidate set first with ``ontology_embeddings.search_similar`` (embedding
-retrieval) before scoring — deferred to the scale PR. The expensive LLM
-adjudication of borderline pairs is AL-PR3; here every candidate's type is a
-cheap heuristic.
+Scale (AL-PR11, FR-17.2): by default this scores all cross-source pairs, which is
+fine for the small, use-case-scoped masters P1 targets (CDF M3). For large
+sources, enable ``settings.alignment_embedding_prefilter_enabled`` to narrow the
+candidate set first with ``ontology_embeddings.search_similar`` (embedding top-k
+retrieval) before scoring; entities without an embedding fall back to the full
+product so recall never silently regresses. The expensive LLM adjudication of
+borderline pairs is AL-PR3; here every candidate's type is a cheap heuristic.
 """
 
 from __future__ import annotations
@@ -56,6 +57,8 @@ def generate_candidates(
     min_score: float = 0.5,
     weights: dict[str, float] | None = None,
     scope: dict[str, set[str]] | None = None,
+    use_embedding_prefilter: bool | None = None,
+    prefilter_k: int | None = None,
 ) -> list[dict[str, Any]]:
     """Score cross-source class pairs and return candidate correspondences.
 
@@ -67,7 +70,18 @@ def generate_candidates(
     ``{ontology_id: {entity_key, ...}}``. When set, a pair is emitted only if at
     least one of its two nodes is in scope, so a source edit re-aligns just the
     affected subset instead of the full NxM product.
+
+    ``use_embedding_prefilter`` (FR-17.2) narrows the pairs to score using an
+    embedding top-``prefilter_k`` vector retrieval instead of the full NxM
+    product (defaults to ``settings.alignment_embedding_prefilter_enabled``).
+    Entities without an embedding fall back to the full product so nothing is
+    silently dropped.
     """
+    if use_embedding_prefilter is None:
+        use_embedding_prefilter = settings.alignment_embedding_prefilter_enabled
+    if prefilter_k is None:
+        prefilter_k = settings.alignment_prefilter_k
+
     oids = list(dict.fromkeys(source_ontology_ids))  # dedup, preserve order
     if len(oids) < 2 or not db.has_collection("ontology_classes"):
         return []
@@ -92,46 +106,139 @@ def generate_candidates(
     )
 
     by_oid: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    key_to_row: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
-        by_oid[str(row.get("ontology_id") or "")].append(row)
+        oid = str(row.get("ontology_id") or "")
+        by_oid[oid].append(row)
+        key_to_row[(oid, str(row.get("_key")))] = row
 
-    def _in_scope(oid: str, key: str) -> bool:
-        return scope is not None and key in scope.get(oid, set())
+    def _in_scope(a: dict[str, Any], b: dict[str, Any]) -> bool:
+        if scope is None:
+            return True
+        return str(a["_key"]) in scope.get(str(a["ontology_id"]), set()) or str(
+            b["_key"]
+        ) in scope.get(str(b["ontology_id"]), set())
+
+    if use_embedding_prefilter:
+        pairs = _prefiltered_pairs(db, oids, by_oid, key_to_row, prefilter_k)
+    else:
+        pairs = _full_product_pairs(oids, by_oid)
 
     candidates: list[dict[str, Any]] = []
+    for a, b in pairs:
+        if not _in_scope(a, b):
+            continue  # scoped refresh: only pairs touching a changed class
+        scored = matching.score_candidate(a, b, weights=weights)
+        combined = scored["combined"]
+        if combined < min_score:
+            continue
+        candidates.append(
+            {
+                "source_a": {
+                    "ontology_id": a["ontology_id"],
+                    "entity_key": a["_key"],
+                    "label": a.get("label"),
+                },
+                "source_b": {
+                    "ontology_id": b["ontology_id"],
+                    "entity_key": b["_key"],
+                    "label": b.get("label"),
+                },
+                "scores": scored,
+                "confidence": combined,
+                "type": _provisional_type(a, b, combined),
+                "status": "candidate",
+            }
+        )
+
+    candidates.sort(key=lambda c: c["confidence"], reverse=True)
+    return candidates
+
+
+def _full_product_pairs(
+    oids: list[str], by_oid: dict[str, list[dict[str, Any]]]
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Every cross-source class pair, oriented so ``a`` is from the earlier source."""
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for i in range(len(oids)):
         for j in range(i + 1, len(oids)):
             for a in by_oid.get(oids[i], []):
                 for b in by_oid.get(oids[j], []):
-                    if scope is not None and not (
-                        _in_scope(oids[i], a["_key"]) or _in_scope(oids[j], b["_key"])
-                    ):
-                        continue  # scoped refresh: only pairs touching a changed class
-                    scored = matching.score_candidate(a, b, weights=weights)
-                    combined = scored["combined"]
-                    if combined < min_score:
-                        continue
-                    candidates.append(
-                        {
-                            "source_a": {
-                                "ontology_id": a["ontology_id"],
-                                "entity_key": a["_key"],
-                                "label": a.get("label"),
-                            },
-                            "source_b": {
-                                "ontology_id": b["ontology_id"],
-                                "entity_key": b["_key"],
-                                "label": b.get("label"),
-                            },
-                            "scores": scored,
-                            "confidence": combined,
-                            "type": _provisional_type(a, b, combined),
-                            "status": "candidate",
-                        }
-                    )
+                    pairs.append((a, b))
+    return pairs
 
-    candidates.sort(key=lambda c: c["confidence"], reverse=True)
-    return candidates
+
+def _prefiltered_pairs(
+    db: StandardDatabase,
+    oids: list[str],
+    by_oid: dict[str, list[dict[str, Any]]],
+    key_to_row: dict[tuple[str, str], dict[str, Any]],
+    prefilter_k: int,
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """FR-17.2 embedding retrieval: for each source class, keep only its top-k
+    nearest cross-source neighbours (by cosine over the entity vector index).
+
+    Pairs are oriented (``a`` from the earlier source in ``oids``) and de-duplicated
+    so a mutual near-neighbour is scored once. Any entity without an embedding —
+    or when vector search is unavailable (no index yet) — falls back to the full
+    cross-source product for that entity, so recall never silently regresses.
+    """
+    from app.services import ontology_embeddings
+
+    oid_pos = {oid: i for i, oid in enumerate(oids)}
+    source_set = set(oids)
+    seen: set[tuple[str, str, str, str]] = set()
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    # APPROX_NEAR_COSINE returns the globally nearest across ALL ontologies
+    # (including the query's own and non-source ones), so over-fetch and filter.
+    fetch_k = max(prefilter_k * max(1, len(oids)), prefilter_k + 5)
+
+    def _add(a: dict[str, Any], b: dict[str, Any]) -> None:
+        a_oid, b_oid = str(a["ontology_id"]), str(b["ontology_id"])
+        if a_oid == b_oid:
+            return
+        # Orient by (source position, key) so orientation + dedup are stable.
+        if (oid_pos[a_oid], str(a["_key"])) > (oid_pos[b_oid], str(b["_key"])):
+            a, b = b, a
+            a_oid, b_oid = b_oid, a_oid
+        token = (a_oid, str(a["_key"]), b_oid, str(b["_key"]))
+        if token in seen:
+            return
+        seen.add(token)
+        pairs.append((a, b))
+
+    def _fallback_full(a: dict[str, Any]) -> None:
+        for other in oids:
+            if other == str(a["ontology_id"]):
+                continue
+            for b in by_oid.get(other, []):
+                _add(a, b)
+
+    for oid in oids:
+        for a in by_oid.get(oid, []):
+            emb = a.get("embedding")
+            if not emb:
+                _fallback_full(a)
+                continue
+            try:
+                hits = ontology_embeddings.search_similar(db, "ontology_classes", emb, k=fetch_k)
+            except Exception:
+                log.debug(
+                    "[alignment] vector search failed; full-product fallback for %s",
+                    a.get("_key"),
+                    exc_info=True,
+                )
+                _fallback_full(a)
+                continue
+            for h in hits:
+                b_oid = str(h.get("ontology_id") or "")
+                if b_oid == oid or b_oid not in source_set:
+                    continue
+                b = key_to_row.get((b_oid, str(h.get("_key"))))
+                if b is not None:
+                    _add(a, b)
+
+    return pairs
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +499,38 @@ def create_alignment_session(
         len(set(source_ontology_ids)),
     )
     return {**session, "candidate_count": count}
+
+
+async def ensure_alignment_embeddings(
+    db: StandardDatabase | None,
+    source_ontology_ids: list[str],
+) -> dict[str, Any]:
+    """Populate entity embeddings + the vector index for the alignment sources (FR-17.2).
+
+    Idempotent (``only_missing`` skips already-embedded entities), so it is safe to
+    call on every session create. Best-effort: a provider/index failure is logged
+    and swallowed — ``generate_candidates`` then falls back to the full product, so
+    alignment still runs, just without the retrieval speed-up.
+    """
+    if db is None:
+        db = get_db()
+    from app.services import ontology_embeddings
+
+    result: dict[str, Any] = {"embedded": {}, "indexed": False}
+    try:
+        total: dict[str, int] = {}
+        for oid in dict.fromkeys(source_ontology_ids):
+            counts = await ontology_embeddings.embed_ontology_entities(db, oid)
+            for name, n in counts.items():
+                total[name] = total.get(name, 0) + n
+        result["embedded"] = total
+        result["indexed"] = ontology_embeddings.ensure_entity_vector_index(db, "ontology_classes")
+    except Exception:
+        log.warning(
+            "[alignment] embedding prep failed; candidate generation will use the full product",
+            exc_info=True,
+        )
+    return result
 
 
 def get_alignment_session(db: StandardDatabase | None, session_id: str) -> dict[str, Any] | None:

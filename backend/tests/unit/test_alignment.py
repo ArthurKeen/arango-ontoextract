@@ -65,6 +65,128 @@ class TestGenerateCandidates:
         assert cands and cands[0]["type"] == "owl:equivalentClass"
 
 
+class TestEmbeddingPrefilter:
+    """FR-17.2 — embedding top-k retrieval narrows the pairs scored."""
+
+    def _rows(self) -> list[dict]:
+        # A2/B2 are IDENTICAL ("Widget") so they WOULD match in the full product;
+        # the prefilter must exclude them when retrieval doesn't surface the pair.
+        return [
+            {**_class("A1", "ontA", "Account", "bank account"), "embedding": [1.0, 0.0]},
+            {**_class("A2", "ontA", "Widget", "a gadget"), "embedding": [0.0, 1.0]},
+            {**_class("B1", "ontB", "Account", "bank account"), "embedding": [1.0, 0.0]},
+            {**_class("B2", "ontB", "Widget", "a gadget"), "embedding": [0.0, 1.0]},
+        ]
+
+    def test_scores_only_retrieved_neighbours(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = True
+
+        def fake_search(_db, _coll, q, k):
+            # Only the Account vector retrieves a cross-source neighbour; the
+            # Widget vector retrieves nothing (simulating index recall).
+            if q == [1.0, 0.0]:
+                return [
+                    {"_key": "B1", "ontology_id": "ontB", "score": 0.99},
+                    {"_key": "A1", "ontology_id": "ontA", "score": 1.0},  # self, filtered
+                ]
+            return []
+
+        with (
+            patch.object(al, "run_aql", return_value=iter(self._rows())),
+            patch("app.services.ontology_embeddings.search_similar", side_effect=fake_search),
+        ):
+            cands = al.generate_candidates(
+                db,
+                source_ontology_ids=["ontA", "ontB"],
+                min_score=0.5,
+                use_embedding_prefilter=True,
+            )
+        keys = {(c["source_a"]["entity_key"], c["source_b"]["entity_key"]) for c in cands}
+        assert ("A1", "B1") in keys
+        # The identical Widget pair was NOT retrieved -> never scored.
+        assert ("A2", "B2") not in keys
+
+    def test_missing_embedding_falls_back_to_full_product(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = True
+        rows = [
+            _class("A2", "ontA", "Widget", "a gadget"),  # no embedding
+            _class("B2", "ontB", "Widget", "a gadget"),  # no embedding
+        ]
+        with (
+            patch.object(al, "run_aql", return_value=iter(rows)),
+            patch("app.services.ontology_embeddings.search_similar") as srch,
+        ):
+            cands = al.generate_candidates(
+                db,
+                source_ontology_ids=["ontA", "ontB"],
+                min_score=0.5,
+                use_embedding_prefilter=True,
+            )
+        # No embeddings -> full-product fallback still scores the identical pair.
+        assert any(
+            {c["source_a"]["entity_key"], c["source_b"]["entity_key"]} == {"A2", "B2"}
+            for c in cands
+        )
+        srch.assert_not_called()  # never searched for an embedding-less entity
+
+    def test_vector_search_failure_falls_back(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = True
+        rows = [
+            {**_class("A2", "ontA", "Widget", "a gadget"), "embedding": [0.0, 1.0]},
+            {**_class("B2", "ontB", "Widget", "a gadget"), "embedding": [0.0, 1.0]},
+        ]
+        with (
+            patch.object(al, "run_aql", return_value=iter(rows)),
+            patch(
+                "app.services.ontology_embeddings.search_similar",
+                side_effect=RuntimeError("no vector index"),
+            ),
+        ):
+            cands = al.generate_candidates(
+                db,
+                source_ontology_ids=["ontA", "ontB"],
+                min_score=0.5,
+                use_embedding_prefilter=True,
+            )
+        assert any(
+            {c["source_a"]["entity_key"], c["source_b"]["entity_key"]} == {"A2", "B2"}
+            for c in cands
+        )
+
+
+class TestEnsureAlignmentEmbeddings:
+    @pytest.mark.asyncio
+    async def test_embeds_each_source_and_indexes(self) -> None:
+        db = MagicMock()
+        with (
+            patch(
+                "app.services.ontology_embeddings.embed_ontology_entities",
+                new=AsyncMock(return_value={"ontology_classes": 3}),
+            ) as emb,
+            patch(
+                "app.services.ontology_embeddings.ensure_entity_vector_index", return_value=True
+            ) as idx,
+        ):
+            out = await al.ensure_alignment_embeddings(db, ["ontA", "ontB"])
+        assert emb.await_count == 2  # once per distinct source
+        idx.assert_called_once_with(db, "ontology_classes")
+        assert out["embedded"]["ontology_classes"] == 6
+        assert out["indexed"] is True
+
+    @pytest.mark.asyncio
+    async def test_failure_is_swallowed(self) -> None:
+        db = MagicMock()
+        with patch(
+            "app.services.ontology_embeddings.embed_ontology_entities",
+            new=AsyncMock(side_effect=RuntimeError("provider down")),
+        ):
+            out = await al.ensure_alignment_embeddings(db, ["ontA", "ontB"])
+        assert out["indexed"] is False  # never got there, but no raise
+
+
 class TestCreateAlignmentSession:
     def test_rejects_fewer_than_two_sources(self) -> None:
         db = MagicMock()

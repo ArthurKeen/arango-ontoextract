@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from app.api.ontology import _shared
 from app.config import settings
 from app.db import cq_gap_repo, requirements_repo
-from app.services import cq_coverage, cq_formalize
+from app.services import cq_coverage, cq_formalize, cq_suggest
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -76,6 +76,43 @@ async def formalize_requirements(ontology_id: str, overwrite: bool = False) -> d
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+class SuggestCQRequest(BaseModel):
+    """LLM CQ-suggestion inputs (all optional; purpose falls back to the spec)."""
+
+    purpose: str | None = None
+    sample_texts: list[str] = Field(default_factory=list)
+    n: int = Field(6, ge=1, le=20)
+
+
+class LintCQRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+@router.post("/{ontology_id}/requirements/suggest")
+async def suggest_requirements(ontology_id: str, body: SuggestCQRequest) -> dict[str, Any]:
+    """LLM-propose candidate competency questions (CQ-PR2, FR-19.2).
+
+    Returns ``status="proposed"`` suggestions, each linted for VSPO pitfalls.
+    Nothing is persisted — the curator accepts/edits them in the overlay.
+    """
+    _require_ontology(ontology_id)
+    suggestions = await cq_suggest.suggest_cqs(
+        _shared.get_db(),
+        ontology_id=ontology_id,
+        purpose=body.purpose,
+        sample_texts=body.sample_texts,
+        n=body.n,
+    )
+    return {"ontology_id": ontology_id, "suggestions": suggestions, "count": len(suggestions)}
+
+
+@router.post("/{ontology_id}/requirements/lint")
+async def lint_requirement(ontology_id: str, body: LintCQRequest) -> dict[str, Any]:
+    """Return VSPO-style pitfalls for one competency question (deterministic)."""
+    pitfalls = cq_suggest.lint_cq(body.text)
+    return {"text": body.text, "pitfalls": pitfalls, "count": len(pitfalls)}
 
 
 @router.post("/{ontology_id}/coverage")

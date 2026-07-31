@@ -106,3 +106,38 @@ test("Run coverage renders the report + gaps", async () => {
   expect(screen.getByTestId("coverage-gaps")).toHaveTextContent("Q2");
   expect(apiPost.mock.calls[0][0]).toBe("/api/v1/ontology/o1/coverage");
 });
+
+test("Suggest CQs shows LLM proposals with pitfall badges; Accept adds to the spec", async () => {
+  apiGet.mockRejectedValue(new ApiError(404, { code: "NF", message: "no spec" }));
+  apiPost.mockImplementation((url: unknown) => {
+    if (String(url).endsWith("/requirements/suggest")) {
+      return Promise.resolve({
+        suggestions: [
+          {
+            text: "Is it active?",
+            priority: "medium",
+            status: "proposed",
+            pitfalls: [{ code: "CQ004", severity: "info", message: "Yes/no question" }],
+          },
+        ],
+      });
+    }
+    return Promise.resolve({});
+  });
+  renderOverlay();
+  await screen.findByTestId("requirements-editor");
+
+  fireEvent.click(screen.getByTestId("requirements-suggest"));
+  const sug = await screen.findByTestId("cq-suggestion-0");
+  expect(sug).toHaveTextContent("Is it active?");
+  // VSPO pitfall badge rendered
+  expect(screen.getByTestId("cq-suggestion-pitfalls-0-CQ004")).toBeInTheDocument();
+  expect(apiPost.mock.calls[0][0]).toBe("/api/v1/ontology/o1/requirements/suggest");
+
+  // Accept -> creates a use case and adds the CQ; suggestion removed.
+  fireEvent.click(screen.getByTestId("cq-suggestion-accept-0"));
+  await waitFor(() =>
+    expect(screen.queryByTestId("cq-suggestion-0")).not.toBeInTheDocument(),
+  );
+  expect(screen.getByTestId("cq-text-0-0")).toHaveValue("Is it active?");
+});

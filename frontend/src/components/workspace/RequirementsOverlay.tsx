@@ -14,16 +14,30 @@
  *   GET    /api/v1/ontology/{id}/requirements
  *   PUT    /api/v1/ontology/{id}/requirements
  *   POST   /api/v1/ontology/{id}/coverage
+ *   POST   /api/v1/ontology/{id}/requirements/suggest   (LLM CQ suggestion, FR-19.2)
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api } from "@/lib/api-client";
+
+interface Pitfall {
+  code: string;
+  severity: string;
+  message: string;
+}
 
 interface CompetencyQuestion {
   text: string;
   priority: string;
   status?: string;
   query?: string | null;
+}
+
+interface SuggestedCQ {
+  text: string;
+  priority: string;
+  status: string;
+  pitfalls: Pitfall[];
 }
 
 interface UseCase {
@@ -72,6 +86,8 @@ export default function RequirementsOverlay({ ontologyId, ontologyName, onClose 
   const [toast, setToast] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<SuggestedCQ[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -169,6 +185,48 @@ export default function RequirementsOverlay({ ontologyId, ontologyName, onClose 
       setCoverageLoading(false);
     }
   }, [ontologyId]);
+
+  const suggestCqs = useCallback(async () => {
+    setSuggesting(true);
+    setError(null);
+    try {
+      const res = await api.post<{ suggestions: SuggestedCQ[] }>(
+        `/api/v1/ontology/${encodeURIComponent(ontologyId)}/requirements/suggest`,
+        { purpose: spec.purpose, n: 6 },
+      );
+      setSuggestions(res.suggestions ?? []);
+      if ((res.suggestions ?? []).length === 0) setToast("No suggestions returned");
+    } catch (err) {
+      setError(errMsg(err, "Suggestion failed"));
+    } finally {
+      setSuggesting(false);
+    }
+  }, [ontologyId, spec.purpose]);
+
+  // Accept a suggestion (human acceptance, FR-19.2): append it to the first use
+  // case (creating a "Suggested" one if none exist) with status="accepted".
+  const acceptSuggestion = (idx: number) => {
+    const sug = suggestions[idx];
+    if (!sug) return;
+    setSpec((s) => {
+      const use_cases = s.use_cases.length
+        ? [...s.use_cases]
+        : [{ name: "Suggested", priority: "medium", competency_questions: [] }];
+      use_cases[0] = {
+        ...use_cases[0],
+        competency_questions: [
+          ...use_cases[0].competency_questions,
+          { text: sug.text, priority: sug.priority, status: "accepted" },
+        ],
+      };
+      return { ...s, use_cases };
+    });
+    setSuggestions((list) => list.filter((_, i) => i !== idx));
+    setToast("Added — remember to Save");
+  };
+
+  const dismissSuggestion = (idx: number) =>
+    setSuggestions((list) => list.filter((_, i) => i !== idx));
 
   return (
     <div
@@ -308,7 +366,57 @@ export default function RequirementsOverlay({ ontologyId, ontologyName, onClose 
               >
                 {coverageLoading ? "Checking…" : "Run coverage"}
               </button>
+              <button
+                onClick={suggestCqs}
+                disabled={suggesting}
+                className="px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-lg disabled:opacity-40"
+                data-testid="requirements-suggest"
+                title="LLM-propose competency questions (you accept each one)"
+              >
+                {suggesting ? "Suggesting…" : "✨ Suggest CQs"}
+              </button>
             </div>
+
+            {suggestions.length > 0 && (
+              <div className="mt-4 border-t border-slate-100 pt-3" data-testid="cq-suggestions">
+                <div className="text-sm font-semibold text-slate-800 mb-2">
+                  Suggested competency questions
+                  <span className="ml-2 text-xs font-normal text-slate-400">
+                    LLM proposals — accept each to add it
+                  </span>
+                </div>
+                <ul className="space-y-2">
+                  {suggestions.map((sug, k) => (
+                    <li
+                      key={k}
+                      className="border border-slate-100 rounded p-2"
+                      data-testid={`cq-suggestion-${k}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm text-slate-800">{sug.text}</span>
+                        <span className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => acceptSuggestion(k)}
+                            className="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white"
+                            data-testid={`cq-suggestion-accept-${k}`}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => dismissSuggestion(k)}
+                            className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600"
+                            data-testid={`cq-suggestion-dismiss-${k}`}
+                          >
+                            Dismiss
+                          </button>
+                        </span>
+                      </div>
+                      <PitfallBadges pitfalls={sug.pitfalls} testid={`cq-suggestion-pitfalls-${k}`} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {coverage && (
               <div className="mt-4 border-t border-slate-100 pt-3" data-testid="coverage-report">
@@ -333,6 +441,38 @@ export default function RequirementsOverlay({ ontologyId, ontologyName, onClose 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const PITFALL_STYLES: Record<string, string> = {
+  error: "bg-rose-100 text-rose-700",
+  warning: "bg-amber-100 text-amber-700",
+  info: "bg-sky-100 text-sky-700",
+};
+
+function PitfallBadges({ pitfalls, testid }: { pitfalls: Pitfall[]; testid: string }) {
+  if (!pitfalls || pitfalls.length === 0) {
+    return (
+      <div className="mt-1 text-xs text-emerald-600" data-testid={`${testid}-clean`}>
+        ✓ no pitfalls
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1 flex flex-wrap gap-1" data-testid={testid}>
+      {pitfalls.map((p, i) => (
+        <span
+          key={i}
+          title={p.message}
+          className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+            PITFALL_STYLES[p.severity] ?? PITFALL_STYLES.info
+          }`}
+          data-testid={`${testid}-${p.code}`}
+        >
+          {p.code}: {p.message}
+        </span>
+      ))}
     </div>
   );
 }

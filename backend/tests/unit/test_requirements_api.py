@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from app.api.ontology import _shared
 from app.db import requirements_repo
 from app.main import app
-from app.services import cq_coverage, cq_formalize
+from app.services import cq_coverage, cq_formalize, cq_suggest
 
 client = TestClient(app)
 
@@ -205,4 +205,54 @@ class TestCoverageGapsEndpoint:
 
     def test_rejects_bad_status(self) -> None:
         resp = client.get("/api/v1/ontology/o1/coverage/gaps?status=bogus")
+        assert resp.status_code == 422
+
+
+class TestSuggestEndpoint:
+    def test_returns_proposed_suggestions(self) -> None:
+        suggestions = [
+            {
+                "text": "Which suppliers ship a product?",
+                "priority": "high",
+                "status": "proposed",
+                "pitfalls": [],
+            },
+        ]
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(_shared.registry_repo, "get_registry_entry", return_value={"_key": "o1"}),
+            patch.object(cq_suggest, "suggest_cqs", new=AsyncMock(return_value=suggestions)) as mk,
+        ):
+            resp = client.post(
+                "/api/v1/ontology/o1/requirements/suggest",
+                json={"purpose": "supply chain", "n": 3},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["count"] == 1
+        assert body["suggestions"][0]["status"] == "proposed"
+        assert mk.call_args.kwargs["n"] == 3
+
+    def test_404_when_ontology_missing(self) -> None:
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(_shared.registry_repo, "get_registry_entry", return_value=None),
+        ):
+            resp = client.post("/api/v1/ontology/nope/requirements/suggest", json={})
+        assert resp.status_code == 404
+
+
+class TestLintEndpoint:
+    def test_returns_pitfalls(self) -> None:
+        resp = client.post(
+            "/api/v1/ontology/o1/requirements/lint",
+            json={"text": "Is it active?"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["count"] >= 1
+        assert any(p["code"] == cq_suggest.PITFALL_BINARY for p in body["pitfalls"])
+
+    def test_422_on_empty_text(self) -> None:
+        resp = client.post("/api/v1/ontology/o1/requirements/lint", json={"text": ""})
         assert resp.status_code == 422

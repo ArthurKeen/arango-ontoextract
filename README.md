@@ -267,15 +267,17 @@ live Swagger docs at http://localhost:8010/docs.
 |---------|--------|-------------|
 | Document Ingestion | Done | Upload PDF/DOCX/Markdown → parse → chunk → embed |
 | LLM Extraction | Done | N-pass extraction with self-correction via LangGraph |
-| Schema → Ontology (structured) | Done | Structured sources → OWL/SHACL: ArangoDB collection schemas and relational (SQL) schemas mapped to classes/properties/constraints. AOE owns the SQL→OWL/SHACL mapping; `relational-schema-analyzer` is a read-only physical-schema introspector. |
+| Schema → Ontology (structured) | Done | Structured sources → OWL/SHACL: ArangoDB collection schemas (including **labeled property graphs** — a single `Node`/`relations` shape where entity/relationship *types* live in a discriminator field, read via full-scan analysis with a configurable label format) and relational (SQL) schemas mapped to classes/properties/constraints. AOE owns the SQL→OWL/SHACL mapping; `relational-schema-analyzer` is a read-only physical-schema introspector. |
 | Visual Curation | Done | Object-centric `/workspace` canvas (Sigma.js + box-arrow UML view) with context-menu actions, lenses, and floating detail panels |
 | VCR Timeline | Done | Temporal time travel with point-in-time snapshots |
 | Belief revision | Done | §6.16 / ADR-008: per-concept touchpoint verdicts (REINFORCED / REFINED / GAP-FILLING / REDUNDANT / CONTRADICTED / UNCERTAIN), Levi-identity revisions on the temporal substrate, Revisions Inbox + consolidation passes, LLM revision agent behind a circuit breaker, 6 MCP tools. Source-*change* cascade (schema/doc updates or deletions propagating retractions) is the remaining gap — planned as work item AL.12, see [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md). |
 | Entity Resolution | Partial | Hand-rolled blocking/scoring + workspace **Find Duplicates…** overlay; full `arango-entity-resolution` library integration deferred |
 | Cross-Tier ER | Partial | Find overlaps between local and domain ontologies |
-| Multi-source ontology alignment | Done | §6.17 / Stream 20: aligns N independently-built source ontologies into a reconciled **master** — candidate generation, LLM-assisted adjudication, incoherence detection + minimally-destructive repair, a classical-anchor ensemble with hallucination control, a P/R/F1 + OAEI-Interactive evaluation harness, and iterative refinement (scoped re-align on source change). Exposed via `/api/v1/alignment` and 6 MCP tools. **Spec: PRD §6.17 (FR-17.1–13) + [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md).** |
+| Multi-source ontology alignment | Done | §6.17 / Stream 20: aligns N independently-built source ontologies into a reconciled **master** — candidate generation with an optional **embedding top-k retrieval pre-filter** (vector search over the entity index instead of the full cross-source product), LLM-assisted adjudication, incoherence detection + minimally-destructive repair, a classical-anchor ensemble with hallucination control, a P/R/F1 + OAEI-Interactive evaluation harness, an active-learning **DualLoop** re-rank of the review queue, and iterative refinement (scoped re-align on source change). Exposed via `/api/v1/alignment` and MCP tools. **Spec: PRD §6.17 (FR-17.1–13) + [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md).** |
+| Assertion graph (A-box) | Done | §6.18 / Stream 21: extract typed **individuals** + relationship assertions grounded in the T-box, with char-span provenance on every fact, lightweight coreference canonicalization, SHACL / dangling-type validation, grounding + merge metrics, and approve / reject / edit **curation** over the temporal versioning layer. Optional per run (`extract_abox=true`) and emitted in TTL / JSON-LD export as `owl:NamedIndividual`. |
+| Requirements & competency questions | Done | §6.19 / Stream 22: author use cases + competency questions (CQs); LLM-**suggest** candidate CQs with a VSPO-style pitfall lint (human acceptance required — CQs are never auto-persisted); CQ→AQL formalization; coverage scoring + gap backlog + release gate; and **use-case scoping** that narrows alignment correspondences and A-box individuals to what the CQs actually need. |
 | Staging → Production | Done | Promote approved entities with temporal versioning |
-| Import/Export | Done | OWL/TTL import and TTL/JSON-LD/CSV export |
+| Import/Export | Done | OWL/TTL import and TTL/JSON-LD/CSV export (TTL/JSON-LD include the A-box — `owl:NamedIndividual` + `rdf:type` + object assertions) |
 | MCP Server | Done | 32 tools for AI agent integration (stdio + SSE) |
 | Pipeline Monitor | Done | Real-time Agent DAG with WebSocket events |
 | ArangoDB Visualizer | Done | Custom themes, canvas actions, saved queries |
@@ -457,6 +459,30 @@ make clean             # Remove caches and build artifacts
 | `POST` | `/api/v1/alignment/sessions/{session_id}/materialize` | Materialize the reconciled master |
 | `POST` | `/api/v1/alignment/sessions/{session_id}/refresh` | Re-align the subset affected by a source change |
 | `POST` | `/api/v1/alignment/candidates/{correspondence_key}/{decision}` | Accept/reject one correspondence |
+
+### Assertion Graph (A-box)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/ontology/{id}/individuals` | List the ontology's individuals (each with its `rdf:type` class + provenance) |
+| `GET` | `/api/v1/ontology/individuals/{key}` | Get one individual |
+| `POST` | `/api/v1/ontology/individuals/{key}/curate` | Approve / reject / edit an individual (temporal soft-delete on reject) |
+| `GET` | `/api/v1/ontology/{id}/individuals/metrics` | A-box counts + grounding / typed rates + constraint-violation + merge stats |
+| `POST` | `/api/v1/ontology/{id}/individuals/canonicalize` | Detect (and optionally merge) duplicate individuals |
+| `POST` | `/api/v1/ontology/{id}/individuals/validate` | Validate the A-box (ungrounded / dangling-type / cardinality) |
+
+### Requirements & Coverage
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/ontology/{id}/requirements` | Get the requirements spec (use cases + competency questions) |
+| `PUT` | `/api/v1/ontology/{id}/requirements` | Create / replace the requirements spec |
+| `DELETE` | `/api/v1/ontology/{id}/requirements` | Delete the requirements spec |
+| `POST` | `/api/v1/ontology/{id}/requirements/suggest` | LLM-propose candidate CQs (returned `proposed`; human acceptance required) |
+| `POST` | `/api/v1/ontology/{id}/requirements/lint` | VSPO-style pitfall lint for one CQ |
+| `POST` | `/api/v1/ontology/{id}/requirements/formalize` | LLM-generate a read-only AQL query per CQ |
+| `POST` | `/api/v1/ontology/{id}/coverage` | Score CQ coverage (optional gap backlog + release gate) |
+| `GET` | `/api/v1/ontology/{id}/coverage/gaps` | List the coverage-gap backlog |
 
 ### Quality
 

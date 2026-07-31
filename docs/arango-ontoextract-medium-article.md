@@ -290,11 +290,97 @@ flowchart TB
 <!-- CAPTURE: Workspace canvas right-click → "Extract from ArangoDB…" → preview step. Show discovered graphs/loose collections with checkboxes and the live "N classes / M object properties" summary line. Redact host/credentials. -->
 
 
-The roadmap extends this two ways. First, an **optional LLM enrichment layer** runs *on top of* the deterministic extractor (never replacing it), adding human-readable class descriptions and a Markdown "domain description" of the schema — so the structure stays trustworthy while the prose gets richer. Second, the same pattern extends to **relational databases**: tables become classes, foreign keys object properties, columns datatype properties, and constraints SHACL — pending a clean relational-schema-analyzer library.
+Two extensions are already in place. First, the same pattern now covers **relational databases** as a first-class source: tables become classes, foreign keys object properties, columns datatype properties, and constraints SHACL — a deterministic SQL→OWL/SHACL mapping AOE owns outright (the `relational-schema-analyzer` library is only a read-only physical-schema introspector), exposed over both REST and MCP. Second, the ArangoDB walk handles **labeled property graphs** — the "single `Node` collection + single `relations` edge collection" shape (common in graph-database and Neo4j exports) where entity and relationship *types* live in a discriminator field rather than in collection names. AOE detects that shape, reads every distinct type value via a full-scan aggregation (not a sample), resolves each relationship's domain/range from the endpoints, and lets you pick the label format — turning one physical `Node` table into the dozens of real classes it actually encodes.
+
+Still on the roadmap: an **optional LLM enrichment layer** *on top of* the deterministic extractor (never replacing it), adding human-readable class descriptions and a Markdown "domain description" of the schema — so the structure stays trustworthy while the prose gets richer.
 
 ---
 
-## 10. The workspace: one stage, not a maze of pages
+## 10. Reconciling many sources into one master
+
+The two-tier library composes knowledge *vertically* — local ontologies extend shared ones. But organizations also accumulate several ontologies of the *same* domain, built independently from different documents and databases, that need reconciling *horizontally*. Merging them by hand is exactly the tedious, error-prone work ontology engineers dread.
+
+AOE aligns N source ontologies into a single governed **master**. The design principle mirrors the extraction pipeline: spend LLM tokens only where they change the answer, and never let the model's confidence go unchecked.
+
+```mermaid
+flowchart LR
+    Src["N source ontologies"] --> Ret["Embedding retrieval<br/>top-k nearest cross-source<br/>(vector index, not full NxM)"]
+    Ret --> Score["Multi-signal scoring<br/>label · description · embedding"]
+    Score --> Adj{Confidence band}
+    Adj -->|high| Auto["Auto-accept"]
+    Adj -->|borderline| LLM["LLM adjudication<br/>(only the uncertain middle)"]
+    Auto --> Ens["Classical-anchor ensemble<br/>reject ungrounded LLM matches<br/>(hallucination control)"]
+    LLM --> Ens
+    Ens --> Rep["Incoherence repair<br/>never merge a disjoint pair;<br/>remove lowest-confidence link"]
+    Rep --> Master([Reconciled master])
+```
+
+*Figure 10 — Multi-source alignment. Embedding retrieval narrows the candidate set, an LLM adjudicates only borderline pairs, a classical-anchor ensemble catches hallucinated correspondences, and incoherent merges are minimally repaired — every removal reported, the whole master reversible.*
+
+![Alignment review overlay: candidate correspondences with confidence, hallucination/disagreement badges, and coherence-repair removals](images/alignment-review.png)
+*Screenshot — the alignment review overlay: candidate correspondences ranked for review, with hallucination / disagreement badges and the coherence-repair removals surfaced where curators actually decide.*
+<!-- CAPTURE: Right-click an ontology row → "Align Ontologies…" → AlignmentReviewOverlay with a session that has candidates. Show the confidence-ranked list, at least one hallucination/disagreement badge, and (post-materialize) the repair-removals block. -->
+
+Four ideas do the heavy lifting. **Embedding retrieval** (FR-17.2) fetches each class's top-k nearest cross-source neighbours from the entity vector index instead of scoring the full cross-source product — the difference between tractable and hopeless on large sources; entities without an embedding fall back to the full product so recall never silently regresses. **Selective adjudication** auto-accepts the confident band and reserves the LLM for the uncertain middle. The **classical-anchor ensemble** (FR-17.9/17.10) refuses to auto-accept any LLM correspondence that lacks a grounded lexical or structural anchor, and prioritizes LLM-vs-classical disagreements for review — hallucination control, not blind trust. And **incoherence repair** (FR-17.5) detects clusters that would merge a declared `owl:disjointWith` pair and removes the single lowest-confidence correspondence on the connecting path until the master is coherent — reporting every removal. A **DualLoop** active-learning signal re-ranks the review queue so each accept/reject surfaces the next most informative pair, and a source edit triggers a *scoped* re-align of just the affected subset rather than the whole product.
+
+---
+
+## 11. Beyond the schema: the assertion graph
+
+Everything so far builds the **T-box** — the schema: classes, properties, hierarchies, constraints. But a knowledge graph you can actually query needs the **A-box** too: the concrete **individuals** (instances) and the relationships asserted between them. "Acme Corp" *is a* Company; "Acme" *employs* "Bob."
+
+AOE optionally extracts the A-box from the same document chunks, grounded in the T-box it just built.
+
+```mermaid
+flowchart TB
+    Chunk["Document chunk"] --> Slice["Retrieve schema slice<br/>(classes relevant to this text)"]
+    Slice --> Ext["LLM: individuals + assertions"]
+    Ext --> Ground["Ground to a T-box class<br/>(schema-guided: drop ungrounded)"]
+    Ground --> Canon["Canonicalize coreferent mentions<br/>(class + normalized label)"]
+    Canon --> Mat["Materialize with span provenance<br/>(owl:NamedIndividual + rdf:type + assertions)"]
+    Mat --> Cur{{"Curate: approve / reject / edit<br/>(temporal — reject is a soft-delete)"}}
+```
+
+*Figure 11 — A-box extraction. Individuals are typed against the existing schema (ungrounded mentions dropped), coreferent mentions canonicalized, every fact stamped with its source char-span, and each individual curatable over the same temporal layer as the schema.*
+
+![Instance lens: extracted individuals with their type class, source-span count, and approve/edit/reject actions](images/instance-lens.png)
+*Screenshot — the instance lens (A-box): extracted individuals, each with its `rdf:type` class and how many source spans grounded it, plus per-row approve / edit / reject curation.*
+<!-- CAPTURE: Open the Instances (A-box) overlay for an ontology that has individuals. Show rows with type badges + the 📎 span count, and hover a row to reveal the approve/edit/reject actions. -->
+
+The same principles that make the T-box trustworthy carry over. Extraction is **schema-guided** — an individual whose type isn't a class in the retrieved slice is dropped rather than invented. Coreferent mentions across chunks are **canonicalized** by (class, normalized label), so "Acme" and "Acme Corp" become one individual, not two. Every individual and every assertion carries **char-span provenance** back to the exact sentence it came from. Validation flags ungrounded individuals, dangling types, and cardinality violations; grounding and merge metrics quantify how much of the A-box is actually anchored. And curation is **temporal** like everything else: rejecting an individual is a soft-delete — it leaves the live graph but stays queryable as-of a past time — and the A-box exports alongside the T-box as `owl:NamedIndividual` declarations with their types and assertions.
+
+---
+
+## 12. Extraction driven by the questions it must answer
+
+An ontology isn't built for its own sake — it exists to answer questions. AOE makes those **competency questions (CQs)** first-class, and then uses them to *shape* everything else.
+
+A curator authors use cases and their CQs directly, or an LLM proposes candidates from the ontology's purpose statement and existing class labels (NeOn-GPT-style). The crucial guard: because automated CQs are unreliable, **every suggestion is `proposed` until a human accepts it** — nothing is auto-persisted — and a deterministic **VSPO-style pitfall lint** flags malformed questions before they waste anyone's time (not phrased as a question, compound "and/or" clauses, yes/no binaries, no domain term to ground).
+
+```mermaid
+flowchart TB
+    Purpose["Purpose + class labels"] --> Suggest["LLM suggests candidate CQs"]
+    Suggest --> Lint["VSPO pitfall lint<br/>(not-a-question · compound · binary · ungrounded)"]
+    Lint --> Human{{"Human accepts / edits<br/>(never auto-persisted)"}}
+    Human --> CQ["Accepted competency questions"]
+    CQ --> Formal["Formalize → read-only AQL"]
+    Formal --> Cov["Coverage score + gap backlog + release gate"]
+    CQ --> Scope["CQ term set scopes:<br/>which correspondences · which individuals"]
+    Scope --> Master["Use-case-scoped master (alignment)"]
+    Scope --> Abox["Selective A-box (individuals)"]
+```
+
+*Figure 12 — Requirements-driven extraction. CQs are human-accepted (LLM-assisted, pitfall-linted), formalized to AQL, and scored for coverage — then the CQ term set scopes which cross-source correspondences and which individuals actually matter.*
+
+![Requirements overlay: use cases and competency questions with LLM suggestions and VSPO pitfall badges](images/requirements-overlay.png)
+*Screenshot — the Requirements overlay: authored use cases + CQs, an LLM "Suggest CQs" panel with per-suggestion pitfall badges, and the coverage report.*
+<!-- CAPTURE: Open the Requirements & coverage overlay. Show authored CQs, click "✨ Suggest CQs" to reveal suggestions with pitfall badges (accept/dismiss), and the coverage report + gaps below. -->
+
+The payoff closes the loop with the two capabilities above. The **CQ term set** — the entities and relationships the questions reference — is used to *scope* the rest (FR-19.9): it narrows which cross-source correspondences matter, producing a **use-case-scoped master** instead of aligning everything, and it selects which individuals to keep, producing a **selective A-box** instead of materializing every mention. The questions the ontology must answer literally shape the graph that gets built — a use-case-shaped knowledge graph, not an everything-graph.
+
+---
+
+## 13. The workspace: one stage, not a maze of pages
 
 A tool that produces graphs is only as good as the surface you curate them on. AOE deliberately rejects the "wizard with twelve pages" pattern. The entire experience is **one persistent stage** built around objects, with a single interaction contract.
 
@@ -310,7 +396,7 @@ flowchart LR
     Left -.->|drag document onto canvas| Center
 ```
 
-*Figure 10 — The object-centric workspace. Left-click selects and opens a read-only detail panel; right-click acts; drag-and-drop initiates extraction or composition. Swapping what the canvas shows is an object swap, not navigation.*
+*Figure 13 — The object-centric workspace. Left-click selects and opens a read-only detail panel; right-click acts; drag-and-drop initiates extraction or composition. Swapping what the canvas shows is an object swap, not navigation.*
 
 ![Right-click context menu on a class node](images/context-menu.png)
 *Screenshot — the interaction contract in action: right-clicking a class surfaces its actions (approve/reject, view history, provenance, delete) — no separate page required.*
@@ -321,7 +407,7 @@ The rules are strict on purpose: **left-click selects, right-click acts**, and r
 
 ---
 
-## 11. Trust, measured: quality metrics
+## 14. Trust, measured: quality metrics
 
 Because the system is automated, it has to be *legible*. AOE scores every extraction along multiple signals and rolls them into an ontology health score (0–100) with a traffic-light display:
 
@@ -340,7 +426,7 @@ These aren't vanity numbers. The connectivity and structural-integrity metrics a
 
 ---
 
-## 12. When one document spans many domains: domain detection
+## 15. When one document spans many domains: domain detection
 
 Real documents — a strategy deck, a regulatory filing — often span *several* domains at once, and a single topic can run across many slides, yet today's pipeline assumes one ontology per run. The roadmap adds **domain detection**: a pre-extraction step that clusters chunks by topic and routes them.
 
@@ -352,13 +438,13 @@ flowchart TB
     Sig --> C["Phase 2 (curator opt-in)<br/>split into per-domain ontologies<br/>+ umbrella that owl:imports them"]
 ```
 
-*Figure 11 — Domain detection roadmap. Detection is shared infrastructure; the default keeps everything in one tagged ontology, while a curator can opt into splitting into clean, reusable per-domain ontologies under an umbrella — reusing the imports machinery that already exists.*
+*Figure 14 — Domain detection roadmap. Detection is shared infrastructure; the default keeps everything in one tagged ontology, while a curator can opt into splitting into clean, reusable per-domain ontologies under an umbrella — reusing the imports machinery that already exists.*
 
 Paired with it is **structure-aware chunking**: slide boundaries never merged, speaker notes kept distinct, and cross-slide topics grouped into one "topic unit" so the extractor reasons over coherent chunks, not arbitrary token windows. Domain splitting and slide grouping are the *same capability at two scales* — segmenting a document into coherent units.
 
 ---
 
-## 13. Governing the release: agents that critique before publish
+## 16. Governing the release: agents that critique before publish
 
 Curation during extraction is one gate. The other — building out next — is the **release** boundary. Ontologies that downstream systems import via `owl:imports` or query over MCP need stable, governed versions, and hand-inspecting every concept before each release doesn't scale. So it gets its own agentic review.
 
@@ -376,7 +462,7 @@ flowchart LR
     Policy -->|"blocking finding"| Esc["Escalate to a human"]
 ```
 
-*Figure 12 — Release governance. Deterministic signals plus an LLM critic produce a findings report; a configurable autonomy policy decides whether a clean candidate auto-publishes or escalates to a person.*
+*Figure 15 — Release governance. Deterministic signals plus an LLM critic produce a findings report; a configurable autonomy policy decides whether a clean candidate auto-publishes or escalates to a person.*
 
 The point is that **autonomy is a dial, not a default**:
 
@@ -388,7 +474,7 @@ Two invariants keep the higher settings honest: **faithfulness is a floor the re
 
 ---
 
-## 14. Closing: ontologies as living systems
+## 17. Closing: ontologies as living systems
 
 The thread running through Arango-OntoExtract is a rejection of the "extract once" mental model. An ontology in AOE is:
 
@@ -398,12 +484,15 @@ The thread running through Arango-OntoExtract is a rejection of the "extract onc
 - **Revised** as new evidence arrives, instead of re-extracted from scratch.
 - **Self-repairing** in deterministic, faithfulness-preserving ways before a human ever sees it.
 - **Composed** across a shared two-tier library instead of duplicated.
+- **Reconciled** across many independent sources into one coherent, hallucination-controlled master.
+- **Populated** with grounded individuals (the A-box), not just a schema.
+- **Requirements-driven** — the competency questions it must answer scope what gets aligned and kept.
 
 One multi-model database is what makes that economical: the provenance chain, the embeddings, and the graph traversals all live in the same engine. The LLMs do the heavy lifting of *proposing* structure; the architecture does the heavier lifting of making it *trustworthy enough to keep*.
 
 That's the bet: the future of ontology engineering isn't a better one-shot extractor. It's a living system that proposes, grounds, versions, and revises — with a human holding the pen.
 
-Where we take it next follows the same thread: domain-aware segmentation that fans a mixed document out into clean, reusable per-domain ontologies; relational databases as a first-class source alongside prose; and a release-governance dial that turns up as the signals prove themselves — more candidates auto-publishing on policy, fewer waiting on a person. The faithfulness floor and reversibility never move. The destination is the same: not less human judgment, but human judgment spent where it moves the needle.
+Much of that thread is already woven in: relational databases and labeled property graphs are first-class sources alongside prose; multi-source alignment reconciles independently-built ontologies into a governed master; the A-box populates the schema with grounded facts; and competency questions shape what gets built. Where we take it next follows the same line: domain-aware segmentation that fans a mixed document out into clean, reusable per-domain ontologies, and a release-governance dial that turns up as the signals prove themselves — more candidates auto-publishing on policy, fewer waiting on a person. The faithfulness floor and reversibility never move. The destination is the same: not less human judgment, but human judgment spent where it moves the needle.
 
 ---
 

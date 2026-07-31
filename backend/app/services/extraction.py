@@ -536,7 +536,10 @@ async def execute_run(
                         from app.services.abox_extraction import extract_and_materialize_abox
 
                         abox_result = await extract_and_materialize_abox(
-                            db, ontology_id=ontology_id, chunks=chunks
+                            db,
+                            ontology_id=ontology_id,
+                            chunks=chunks,
+                            cq_scoped=settings.cq_scope_abox_enabled,
                         )
                         col.update({"_key": run_id, "abox": abox_result})
                         log.info(

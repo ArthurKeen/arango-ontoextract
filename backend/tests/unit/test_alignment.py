@@ -209,6 +209,33 @@ class TestCreateAlignmentSession:
         assert out["candidate_count"] == 2
         assert out["_key"] == "S1"
 
+    def test_cq_scoped_passes_cq_scope_to_generate(self) -> None:
+        db = MagicMock()
+        session = {"_key": "S1", "_id": "alignment_sessions/S1", "source_ontology_ids": ["a", "b"]}
+        scope = {"a": {"K1"}, "b": set()}
+        with (
+            patch.object(al.alignment_repo, "create_session", return_value=session),
+            patch("app.services.cq_scope.cq_alignment_scope", return_value=scope) as cqs,
+            patch.object(al, "generate_candidates", return_value=[]) as gen,
+            patch.object(al.alignment_repo, "save_correspondences", return_value=0),
+        ):
+            al.create_alignment_session(db, source_ontology_ids=["a", "b"], cq_scoped=True)
+        cqs.assert_called_once()
+        assert gen.call_args.kwargs["scope"] == scope
+
+    def test_not_cq_scoped_leaves_scope_none(self) -> None:
+        db = MagicMock()
+        session = {"_key": "S1", "_id": "alignment_sessions/S1", "source_ontology_ids": ["a", "b"]}
+        with (
+            patch.object(al.alignment_repo, "create_session", return_value=session),
+            patch("app.services.cq_scope.cq_alignment_scope") as cqs,
+            patch.object(al, "generate_candidates", return_value=[]) as gen,
+            patch.object(al.alignment_repo, "save_correspondences", return_value=0),
+        ):
+            al.create_alignment_session(db, source_ontology_ids=["a", "b"])
+        cqs.assert_not_called()
+        assert gen.call_args.kwargs["scope"] is None
+
 
 class TestSetCandidateStatus:
     def test_rejects_invalid_status(self) -> None:

@@ -117,6 +117,68 @@ class TestExtractAndMaterialize:
         assert akw["to_id"] == "ontology_individuals/Bob"
         assert akw["provenance"][0]["chunk_id"] == "ch1"
 
+    async def test_cq_scoped_keeps_only_cq_referenced_types(self) -> None:
+        # FR-19.9 selective A-box: only individuals typed by a CQ-referenced class
+        # are materialized; an assertion to a dropped individual is unresolved.
+        db = MagicMock()
+        chunks = [{"text": "Acme employs Bob.", "document_id": "d1", "_key": "ch1"}]
+        slice_ = [{"key": "Org", "label": "Organization"}, {"key": "Per", "label": "Person"}]
+        extract_results = [
+            {
+                "individuals": [
+                    {"label": "Acme", "class": "Organization"},
+                    {"label": "Bob", "class": "Person"},
+                ],
+                "assertions": [{"subject": "Acme", "predicate": "employs", "object": "Bob"}],
+            }
+        ]
+
+        def _create_individual(_db, **kwargs):
+            return {"_id": f"ontology_individuals/{kwargs['label']}", "_key": kwargs["label"]}
+
+        with (
+            patch.object(ab, "retrieve_schema_slice", new=AsyncMock(return_value=slice_)),
+            patch.object(ab, "extract_abox_from_text", new=AsyncMock(side_effect=extract_results)),
+            patch("app.services.cq_scope.cq_relevant_class_keys", return_value={"Org"}),
+            patch.object(
+                ab.individuals_repo, "create_individual", side_effect=_create_individual
+            ) as mk_ind,
+            patch.object(ab.individuals_repo, "add_assertion") as mk_assert,
+        ):
+            out = await ab.extract_and_materialize_abox(
+                db, ontology_id="ont1", chunks=chunks, cq_scoped=True
+            )
+        # Only Acme (Org, CQ-referenced) materialized; Bob (Per) dropped.
+        assert out["individuals"] == 1
+        assert mk_ind.call_count == 1
+        assert mk_ind.call_args.kwargs["label"] == "Acme"
+        assert out["assertions"] == 0  # Bob missing -> assertion cannot resolve
+        mk_assert.assert_not_called()
+
+    async def test_cq_scoped_no_relevant_classes_keeps_everything(self) -> None:
+        # Empty CQ scope must NOT filter everything out (keep-all fallback).
+        db = MagicMock()
+        chunks = [{"text": "Acme is here.", "document_id": "d1", "_key": "ch1"}]
+        slice_ = [{"key": "Org", "label": "Organization"}]
+        extract_results = [
+            {"individuals": [{"label": "Acme", "class": "Organization"}], "assertions": []}
+        ]
+
+        def _create_individual(_db, **kwargs):
+            return {"_id": f"ontology_individuals/{kwargs['label']}", "_key": kwargs["label"]}
+
+        with (
+            patch.object(ab, "retrieve_schema_slice", new=AsyncMock(return_value=slice_)),
+            patch.object(ab, "extract_abox_from_text", new=AsyncMock(side_effect=extract_results)),
+            patch("app.services.cq_scope.cq_relevant_class_keys", return_value=set()),
+            patch.object(ab.individuals_repo, "create_individual", side_effect=_create_individual),
+            patch.object(ab.individuals_repo, "add_assertion"),
+        ):
+            out = await ab.extract_and_materialize_abox(
+                db, ontology_id="ont1", chunks=chunks, cq_scoped=True
+            )
+        assert out["individuals"] == 1  # kept, because scope was empty -> keep all
+
     async def test_open_mode_keeps_ungrounded(self) -> None:
         db = MagicMock()
         chunks = [{"text": "X", "document_id": "d1", "_key": "ch1"}]

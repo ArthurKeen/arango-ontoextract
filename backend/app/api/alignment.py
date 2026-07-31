@@ -26,6 +26,10 @@ class CreateSessionRequest(BaseModel):
     source_ontology_ids: list[str] = Field(..., min_length=2)
     min_score: float = Field(0.5, ge=0.0, le=1.0)
     weights: dict[str, float] | None = None
+    cq_scoped: bool = Field(
+        default=False,
+        description="Scope candidates to correspondences touching CQ-referenced classes (FR-19.9).",
+    )
 
 
 class CorrespondenceStatusRequest(BaseModel):
@@ -58,6 +62,7 @@ async def create_session(body: CreateSessionRequest) -> dict[str, Any]:
             source_ontology_ids=body.source_ontology_ids,
             min_score=body.min_score,
             weights=body.weights,
+            cq_scoped=body.cq_scoped,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

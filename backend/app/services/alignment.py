@@ -470,26 +470,43 @@ def create_alignment_session(
     source_ontology_ids: list[str],
     min_score: float = 0.5,
     weights: dict[str, float] | None = None,
+    cq_scoped: bool = False,
 ) -> dict[str, Any]:
     """Create a session over N sources, generate candidates, and persist them.
 
     Returns the session doc augmented with ``candidate_count``.
+
+    ``cq_scoped`` (FR-19.9) restricts candidates to correspondences touching a
+    class referenced by the sources' competency questions, so the reconciled
+    master is use-case-scoped. When no source has any CQ-relevant class the scope
+    is dropped (align everything) rather than emptied (align nothing).
     """
     if db is None:
         db = get_db()
     if len(set(source_ontology_ids)) < 2:
         raise ValueError("alignment requires at least 2 distinct source ontologies")
 
+    scope = None
+    if cq_scoped:
+        from app.services import cq_scope as cq_scope_svc
+
+        scope = cq_scope_svc.cq_alignment_scope(db, source_ontology_ids)
+
     session = alignment_repo.create_session(
         db,
         source_ontology_ids=source_ontology_ids,
-        params={"min_score": min_score, "weights": weights or matching.DEFAULT_WEIGHTS},
+        params={
+            "min_score": min_score,
+            "weights": weights or matching.DEFAULT_WEIGHTS,
+            "cq_scoped": cq_scoped,
+        },
     )
     candidates = generate_candidates(
         db,
         source_ontology_ids=source_ontology_ids,
         min_score=min_score,
         weights=weights,
+        scope=scope,
     )
     count = alignment_repo.save_correspondences(db, session["_key"], candidates)
     log.info(

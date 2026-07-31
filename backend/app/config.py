@@ -129,6 +129,13 @@ class Settings(BaseSettings):
     #: (LLM-driven) extraction prompt so extraction is use-case-driven (PRD §6.19,
     #: FR-19.4/19.7). Off by default; when off the prompt is byte-identical.
     cq_scope_injection_enabled: bool = False
+    #: Stream 22 CQ-PR7 (PRD §6.19 FR-19.9) — when the pipeline auto-extracts the
+    #: A-box, keep only individuals whose type class is referenced by the
+    #: ontology's competency questions (a *selective* A-box). Off by default; when
+    #: on but the ontology has no CQ-relevant classes, the scope is dropped (keep
+    #: everything) rather than emptied. Alignment CQ-scoping is per-request
+    #: (``cq_scoped`` on the session create), not this global flag.
+    cq_scope_abox_enabled: bool = False
     #: Stream 22 — minimum % of *priority* competency questions that must be
     #: answerable for the CQ release gate to pass (PRD §6.19 / FR-19.8). Advisory
     #: signal for the Release Readiness Review (Stream 19).

@@ -166,6 +166,7 @@ async def extract_and_materialize_abox(
     chunks: list[dict[str, Any]],
     mode: str = "schema_guided",
     model: str | None = None,
+    cq_scoped: bool = False,
 ) -> dict[str, Any]:
     """Extract + materialize the A-box for one domain ontology from its chunks.
 
@@ -173,9 +174,23 @@ async def extract_and_materialize_abox(
     (a lightweight stand-in for full ER canonicalization, AB-PR3), stamps span
     provenance on every individual + assertion, and — in ``schema_guided`` mode —
     drops individuals whose class is not in the retrieved slice. Returns counts.
+
+    ``cq_scoped`` (FR-19.9) additionally keeps only individuals whose type class is
+    referenced by the ontology's competency questions — a *selective* A-box. When
+    the ontology has no CQ-relevant classes the scope is dropped (keep everything)
+    rather than emptied (keep nothing).
     """
     if db is None:
         db = get_db()
+
+    cq_class_keys: set[str] | None = None
+    if cq_scoped:
+        from app.services import cq_scope as cq_scope_svc
+
+        keys = cq_scope_svc.cq_relevant_class_keys(db, ontology_id)
+        cq_class_keys = keys or None  # empty -> no scope, keep everything
+        if cq_class_keys is None:
+            log.info("[abox] cq_scoped requested but no CQ-relevant classes; keeping all")
 
     canon_to_id: dict[tuple[str, str], str] = {}
     ind_count = 0
@@ -203,6 +218,8 @@ async def extract_and_materialize_abox(
             class_key = label_to_key.get(cls)
             if mode == "schema_guided" and class_key is None:
                 continue  # grounded-only: skip ungrounded individuals
+            if cq_class_keys is not None and class_key not in cq_class_keys:
+                continue  # selective A-box (FR-19.9): only CQ-referenced types
             span = _locate_span(text, label)
             canon = (class_key or "", label.lower())
             iid = canon_to_id.get(canon)

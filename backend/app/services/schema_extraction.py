@@ -410,7 +410,7 @@ def list_named_graphs(config: SchemaExtractionConfig) -> dict[str, Any]:
             loose.append(
                 {
                     "name": name,
-                    "type": "edge" if c.get("type") == 3 else "document",
+                    "type": "edge" if _col_is_edge(c.get("type")) else "document",
                     "count": count_val,
                 }
             )
@@ -450,17 +450,17 @@ def _lpg_discovery_hint(
     vt_field: str | None = None
     sample_types: list[str] = []
     for col in sorted(vertex_cols):
-        f = _lpg_detect_field(db, col, LPG_VERTEX_TYPE_CANDIDATES)
+        f = _lpg_detect_field(db, col, LPG_VERTEX_TYPE_CANDIDATES, tier1=LPG_TIER1_TYPE_FIELDS)
         if not f:
             continue
         vals = sorted(set(_lpg_distinct_values(db, col, f, cap=25)))
-        if len(vals) >= 2:  # genuinely categorical -> LPG signal
+        if vals:  # a detected type field is the LPG signal (>=1 class)
             vt_field, sample_types = f, vals[:12]
             break
 
     edge_field: str | None = None
     for col in sorted(edge_cols):
-        f = _lpg_detect_field(db, col, LPG_EDGE_LABEL_CANDIDATES)
+        f = _lpg_detect_field(db, col, LPG_EDGE_LABEL_CANDIDATES, tier1=LPG_TIER1_EDGE_FIELDS)
         if f:
             edge_field = f
             break
@@ -982,7 +982,7 @@ def _direct_extract_schema(
         # and the actual extraction agree on what they will produce.
         graphs_raw = cast("list[dict[str, Any]]", db.graphs())
         all_cols = cast("list[dict[str, Any]]", db.collections())
-        col_types: dict[str, int] = {c["name"]: c.get("type", 2) for c in all_cols}
+        col_types: dict[str, Any] = {c["name"]: c.get("type", 2) for c in all_cols}
 
         # Filter graphs if config.graph_names was set.
         if config.graph_names is not None:
@@ -1061,7 +1061,7 @@ def _direct_extract_schema(
                 name = c["name"]
                 if name in in_graph_cols or name in in_graph_edges:
                     continue
-                if col_types.get(name) == 3:
+                if _col_is_edge(col_types.get(name)):
                     obj_uri = ns[name]
                     uri_to_collection[str(obj_uri)] = name
                     g.add((obj_uri, RDF.type, OWL.ObjectProperty))
@@ -1092,7 +1092,7 @@ def _direct_extract_schema(
                 col_name = uri_to_collection.get(str(cls_uri))
                 if not col_name:
                     continue
-                if col_types.get(col_name) != 2:
+                if _col_is_edge(col_types.get(col_name)):
                     continue
                 try:
                     fields = _sample_collection_fields(db, col_name, config.field_sample_limit)
@@ -1144,7 +1144,7 @@ def _direct_extract_schema(
             class_uris = list(g.subjects(RDF.type, OWL.Class))
             for cls_uri in class_uris:
                 col_name = uri_to_collection.get(str(cls_uri))
-                if not col_name or col_types.get(col_name) != 2:
+                if not col_name or _col_is_edge(col_types.get(col_name)):
                     continue
                 constraints_emitted += _emit_collection_shacl_shapes(
                     g,
@@ -1188,13 +1188,55 @@ def _direct_extract_schema(
 # LABEL-style type field. ``label``/``name`` come LAST because in most LPGs they
 # hold the entity's *display name* (high cardinality) — the opposite of a type
 # discriminator, which is what made the first cut extract one "class" per entity.
-LPG_VERTEX_TYPE_CANDIDATES = ("type", "@type", "_type", "entity_type", "category", "label")
-LPG_EDGE_LABEL_CANDIDATES = ("type", "relation", "relationship", "predicate", "label")
+# ``entityType`` (camelCase) is the FinReflectKG / arango-cypher-py Tier-1 name;
+# it was previously missing so a graph using it fell through to the fallback.
+LPG_VERTEX_TYPE_CANDIDATES = (
+    "type",
+    "_type",
+    "entityType",
+    "@type",
+    "entity_type",
+    "category",
+    "kind",
+    "label",
+)
+LPG_EDGE_LABEL_CANDIDATES = (
+    "type",
+    "relation",
+    "relationship",
+    "relType",
+    "predicate",
+    "label",
+)
+
+# Tier-1 fields are unambiguously *type* discriminators (matches arango-cypher-py's
+# ``_TIER1_TYPE_FIELDS``): we accept them on field COVERAGE alone. Tier-2 names
+# (everything else — ``label``, ``category``, ``name`` …) can equally hold a
+# free-text display name, so they must ALSO pass a low-cardinality + "class-like
+# value" test before we trust them as a discriminator.
+LPG_TIER1_TYPE_FIELDS = ("type", "_type", "entityType", "@type", "entity_type")
+LPG_TIER1_EDGE_FIELDS = ("type", "relation", "relationship", "relType", "predicate")
 
 # Edges may carry their endpoint *types* directly (arango-cypher-py's
 # GENERIC_WITH_TYPE convention), avoiding a per-edge DOCUMENT() lookup.
 LPG_EDGE_FROM_TYPE_FIELDS = ("_fromType", "fromType", "_from_type")
 LPG_EDGE_TO_TYPE_FIELDS = ("_toType", "toType", "_to_type")
+
+# A discriminator value that looks like an identifier / free text (contains a
+# dot, slash, or whitespace) is not a class name. Used to reject Tier-2 fields.
+_LPG_CLASS_LIKE_RE = re.compile(r"^[^\s./\\]+$")
+
+
+def _col_is_edge(type_val: Any) -> bool:
+    """True when a python-arango collection ``type`` denotes an edge collection.
+
+    ``db.collections()`` reports the type as the string ``"edge"`` on current
+    python-arango, while older drivers / other endpoints returned the integer
+    ``3``. Accepting BOTH is essential: comparing only against ``3`` silently
+    reclassifies every edge collection as a vertex collection, which produced
+    one class-per-collection and zero object properties (the FinReflectKG bug).
+    """
+    return bool(type_val == 3 or type_val == "edge")
 
 
 def _format_label(value: str, fmt: str) -> str:
@@ -1222,52 +1264,119 @@ def _lpg_localname(value: str) -> str:
     return cleaned or "value"
 
 
-def _lpg_distinct_values(db: Any, col: str, field: str, *, cap: int = 500) -> list[str]:
-    """Distinct non-empty values of ``field`` across ``col`` (capped)."""
-    rows = run_aql(
-        db,
-        "FOR d IN @@col FILTER d[@f] != null COLLECT v = d[@f] LIMIT @cap RETURN v",
-        bind_vars={"@col": col, "f": field, "cap": cap},
+def _lpg_distinct_values(db: Any, col: str, field: str, *, cap: int = 5000) -> list[str]:
+    """ALL distinct non-empty values of ``field`` across ``col`` — a full COLLECT.
+
+    This is a full aggregation, NOT a sample: every entity/relationship *type*
+    present in the graph must become a class/predicate (this is what
+    arango-cypher-py does, and what the previous 500-row LIMIT sample got wrong on
+    large graphs). ``cap`` is only a pathological-cardinality backstop; when it is
+    hit we log so a silently-truncated type set is visible rather than mistaken
+    for the complete set.
+    """
+    rows = list(
+        run_aql(
+            db,
+            "FOR d IN @@col FILTER d[@f] != null COLLECT v = d[@f] LIMIT @cap RETURN v",
+            bind_vars={"@col": col, "f": field, "cap": cap + 1},
+        )
     )
+    if len(rows) > cap:
+        log.warning(
+            "LPG distinct value set hit cardinality cap; type set truncated",
+            extra={"collection": col, "field": field, "cap": cap},
+        )
+        rows = rows[:cap]
     return [str(v) for v in rows if v is not None and str(v).strip()]
 
 
-def _lpg_field_stats(db: Any, col: str, field: str, *, sample: int = 300) -> tuple[int, int]:
-    """Return ``(present, distinct)`` for ``field`` over a sample of ``col``."""
+def _lpg_field_stats(db: Any, col: str, field: str, *, sample: int = 2000) -> tuple[int, int, int]:
+    """Return ``(sampled, present, num_distinct)`` for ``field`` over ``col``.
+
+    ``sampled`` = docs looked at, ``present`` = those with a non-null value,
+    ``num_distinct`` = distinct non-null values among them. The object keys avoid
+    the AQL reserved word ``distinct`` (using it as an unquoted key is a syntax
+    error — the previous version raised on every call, so detection always fell
+    through to the collection-name fallback).
+    """
     rows = list(
         run_aql(
             db,
             """
-            LET vals = (FOR d IN @@col LIMIT @sample FILTER d[@f] != null RETURN d[@f])
-            RETURN {present: LENGTH(vals), distinct: LENGTH(UNIQUE(vals))}
+            LET vals = (FOR d IN @@col LIMIT @sample RETURN d[@f])
+            LET present = vals[* FILTER CURRENT != null]
+            RETURN {
+              sampled: LENGTH(vals),
+              present: LENGTH(present),
+              num_distinct: LENGTH(UNIQUE(present))
+            }
             """,
             bind_vars={"@col": col, "f": field, "sample": sample},
         )
     )
     if not rows or not isinstance(rows[0], dict):
-        return (0, 0)
-    return (int(rows[0].get("present") or 0), int(rows[0].get("distinct") or 0))
+        return (0, 0, 0)
+    r = rows[0]
+    return (
+        int(r.get("sampled") or 0),
+        int(r.get("present") or 0),
+        int(r.get("num_distinct") or 0),
+    )
 
 
-def _lpg_detect_field(db: Any, col: str, candidates: tuple[str, ...]) -> str | None:
-    """Pick a *categorical* discriminator field (a type), not an identifier.
+def _lpg_values_class_like(db: Any, col: str, field: str, *, cap: int = 50) -> bool:
+    """True when a Tier-2 field's values all look like class names (not free text).
 
-    A type field partitions the collection into a small number of repeated
-    values, so ``distinct << present``. The first candidate (in preference order)
-    that is present on most sampled docs and whose values repeat (distinct >= 2
-    and average group size >= 2, i.e. ``distinct <= present / 2``) wins. This
-    deliberately rejects the high-cardinality *name* field that a max-distinct
-    heuristic would wrongly select (one class per entity).
+    Rejects the entity *display name* / identifier fields (values with spaces,
+    dots, slashes, or absurd length) so ``label``/``name`` is only trusted as a
+    type discriminator when it actually holds class-like tokens.
+    """
+    vals = _lpg_distinct_values(db, col, field, cap=cap)
+    if not vals:
+        return False
+    return all(bool(_LPG_CLASS_LIKE_RE.match(v)) and len(v) <= 60 for v in vals)
+
+
+def _lpg_detect_field(
+    db: Any, col: str, candidates: tuple[str, ...], *, tier1: tuple[str, ...] = ()
+) -> str | None:
+    """Pick a categorical *type* discriminator field, not an identifier.
+
+    Mirrors arango-cypher-py's two-tier detector:
+
+    * **Tier-1** (``tier1`` — ``type``/``_type``/``entityType``/``relation`` …):
+      accepted on COVERAGE alone. These names are unambiguously type fields, so a
+      high distinct count (many entity types) must NOT disqualify them — that was
+      the bug that collapsed a rich graph into a single collection-named class.
+    * **Tier-2** (everything else — ``label``/``category``/``name`` …): must also
+      be low-cardinality (``distinct <= max(50, present/2)``) and hold class-like
+      values, so a high-cardinality display-name field is never mistaken for a
+      type (one class per entity).
+
+    The first candidate (in preference order) that qualifies wins.
     """
     for f in candidates:
         try:
-            present, distinct = _lpg_field_stats(db, col, f)
+            sampled, present, distinct = _lpg_field_stats(db, col, f)
         except Exception:
+            log.debug(
+                "LPG field stats failed; skipping candidate",
+                extra={"collection": col, "field": f},
+                exc_info=True,
+            )
             continue
-        if present == 0 or distinct < 2:
+        if sampled == 0 or present == 0 or distinct < 1:
             continue
-        if distinct <= max(2, present // 2):
+        if present / sampled < 0.6:  # field must be broadly present to be a type
+            continue
+        if f in tier1:
             return f
+        # Tier-2: guard against free-text / high-cardinality display names.
+        if distinct < 2 or distinct > max(50, present // 2):
+            continue
+        if not _lpg_values_class_like(db, col, f):
+            continue
+        return f
     return None
 
 
@@ -1333,7 +1442,9 @@ def _lpg_extract_schema(
             for c in all_cols:
                 if c.get("system") or c["name"] in in_graph:
                     continue
-                (edge_cols if col_types.get(c["name"]) == 3 else vertex_cols).add(c["name"])
+                (edge_cols if _col_is_edge(col_types.get(c["name"])) else vertex_cols).add(
+                    c["name"]
+                )
 
         type_field = config.vertex_type_field
         edge_field = config.edge_label_field
@@ -1344,7 +1455,9 @@ def _lpg_extract_schema(
 
         # --- Classes: DISTINCT type-field values per vertex collection ---------
         for col in sorted(vertex_cols):
-            tf = type_field or _lpg_detect_field(db, col, LPG_VERTEX_TYPE_CANDIDATES)
+            tf = type_field or _lpg_detect_field(
+                db, col, LPG_VERTEX_TYPE_CANDIDATES, tier1=LPG_TIER1_TYPE_FIELDS
+            )
             if not tf:
                 # No discriminator: fall back to one class for the collection.
                 cls_uri = ns[_lpg_localname(col)]
@@ -1369,9 +1482,14 @@ def _lpg_extract_schema(
 
         # --- Object properties: DISTINCT edge-label values per edge collection -
         for col in sorted(edge_cols):
-            lf = edge_field or _lpg_detect_field(db, col, LPG_EDGE_LABEL_CANDIDATES)
+            lf = edge_field or _lpg_detect_field(
+                db, col, LPG_EDGE_LABEL_CANDIDATES, tier1=LPG_TIER1_EDGE_FIELDS
+            )
             tf = type_field or _lpg_detect_field(
-                db, next(iter(sorted(vertex_cols)), col), LPG_VERTEX_TYPE_CANDIDATES
+                db,
+                next(iter(sorted(vertex_cols)), col),
+                LPG_VERTEX_TYPE_CANDIDATES,
+                tier1=LPG_TIER1_TYPE_FIELDS,
             )
             if not lf:
                 # No label field: one object property for the whole edge collection.
@@ -1451,30 +1569,40 @@ def _lpg_edge_field_names(db: Any, edge_col: str, *, sample: int = 50) -> set[st
 
 
 def _lpg_sample_predicates(
-    db: Any, edge_col: str, label_field: str, type_field: str | None, *, scan: int = 3000
+    db: Any, edge_col: str, label_field: str, type_field: str | None, *, scan: int = 200_000
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Sample edges -> ``(predicate -> from-type set, predicate -> to-type set)``.
+    """``(predicate -> from-type set, predicate -> to-type set)`` for an edge collection.
 
-    Endpoint types are read from the edge's own ``_fromType`` / ``_toType`` fields
-    when present (the arango-cypher-py GENERIC_WITH_TYPE convention — no per-edge
-    DOCUMENT() lookup); otherwise they fall back to ``DOCUMENT(e._from)[type_field]``.
+    Two passes, mirroring arango-cypher-py:
+
+    1. **Predicate set — FULL ``COLLECT``, never sampled.** Every relationship
+       type in the collection becomes an object property, so a graph with more
+       distinct predicates than any sample window is represented completely.
+    2. **Endpoint (domain/range) resolution.** Endpoint types are read from the
+       edge's own ``_fromType`` / ``_toType`` fields when present (the
+       GENERIC_WITH_TYPE convention — no per-edge lookup); otherwise they fall
+       back to ``DOCUMENT(e._from)[type_field]``. This pass groups by
+       ``(predicate, from-type, to-type)`` and is bounded by ``scan`` edges only
+       to cap DOCUMENT() cost on very large graphs; the predicate *set* from pass
+       1 is authoritative regardless of this bound.
     """
     domains: dict[str, set[str]] = {}
     ranges: dict[str, set[str]] = {}
 
-    from_f, to_f = _lpg_detect_endpoint_type_fields(db, edge_col)
+    # Pass 1: authoritative, complete predicate set (full COLLECT).
+    for pred in _lpg_distinct_values(db, edge_col, label_field):
+        domains.setdefault(pred, set())
+        ranges.setdefault(pred, set())
 
+    from_f, to_f = _lpg_detect_endpoint_type_fields(db, edge_col)
     if not type_field and not (from_f and to_f):
-        # No way to resolve endpoint types; still surface the predicates.
-        for pred in _lpg_distinct_values(db, edge_col, label_field):
-            domains.setdefault(pred, set())
-            ranges.setdefault(pred, set())
+        # No way to resolve endpoint types; predicates already surfaced above.
         return domains, ranges
 
-    # Prefer the edge-carried endpoint type; only fall back to a per-edge
-    # DOCUMENT() lookup when that endpoint field is absent and a vertex type
-    # field is known. ``@tf`` is bound only if a DOCUMENT branch actually uses it
-    # (ArangoDB rejects unreferenced bind vars).
+    # Pass 2: endpoint aggregation. Prefer the edge-carried endpoint type; only
+    # fall back to a per-edge DOCUMENT() lookup when that field is absent and a
+    # vertex type field is known. ``@tf`` is bound only when a DOCUMENT branch
+    # references it (ArangoDB rejects unreferenced bind vars).
     if from_f:
         f_expr = f"e[{_aql_str(from_f)}]"
     elif type_field:
@@ -1494,7 +1622,8 @@ def _lpg_sample_predicates(
         db,
         f"FOR e IN @@col LIMIT @scan "
         f"  FILTER e[@lf] != null "
-        f"  RETURN {{pred: e[@lf], f: {f_expr}, t: {t_expr}}}",
+        f"  COLLECT pred = e[@lf], f = {f_expr}, t = {t_expr} WITH COUNT INTO n "
+        f"  RETURN {{pred: pred, f: f, t: t, n: n}}",
         bind_vars=bind,
     )
     for r in rows:

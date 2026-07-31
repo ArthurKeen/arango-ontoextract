@@ -8,6 +8,65 @@ The backend version is the single source of truth in `backend/app/__init__.py`.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-30
+
+Assertion-graph (A-box) curation, requirements-driven scoping, and alignment
+scale — plus a correctness fix to labeled-property-graph schema extraction. All
+additive and flag-gated where it changes behavior.
+
+### Added
+
+- **A-box curation write path (FR-18.9):** `curate_individual` approve / reject /
+  edit over the temporal layer (reject + re-type are temporal soft-deletes — the
+  prior version stays queryable as-of a past time); `POST
+  /ontology/individuals/{key}/curate`; the instance-lens overlay gains per-row
+  approve / edit / reject actions.
+- **A-box run trigger + metrics (FR-18.10, FR-18.11):** `POST /extraction/run?extract_abox=true`
+  materializes typed individuals + assertions from the same chunks; A-box metrics
+  now fold in constraint-violation counts and canonicalization/merge stats.
+- **Embedding top-k candidate pre-filter (Stream 20 AL-PR11, FR-17.2):** alignment
+  candidate generation can narrow the cross-source product to each class's top-k
+  nearest neighbours via the entity vector index instead of scoring all pairs
+  (`alignment_embedding_prefilter_enabled`; entities without an embedding fall
+  back to the full product so recall never regresses).
+- **CQ-term scoping into alignment + selective A-box (Stream 22 CQ-PR7, FR-19.9):**
+  the competency-question term set scopes which correspondences and which
+  individuals matter — a use-case-scoped master (`cq_scoped` on session create)
+  and a selective A-box (`cq_scope_abox_enabled`).
+- **LLM CQ suggestion + VSPO pitfall lint (Stream 22 CQ-PR2, FR-19.2):** an LLM
+  proposes atomic, answerable CQs from purpose + class labels (returned
+  `status="proposed"` — human acceptance required, never auto-persisted); a
+  deterministic VSPO-style pitfall lint flags malformed CQs. `POST
+  /requirements/suggest` + `/lint`; the Requirements overlay gains "Suggest CQs"
+  with pitfall badges + Accept.
+- **DualLoop review re-rank (FR-17.8):** the alignment review queue re-orders
+  pending pairs first, then by review priority, then confidence.
+- **Alignment discoverability + P2/P3 signals:** an "Align Ontologies…" entry on
+  the ontology-row menu; hallucination / disagreement badges and coherence-repair
+  removals surfaced in the review overlay.
+- **Labeled-property-graph (LPG) schema extraction (PRD §6.9 FR-9.14/9.15):**
+  reverse-engineer a single-`Node` + single-`relations` graph into one class per
+  type-field value, with configurable class/property label format.
+
+### Fixed
+
+- **LPG extraction correctness:** detection crashed on every call (the AQL
+  reserved word `distinct` used as an object key, swallowed by a bare `except`);
+  edge collections were misclassified as vertex collections (python-arango reports
+  `type` as the string `"edge"`, the code compared against the int `3`); and
+  detection/enumeration sampled where the reference does full `COLLECT` analysis.
+  Now: two-tier detection (Tier-1 type fields accepted on coverage alone),
+  `_col_is_edge` accepting both representations, and full-scan enumeration.
+  Validated live against a real LPG.
+- **Observability:** OTel FastAPI instrumentation is now gated on `otel_enabled`,
+  fixing an OPTIONS-preflight 500 that stripped CORS headers.
+- **UI:** the ontology context menu opens on the empty canvas + Ontologies group;
+  ontology delete-confirm accepts the name without the shown `Schema:` prefix.
+
+### Changed
+
+- Adopted the MIT License; synced README feature/counts.
+
 ## [1.7.0] - 2026-07-23
 
 Completes the multi-source ontology alignment stream (Stream 20) with its P2/P3

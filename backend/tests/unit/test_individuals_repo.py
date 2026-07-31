@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.db import individuals_repo as repo
 
 
@@ -92,3 +94,80 @@ class TestQueries:
         assert out == [{"_key": "i1"}]
         assert raq.call_args.kwargs["bind_vars"]["count"] == 25
         assert raq.call_args.kwargs["bind_vars"]["offset"] == 50
+
+
+class TestCurateIndividual:
+    """FR-18.9 — approve / reject / edit an A-box individual."""
+
+    def _db(self, snapshot: dict | None = None):
+        db = MagicMock()
+        db.has_collection.return_value = True
+        col = MagicMock()
+        col.get.return_value = snapshot if snapshot is not None else {"_key": "i1"}
+        db.collection.return_value = col
+        return db, col
+
+    def test_unknown_action_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown curation action"):
+            repo.curate_individual(MagicMock(), key="i1", action="bogus")
+
+    def test_missing_collection_returns_none(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = False
+        assert repo.curate_individual(db, key="i1", action="approve") is None
+
+    def test_missing_individual_returns_none(self) -> None:
+        db, _col = self._db()
+        with patch.object(repo, "get_individual", return_value=None):
+            assert repo.curate_individual(db, key="i1", action="approve") is None
+
+    def test_approve_sets_status_and_returns_snapshot(self) -> None:
+        db, col = self._db(snapshot={"_key": "i1", "status": "approved"})
+        with patch.object(repo, "get_individual", return_value={"_key": "i1", "ontology_id": "o"}):
+            out = repo.curate_individual(db, key="i1", action="approve")
+        col.update.assert_called_once_with({"_key": "i1", "status": "approved"})
+        assert out == {"_key": "i1", "status": "approved"}
+
+    def test_reject_expires_individual_and_its_edges(self) -> None:
+        db, col = self._db()
+        with (
+            patch.object(repo, "get_individual", return_value={"_key": "i1", "ontology_id": "o"}),
+            patch.object(repo, "run_aql", side_effect=lambda *a, **k: iter(["e1"])),
+            patch.object(repo, "expire_entity") as mk_exp,
+        ):
+            repo.curate_individual(db, key="i1", action="reject")
+        col.update.assert_called_once_with({"_key": "i1", "status": "rejected"})
+        expired = {(c.kwargs["collection"], c.kwargs["key"]) for c in mk_exp.call_args_list}
+        # individual + its live rdf_type edge + its live assertion edge all expired
+        assert ("ontology_individuals", "i1") in expired
+        assert ("rdf_type", "e1") in expired
+        assert ("individual_assertion", "e1") in expired
+
+    def test_edit_updates_label_only(self) -> None:
+        db, col = self._db()
+        with patch.object(repo, "get_individual", return_value={"_key": "i1", "ontology_id": "o"}):
+            repo.curate_individual(db, key="i1", action="edit", label="Acme, Inc.")
+        col.update.assert_called_once_with({"_key": "i1", "label": "Acme, Inc."})
+
+    def test_edit_retype_expires_old_type_edge_and_links_new(self) -> None:
+        db, _col = self._db()
+        with (
+            patch.object(repo, "get_individual", return_value={"_key": "i1", "ontology_id": "o"}),
+            patch.object(repo, "run_aql", side_effect=lambda *a, **k: iter(["rt1"])),
+            patch.object(repo, "expire_entity") as mk_exp,
+            patch.object(repo, "create_edge") as mk_edge,
+        ):
+            repo.curate_individual(db, key="i1", action="edit", class_key="Company")
+        mk_exp.assert_called_once_with(db, collection="rdf_type", key="rt1")
+        ek = mk_edge.call_args.kwargs
+        assert ek["edge_collection"] == "rdf_type"
+        assert ek["from_id"] == "ontology_individuals/i1"
+        assert ek["to_id"] == "ontology_classes/Company"
+        assert ek["data"]["ontology_id"] == "o"
+
+    def test_edit_without_changes_is_noop_update(self) -> None:
+        # No label, no class_key -> nothing to patch, no retype.
+        db, col = self._db()
+        with patch.object(repo, "get_individual", return_value={"_key": "i1", "ontology_id": "o"}):
+            repo.curate_individual(db, key="i1", action="edit")
+        col.update.assert_not_called()

@@ -7,15 +7,29 @@ inspect one. Write/curation + RDF export are separate follow-ups.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.api.ontology import _shared
 from app.db import individuals_repo
 from app.services import abox_canonicalize, abox_validation, quality_metrics
 
 router = APIRouter()
+
+
+class CurateIndividualRequest(BaseModel):
+    """Curation action on a single A-box individual (FR-18.9)."""
+
+    action: Literal["approve", "reject", "edit"] = Field(
+        ...,
+        description="approve (endorse), reject (temporal soft-delete), or edit (relabel/retype)",
+    )
+    label: str | None = Field(default=None, description="New label (edit only).")
+    class_key: str | None = Field(
+        default=None, description="Re-type the individual to this ontology_classes key (edit only)."
+    )
 
 
 @router.get("/{ontology_id}/individuals/metrics")
@@ -60,6 +74,28 @@ async def list_individuals(
 async def get_individual(individual_key: str) -> dict[str, Any]:
     """Fetch a single individual (with provenance + history-ready fields)."""
     doc = individuals_repo.get_individual(_shared.get_db(), individual_key)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"individual '{individual_key}' not found")
+    return doc
+
+
+@router.post("/individuals/{individual_key}/curate")
+async def curate_individual(individual_key: str, body: CurateIndividualRequest) -> dict[str, Any]:
+    """Approve / reject / edit an A-box individual (FR-18.9).
+
+    Reject and re-type are temporal (the prior version stays queryable as-of a
+    past time); nothing is hard-deleted.
+    """
+    try:
+        doc = individuals_repo.curate_individual(
+            _shared.get_db(),
+            key=individual_key,
+            action=body.action,
+            label=body.label,
+            class_key=body.class_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if doc is None:
         raise HTTPException(status_code=404, detail=f"individual '{individual_key}' not found")
     return doc

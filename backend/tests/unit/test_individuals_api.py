@@ -100,3 +100,50 @@ class TestGetIndividual:
         ):
             resp = client.get("/api/v1/ontology/individuals/nope")
         assert resp.status_code == 404
+
+
+class TestCurateIndividual:
+    def test_reject_threads_action(self) -> None:
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(
+                individuals_repo,
+                "curate_individual",
+                return_value={"_key": "i1", "status": "rejected"},
+            ) as mk,
+        ):
+            resp = client.post("/api/v1/ontology/individuals/i1/curate", json={"action": "reject"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "rejected"
+        assert mk.call_args.kwargs["action"] == "reject"
+
+    def test_edit_threads_label_and_class(self) -> None:
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(
+                individuals_repo, "curate_individual", return_value={"_key": "i1", "label": "New"}
+            ) as mk,
+        ):
+            resp = client.post(
+                "/api/v1/ontology/individuals/i1/curate",
+                json={"action": "edit", "label": "New", "class_key": "Company"},
+            )
+        assert resp.status_code == 200
+        assert mk.call_args.kwargs["label"] == "New"
+        assert mk.call_args.kwargs["class_key"] == "Company"
+
+    def test_invalid_action_is_422(self) -> None:
+        # Rejected by the pydantic Literal before reaching the repo.
+        with patch.object(_shared, "get_db", return_value=MagicMock()):
+            resp = client.post("/api/v1/ontology/individuals/i1/curate", json={"action": "bogus"})
+        assert resp.status_code == 422
+
+    def test_404_when_individual_missing(self) -> None:
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(individuals_repo, "curate_individual", return_value=None),
+        ):
+            resp = client.post(
+                "/api/v1/ontology/individuals/nope/curate", json={"action": "approve"}
+            )
+        assert resp.status_code == 404

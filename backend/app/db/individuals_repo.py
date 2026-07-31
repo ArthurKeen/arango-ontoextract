@@ -9,7 +9,7 @@ individual and assertion so each fact is traceable (FR-18.5).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from arango.database import StandardDatabase
 
@@ -17,7 +17,7 @@ from app.db.client import get_db
 from app.db.ontology_repo import create_edge
 from app.db.temporal_constants import NEVER_EXPIRES
 from app.db.utils import run_aql
-from app.services.temporal import create_version
+from app.services.temporal import create_version, expire_entity
 
 INDIVIDUALS = "ontology_individuals"
 RDF_TYPE = "rdf_type"
@@ -187,3 +187,114 @@ def list_individuals(
             },
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# FR-18.9 — A-box curation write path (approve / reject / edit)
+# ---------------------------------------------------------------------------
+
+CURATION_ACTIONS = ("approve", "reject", "edit")
+
+
+def _live_edge_keys(
+    db: StandardDatabase, collection: str, aql_filter: str, ind_id: str
+) -> list[str]:
+    """Keys of the live (unexpired) edges in ``collection`` matching ``aql_filter``."""
+    return [
+        str(k)
+        for k in run_aql(
+            db,
+            f"FOR e IN {collection} FILTER {aql_filter} AND e.expired == @never RETURN e._key",
+            bind_vars={"id": ind_id, "never": NEVER_EXPIRES},
+        )
+    ]
+
+
+def _expire_individual_edges(db: StandardDatabase, ind_id: str) -> int:
+    """Temporally expire the ``rdf_type`` + ``individual_assertion`` edges touching
+    an individual (used on reject). Returns the number of edges expired."""
+    expired = 0
+    for coll, aql_filter in (
+        (RDF_TYPE, "e._from == @id"),
+        (ASSERTION, "(e._from == @id OR e._to == @id)"),
+    ):
+        if not db.has_collection(coll):
+            continue
+        for ekey in _live_edge_keys(db, coll, aql_filter, ind_id):
+            expire_entity(db, collection=coll, key=ekey)
+            expired += 1
+    return expired
+
+
+def _retype_individual(
+    db: StandardDatabase, ind_id: str, ontology_id: str | None, class_key: str
+) -> None:
+    """Expire the individual's current ``rdf_type`` edge(s) and link a fresh one
+    to ``ontology_classes/<class_key>`` (used on edit when the type changes)."""
+    if db.has_collection(RDF_TYPE):
+        for ekey in _live_edge_keys(db, RDF_TYPE, "e._from == @id", ind_id):
+            expire_entity(db, collection=RDF_TYPE, key=ekey)
+    create_edge(
+        db,
+        edge_collection=RDF_TYPE,
+        from_id=ind_id,
+        to_id=f"ontology_classes/{class_key}",
+        data={"ontology_id": ontology_id},
+    )
+
+
+def curate_individual(
+    db: StandardDatabase | None = None,
+    *,
+    key: str,
+    action: str,
+    label: str | None = None,
+    class_key: str | None = None,
+) -> dict[str, Any] | None:
+    """Curate a named individual (FR-18.9): approve / reject / edit.
+
+    * ``approve`` — mark the live individual ``status="approved"`` (a curator
+      endorsement; the individual stays in the live A-box).
+    * ``reject``  — temporal soft-delete: stamp ``status="rejected"`` then expire
+      the individual and its ``rdf_type`` + ``individual_assertion`` edges. The
+      fact drops out of the live A-box but remains queryable as-of a prior time
+      (nothing is hard-deleted — matches the T-box curation contract).
+    * ``edit``    — update the ``label`` and/or re-type: when ``class_key`` is
+      given, expire the current ``rdf_type`` edge(s) and add a fresh one to the
+      chosen class.
+
+    Returns the individual document after curation (expired snapshot for reject),
+    or ``None`` when the individual / A-box collection does not exist.
+    """
+    if action not in CURATION_ACTIONS:
+        raise ValueError(
+            f"unknown curation action: {action!r} (expected one of {CURATION_ACTIONS})"
+        )
+    if db is None:
+        db = get_db()
+    if not db.has_collection(INDIVIDUALS):
+        return None
+    doc = get_individual(db, key)
+    if doc is None:
+        return None
+    ind_id = f"{INDIVIDUALS}/{key}"
+    col = db.collection(INDIVIDUALS)
+
+    if action == "approve":
+        col.update({"_key": key, "status": "approved"})
+    elif action == "reject":
+        col.update({"_key": key, "status": "rejected"})
+        _expire_individual_edges(db, ind_id)
+        expire_entity(db, collection=INDIVIDUALS, key=key)
+    elif action == "edit":
+        patch: dict[str, Any] = {"_key": key}
+        if label is not None:
+            patch["label"] = label
+        if len(patch) > 1:
+            col.update(patch)
+        if class_key:
+            _retype_individual(db, ind_id, doc.get("ontology_id"), class_key)
+
+    # ``col.get`` bypasses the live/expired filter so reject still returns the
+    # (now-expired) snapshot rather than an ambiguous None.
+    return cast("dict[str, Any] | None", col.get(key))

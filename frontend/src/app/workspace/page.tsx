@@ -690,19 +690,44 @@ function WorkspacePageInner() {
     setSelectedNodeKey(null);
   }, []);
 
-  const handleSelectClassFromSidebar = useCallback((classKey: string, _ontologyId: string) => {
-    setSelectedNodeKey(classKey);
-    setSelectedEdgeKey(null);
-    setDetailPanelOpen(true);
-    viewportApiRef.current?.focusNode(classKey);
-  }, []);
+  const handleSelectClassFromSidebar = useCallback(
+    (classKey: string, ontologyId: string) => {
+      // The asset explorer can have several ontologies expanded at once, so a
+      // clicked class may belong to a DIFFERENT ontology than the active one.
+      // Make its ontology active (name/tier refresh + graph reload follow via
+      // the selectedOntologyId effects) so the canvas, header, and the detail
+      // panel's fetch all target the ontology that actually owns the class.
+      if (ontologyId && ontologyId !== selectedOntologyId) {
+        setOntologyName(null);
+        setOntologyTier(null);
+        setSelectedOntologyId(ontologyId);
+      }
+      setSelectedNodeKey(classKey);
+      setSelectedEdgeKey(null);
+      setDetailPanelOpen(true);
+      viewportApiRef.current?.focusNode(classKey);
+    },
+    [selectedOntologyId],
+  );
 
-  const handleSelectEdgeFromSidebar = useCallback((edgeKey: string, _ontologyId: string) => {
-    setSelectedEdgeKey(edgeKey);
-    setSelectedNodeKey(null);
-    setDetailPanelOpen(true);
-    viewportApiRef.current?.focusEdge(edgeKey);
-  }, []);
+  const handleSelectEdgeFromSidebar = useCallback(
+    (edgeKey: string, ontologyId: string) => {
+      // Same cross-ontology guard as class selection: the detail panel fetches
+      // GET /ontology/{selectedOntologyId}/edges/{edgeKey}, so if the clicked
+      // relation belongs to a non-active ontology we must switch to it first —
+      // otherwise the fetch 404s with "edge does not belong to ontology".
+      if (ontologyId && ontologyId !== selectedOntologyId) {
+        setOntologyName(null);
+        setOntologyTier(null);
+        setSelectedOntologyId(ontologyId);
+      }
+      setSelectedEdgeKey(edgeKey);
+      setSelectedNodeKey(null);
+      setDetailPanelOpen(true);
+      viewportApiRef.current?.focusEdge(edgeKey);
+    },
+    [selectedOntologyId],
+  );
 
   const [infoPanelItem, setInfoPanelItem] = useState<{
     type: "document" | "ontology" | "run";

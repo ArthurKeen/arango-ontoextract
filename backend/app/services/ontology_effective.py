@@ -64,6 +64,10 @@ from arango.database import StandardDatabase
 
 from app.db.temporal_constants import NEVER_EXPIRES
 from app.db.utils import run_aql
+from app.services.edge_confidence import (
+    compute_edge_confidence,
+    enrich_rdfs_range_class_edges,
+)
 from app.services.ontology_projections import (
     INCLUDE_FULL,
     INCLUDE_SUMMARY,
@@ -169,6 +173,23 @@ def compute_effective_ontology(
         db, source_keys, existing=existing
     )
     t_fetch = time.perf_counter() - t
+
+    # Lift label / description / confidence / evidence from the owning
+    # object-property vertex onto each ``rdfs_range_class`` edge -- the same
+    # enrichment ``list_ontology_edges`` performs. The canvas reads THIS
+    # endpoint (not ``/edges``), so without it an object-property relationship
+    # has no label and the canvas falls back to rendering the structural
+    # "owl:ObjectProperty", and the confidence lens sees no value. Runs on the
+    # raw edges BEFORE projection so ``summarize_edge`` carries the lifted
+    # fields through (label / description / confidence are in the summary set).
+    properties_by_id = {
+        p["_id"]: p for p in props_raw if isinstance(p, dict) and isinstance(p.get("_id"), str)
+    }
+    enrich_rdfs_range_class_edges(edges_raw, properties_by_id)
+    for edge in edges_raw:
+        conf = compute_edge_confidence(edge)
+        if conf is not None and edge.get("confidence") in (None, ""):
+            edge["confidence"] = conf
 
     t = time.perf_counter()
     classes = _annotate_and_project(

@@ -354,6 +354,86 @@ class TestEdgesAndProjection:
         assert edge["source_ontology_id"] == "ont-base"
         assert edge["source_ontology_name"] == "Base"
 
+    def test_rdfs_range_class_label_is_lifted_from_owning_object_property(self) -> None:
+        """The canvas reads ``/effective`` (not ``/edges``), and an
+        ``rdfs_range_class`` edge stores no label of its own -- the
+        relationship label/description/confidence live on the owning
+        ``ontology_object_properties`` vertex referenced by ``edge._from``.
+
+        Without lifting them here, the canvas has no label and falls back to
+        rendering the structural ``owl:ObjectProperty``. Regression: the
+        enrichment existed in ``list_ontology_edges`` but was missing from the
+        effective-graph service, so every object-property edge on the canvas
+        showed ``owl:ObjectProperty``.
+        """
+        db = _make_db(
+            registry_entries={"ont-self": {"_key": "ont-self", "name": "Self"}},
+            aql_responses={
+                "LET edges = FLATTEN": [
+                    [
+                        {
+                            "_key": "e1",
+                            "_id": "rdfs_range_class/e1",
+                            # ``_from`` is the owning object-property vertex.
+                            "_from": "ontology_object_properties/prop1",
+                            "_to": "ontology_classes/C-range",
+                            "ontology_id": "ont-self",
+                            "edge_type": "rdfs_range_class",
+                            # deliberately NO label/description/confidence here.
+                        }
+                    ]
+                ],
+                "LET props = FLATTEN": [
+                    [
+                        {
+                            "_key": "prop1",
+                            "_id": "ontology_object_properties/prop1",
+                            "ontology_id": "ont-self",
+                            "label": "alarms vehicle with single lock",
+                            "description": "The alarm activates when single locked.",
+                            "confidence": 0.8,
+                        }
+                    ]
+                ],
+            },
+        )
+
+        result = compute_effective_ontology(db, ontology_id="ont-self", include="summary")
+
+        edge = next(e for e in result["edges"] if e["edge_type"] == "rdfs_range_class")
+        assert edge["label"] == "alarms vehicle with single lock"
+        assert edge["description"] == "The alarm activates when single locked."
+        assert edge["confidence"] == 0.8
+
+    def test_rdfs_range_class_without_owning_property_keeps_no_label(self) -> None:
+        """When the owning property can't be resolved, the edge label is left
+        absent (the canvas applies its own ``owl:ObjectProperty`` fallback) --
+        enrichment must be a no-op miss, never a crash."""
+        db = _make_db(
+            registry_entries={"ont-self": {"_key": "ont-self", "name": "Self"}},
+            aql_responses={
+                "LET edges = FLATTEN": [
+                    [
+                        {
+                            "_key": "e1",
+                            "_id": "rdfs_range_class/e1",
+                            "_from": "ontology_object_properties/missing",
+                            "_to": "ontology_classes/C-range",
+                            "ontology_id": "ont-self",
+                            "edge_type": "rdfs_range_class",
+                        }
+                    ]
+                ],
+                # No matching property row for "missing".
+                "LET props = FLATTEN": [[]],
+            },
+        )
+
+        result = compute_effective_ontology(db, ontology_id="ont-self", include="summary")
+
+        edge = next(e for e in result["edges"] if e["edge_type"] == "rdfs_range_class")
+        assert not (edge.get("label") or "").strip()
+
 
 # --- Conflict detection (H.13) --------------------------------------------
 

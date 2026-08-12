@@ -206,6 +206,7 @@ async def run_pipeline(
     event_callback: Any | None = None,
     domain_context: str = "",
     domain_ontology_ids: list[str] | None = None,
+    target_ontology_id: str | None = None,
 ) -> ExtractionPipelineState:
     """Execute the extraction pipeline end-to-end.
 
@@ -225,6 +226,13 @@ async def run_pipeline(
         Serialized domain ontology text for Tier 2 context-aware extraction.
     domain_ontology_ids:
         IDs of domain ontologies used as context for Tier 2 extraction.
+    target_ontology_id:
+        Registry ``_key`` of the ontology this run merges into (incremental
+        extraction). Seeded into ``metadata["ontology_id"]`` so the in-pipeline
+        ER agent and belief-revision agent can match extracted classes against
+        the existing ontology and emit merge candidates / ``extends_domain``
+        edges. Without it those agents run against an empty id and silently
+        no-op, letting duplicate classes through (FR-9.x incremental reuse).
     """
     compiled = compile_pipeline(interrupt_after_filter=True)
 
@@ -239,6 +247,9 @@ async def run_pipeline(
         "current_step": "initialized",
         "metadata": {
             "domain_ontology_ids": domain_ontology_ids or [],
+            # Consumed by er_agent_node + belief_revision_node to match against
+            # the existing target ontology; "" means "fresh ontology, no reuse".
+            "ontology_id": target_ontology_id or "",
         },
         "faithfulness_scores": {},
         "validity_scores": {},

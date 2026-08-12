@@ -203,3 +203,65 @@ class TestRunPipelinePaused:
 
         event_types = [c.kwargs["event_type"] for c in callback.call_args_list]
         assert "pipeline_paused" in event_types
+
+
+# ---------------------------------------------------------------------------
+# run_pipeline: target-ontology metadata threading
+# ---------------------------------------------------------------------------
+
+
+class TestRunPipelineTargetOntology:
+    """Regression for the incremental-extraction reuse no-op.
+
+    ``target_ontology_id`` MUST land in ``metadata['ontology_id']`` so
+    ``er_agent_node`` + ``belief_revision_node`` match extracted classes against
+    the existing ontology and emit merge candidates / ``extends_domain`` edges.
+    Before the fix it was never threaded, so those agents ran against ``""`` and
+    silently no-opped, letting duplicate classes through.
+    """
+
+    @staticmethod
+    def _mock_compiled(captured: dict) -> MagicMock:
+        async def fake_stream():
+            yield {"filter": {"filter_results": {"status": "ok"}}}
+
+        def fake_astream(initial_state, *a, **kw):
+            captured["state"] = initial_state
+            return fake_stream()
+
+        snapshot = MagicMock()
+        snapshot.values = {
+            "filter_results": {"status": "ok"},
+            "merge_candidates": [],
+            "errors": [],
+            "step_logs": [],
+        }
+        snapshot.next = ["staging"]
+        compiled = MagicMock()
+        compiled.astream = fake_astream
+        compiled.get_state.return_value = snapshot
+        return compiled
+
+    @pytest.mark.asyncio
+    async def test_target_ontology_id_seeds_metadata(self):
+        captured: dict = {}
+        with patch(
+            "app.extraction.pipeline.compile_pipeline",
+            return_value=self._mock_compiled(captured),
+        ):
+            from app.extraction.pipeline import run_pipeline
+
+            await run_pipeline(run_id="r1", document_id="d1", chunks=[], target_ontology_id="ont-x")
+        assert captured["state"]["metadata"]["ontology_id"] == "ont-x"
+
+    @pytest.mark.asyncio
+    async def test_fresh_extraction_has_empty_ontology_id(self):
+        captured: dict = {}
+        with patch(
+            "app.extraction.pipeline.compile_pipeline",
+            return_value=self._mock_compiled(captured),
+        ):
+            from app.extraction.pipeline import run_pipeline
+
+            await run_pipeline(run_id="r1", document_id="d1", chunks=[])
+        assert captured["state"]["metadata"]["ontology_id"] == ""

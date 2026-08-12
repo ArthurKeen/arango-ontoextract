@@ -328,6 +328,9 @@ async def execute_run(
                     event_callback=event_callback,
                     domain_context=domain_context,
                     domain_ontology_ids=domain_ontology_ids or [],
+                    # Incremental extraction: let the ER + belief-revision agents
+                    # match against the existing ontology (else they no-op on "").
+                    target_ontology_id=target_ontology_id,
                 ),
             )
             run_span.set_attribute("run.errors", len(final_state.get("errors", []) or []))

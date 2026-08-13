@@ -15,6 +15,7 @@ from app.models.ontology import (
     CreateClassRequest,
     CreateEdgeRequest,
     CreatePropertyRequest,
+    ReparentClassRequest,
     UpdateClassRequest,
     UpdateEdgeRequest,
     UpdatePropertyRequest,
@@ -316,6 +317,111 @@ async def update_class_endpoint(
         raise NotFoundError(str(exc)) from exc
 
     return updated
+
+
+@router.post("/{ontology_id}/classes/{class_key}/reparent")
+async def reparent_class_endpoint(
+    ontology_id: str,
+    class_key: str,
+    body: ReparentClassRequest,
+) -> dict[str, Any]:
+    """Atomically move a class to a new parent (CQ.5 / FR-4.12).
+
+    Expires the class's current live ``subclass_of`` edge(s) and, when a new
+    parent is given, creates a fresh ``subclass_of`` edge. Posting a bare
+    ``subclass_of`` edge (the previous mechanism) only expired an edge with the
+    *same* ``_from`` AND ``_to``, so moving a child from parent A to B left the
+    old ``child→A`` edge live — silent multiple inheritance. This endpoint
+    removes the old parent link and rejects cycles.
+    """
+    db = _shared.get_db()
+
+    child = _shared.ontology_repo.get_class(db, key=class_key)
+    if child is None:
+        raise NotFoundError(f"Class '{class_key}' not found")
+    if child.get("ontology_id") != ontology_id:
+        raise ValidationError("Class belongs to a different ontology")
+
+    new_parent_id: str | None = None
+    if body.new_parent_key is not None:
+        if body.new_parent_key == class_key:
+            raise ValidationError("A class cannot be its own superclass")
+        parent = _shared.ontology_repo.get_class(db, key=body.new_parent_key)
+        if parent is None:
+            raise NotFoundError(f"Parent class '{body.new_parent_key}' not found")
+        if parent.get("ontology_id") != ontology_id:
+            raise ValidationError("Parent class belongs to a different ontology")
+        new_parent_id = parent["_id"]
+
+        # Cycle guard: the proposed parent must not already be a descendant of
+        # the child (i.e. child must not be reachable by walking OUTBOUND
+        # subclass_of from the new parent), else child→newParent→…→child.
+        if db.has_collection("subclass_of"):
+            reaches_child = list(
+                _shared.run_aql(
+                    db,
+                    "FOR v, e IN 1..100 OUTBOUND @start subclass_of "
+                    "  FILTER e.expired == @never "
+                    "  FILTER v._id == @child_id "
+                    "  LIMIT 1 RETURN 1",
+                    bind_vars={
+                        "start": new_parent_id,
+                        "never": NEVER_EXPIRES,
+                        "child_id": child["_id"],
+                    },
+                )
+            )
+            if reaches_child:
+                raise ValidationError(
+                    "Reparenting would create a subclass_of cycle "
+                    f"('{body.new_parent_key}' is already a descendant of '{class_key}')"
+                )
+
+    # Expire every live subclass_of edge out of the child (its current parents).
+    expired_parents: list[str] = []
+    if db.has_collection("subclass_of"):
+        current = list(
+            _shared.run_aql(
+                db,
+                "FOR e IN subclass_of "
+                "  FILTER e._from == @child_id AND e.expired == @never RETURN e",
+                bind_vars={"child_id": child["_id"], "never": NEVER_EXPIRES},
+            )
+        )
+        for old_edge in current:
+            temporal_svc.expire_entity(db, collection="subclass_of", key=old_edge["_key"])
+            expired_parents.append(str(old_edge.get("_to")))
+
+    new_edge: dict[str, Any] | None = None
+    if new_parent_id is not None:
+        _ensure_collection(db, "subclass_of", edge=True)
+        new_edge = _shared.ontology_repo.create_edge(
+            db,
+            edge_collection="subclass_of",
+            from_id=child["_id"],
+            to_id=new_parent_id,
+            data={
+                "ontology_id": ontology_id,
+                "label": f"{child.get('label') or class_key} subClassOf {body.new_parent_key}",
+            },
+        )
+
+    log.info(
+        "reparented class",
+        extra={
+            "ontology_id": ontology_id,
+            "class_key": class_key,
+            "new_parent_key": body.new_parent_key,
+            "expired_parents": len(expired_parents),
+        },
+    )
+    return {
+        "reparented": True,
+        "class_key": class_key,
+        "new_parent_key": body.new_parent_key,
+        "expired_parent_ids": expired_parents,
+        "new_edge": new_edge,
+    }
 
 
 @router.put("/{ontology_id}/properties/{prop_key}")

@@ -18,6 +18,8 @@ import ProvenancePanel from "@/components/curation/ProvenancePanel";
 import EntityHistory from "@/components/timeline/EntityHistory";
 import AddClassDialog from "@/components/graph/AddClassDialog";
 import AddPropertyDialog from "@/components/graph/AddPropertyDialog";
+import EditableLabel from "@/components/graph/EditableLabel";
+import ReparentSelect from "@/components/graph/ReparentSelect";
 
 const GraphCanvas = dynamic(
   () => import("@/components/graph/GraphCanvas"),
@@ -179,6 +181,37 @@ function OntologyEditorPageInner() {
     },
     [ontologyId],
   );
+
+  // Inline class rename (EditableLabel). Optimistic, with a server round-trip.
+  const handleRenameClass = useCallback(
+    async (key: string, label: string) => {
+      setGraph((prev) =>
+        prev
+          ? {
+              ...prev,
+              classes: prev.classes.map((c) => (c._key === key ? { ...c, label } : c)),
+            }
+          : prev,
+      );
+      await api.put(`/api/v1/ontology/${ontologyId}/classes/${key}`, { label });
+    },
+    [ontologyId],
+  );
+
+  // Parent-picker data for ReparentSelect: the class list + the selected class's
+  // current parent, derived from its live subclass_of edge.
+  const availableClasses = useMemo(
+    () => (graph?.classes ?? []).map((c) => ({ _key: c._key, label: c.label })),
+    [graph],
+  );
+  const selectedParentKey = useMemo(() => {
+    if (!selectedNodeKey || !graph) return undefined;
+    const fromId = `ontology_classes/${selectedNodeKey}`;
+    const edge = graph.edges.find(
+      (e) => e.type === "subclass_of" && e._from === fromId,
+    );
+    return edge?._to?.split("/").pop();
+  }, [selectedNodeKey, graph]);
 
   const hasData = graph != null && graph.classes.length > 0;
 
@@ -469,12 +502,28 @@ function OntologyEditorPageInner() {
           <aside className="flex-[3] bg-white border-l border-gray-200 overflow-y-auto max-lg:hidden">
             <div className="p-4 space-y-4">
               {activePanel === "detail" && selectedNode && (
-                <NodeDetail
-                  node={selectedNode}
-                  onDescriptionChange={handleDescriptionChange}
-                  onShowProvenance={() => setActivePanel("provenance")}
-                  onShowHistory={() => setActivePanel("history")}
-                />
+                <div className="space-y-3">
+                  <div className="space-y-2 pb-2 border-b border-gray-100">
+                    <EditableLabel
+                      value={selectedNode.label}
+                      onSave={(label) => handleRenameClass(selectedNode._key, label)}
+                      className="text-base font-semibold text-gray-900"
+                    />
+                    <ReparentSelect
+                      ontologyId={ontologyId}
+                      classKey={selectedNode._key}
+                      currentParentKey={selectedParentKey}
+                      availableClasses={availableClasses}
+                      onReparented={refreshGraph}
+                    />
+                  </div>
+                  <NodeDetail
+                    node={selectedNode}
+                    onDescriptionChange={handleDescriptionChange}
+                    onShowProvenance={() => setActivePanel("provenance")}
+                    onShowHistory={() => setActivePanel("history")}
+                  />
+                </div>
               )}
 
               {activePanel === "detail" && selectedEdge && !selectedNode && (

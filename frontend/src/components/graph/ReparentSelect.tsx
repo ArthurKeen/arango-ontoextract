@@ -62,11 +62,13 @@ export default function ReparentSelect({
       setError(null);
 
       try {
-        await api.post(`/api/v1/ontology/${ontologyId}/edges`, {
-          _from: `ontology_classes/${classKey}`,
-          _to: newParentKey ? `ontology_classes/${newParentKey}` : undefined,
-          edge_type: "subclass_of",
-          label: "subclass of",
+        // Atomic reparent: expires the current subclass_of edge(s) and creates
+        // the new one (or detaches to root when null), rejecting cycles. The
+        // old approach — POSTing a subclass_of edge — only expired an edge with
+        // the identical _from AND _to, so a move left the old parent edge live
+        // (silent multiple inheritance). See POST /classes/{key}/reparent.
+        await api.post(`/api/v1/ontology/${ontologyId}/classes/${classKey}/reparent`, {
+          new_parent_key: newParentKey,
         });
 
         setOpen(false);

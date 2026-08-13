@@ -72,12 +72,8 @@ describe("ReparentSelect", () => {
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith(
-        "/api/v1/ontology/onto_abc/edges",
-        expect.objectContaining({
-          edge_type: "subclass_of",
-          _from: "ontology_classes/cls_003",
-          _to: "ontology_classes/cls_002",
-        }),
+        "/api/v1/ontology/onto_abc/classes/cls_003/reparent",
+        { new_parent_key: "cls_002" },
       );
     });
     expect(onReparented).toHaveBeenCalled();

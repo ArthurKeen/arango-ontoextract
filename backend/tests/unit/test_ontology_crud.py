@@ -548,6 +548,106 @@ class TestCreateEdge:
         assert resp.status_code == 422
 
 
+class TestReparentClass:
+    """Atomic reparent (CQ.5 / FR-4.12): moving a child must expire the OLD
+    subclass_of edge, not just add a second parent (silent multiple inheritance)."""
+
+    def test_expires_old_parent_and_creates_new(self, client, _mock_db):
+        child = _class_doc(key="Child", label="Child")
+        parent = _class_doc(key="NewParent", label="New Parent")
+
+        def _aql(db, query, bind_vars=None):
+            if "OUTBOUND" in query:  # cycle check → no cycle
+                return iter([])
+            return iter([{"_key": "old_e", "_to": "ontology_classes/OldParent"}])
+
+        with (
+            patch("app.api.ontology._shared.ontology_repo") as repo,
+            patch("app.api.ontology._shared.run_aql", side_effect=_aql),
+            patch("app.api.ontology.mutations.temporal_svc") as temporal,
+        ):
+            repo.get_class.side_effect = [child, parent]
+            repo.create_edge.return_value = {"_key": "new_e"}
+            resp = client.post(
+                "/api/v1/ontology/test_onto/classes/Child/reparent",
+                json={"new_parent_key": "NewParent"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["reparented"] is True
+        temporal.expire_entity.assert_called_once()
+        assert temporal.expire_entity.call_args.kwargs["collection"] == "subclass_of"
+        assert temporal.expire_entity.call_args.kwargs["key"] == "old_e"
+        repo.create_edge.assert_called_once()
+        assert repo.create_edge.call_args.kwargs["edge_collection"] == "subclass_of"
+        assert repo.create_edge.call_args.kwargs["from_id"] == child["_id"]
+        assert repo.create_edge.call_args.kwargs["to_id"] == parent["_id"]
+
+    def test_rejects_cycle(self, client, _mock_db):
+        child = _class_doc(key="Child")
+        parent = _class_doc(key="Desc")
+
+        def _aql(db, query, bind_vars=None):
+            return iter([1]) if "OUTBOUND" in query else iter([])
+
+        with (
+            patch("app.api.ontology._shared.ontology_repo") as repo,
+            patch("app.api.ontology._shared.run_aql", side_effect=_aql),
+            patch("app.api.ontology.mutations.temporal_svc") as temporal,
+        ):
+            repo.get_class.side_effect = [child, parent]
+            resp = client.post(
+                "/api/v1/ontology/test_onto/classes/Child/reparent",
+                json={"new_parent_key": "Desc"},
+            )
+
+        assert resp.status_code == 400
+        assert "cycle" in resp.json()["error"]["message"].lower()
+        temporal.expire_entity.assert_not_called()
+        repo.create_edge.assert_not_called()
+
+    def test_rejects_self_parent(self, client, _mock_db):
+        child = _class_doc(key="Child")
+        with patch("app.api.ontology._shared.ontology_repo") as repo:
+            repo.get_class.return_value = child
+            resp = client.post(
+                "/api/v1/ontology/test_onto/classes/Child/reparent",
+                json={"new_parent_key": "Child"},
+            )
+        assert resp.status_code == 400
+        assert "own superclass" in resp.json()["error"]["message"].lower()
+
+    def test_detach_to_root_expires_without_new_edge(self, client, _mock_db):
+        child = _class_doc(key="Child")
+
+        def _aql(db, query, bind_vars=None):
+            return iter([{"_key": "old_e", "_to": "ontology_classes/OldParent"}])
+
+        with (
+            patch("app.api.ontology._shared.ontology_repo") as repo,
+            patch("app.api.ontology._shared.run_aql", side_effect=_aql),
+            patch("app.api.ontology.mutations.temporal_svc") as temporal,
+        ):
+            repo.get_class.return_value = child
+            resp = client.post(
+                "/api/v1/ontology/test_onto/classes/Child/reparent",
+                json={"new_parent_key": None},
+            )
+
+        assert resp.status_code == 200
+        temporal.expire_entity.assert_called_once()
+        repo.create_edge.assert_not_called()
+
+    def test_child_not_found_returns_404(self, client, _mock_db):
+        with patch("app.api.ontology._shared.ontology_repo") as repo:
+            repo.get_class.return_value = None
+            resp = client.post(
+                "/api/v1/ontology/test_onto/classes/Missing/reparent",
+                json={"new_parent_key": "P"},
+            )
+        assert resp.status_code == 404
+
+
 class TestUpdateClass:
     def test_updates_class_returns_200(self, client, _mock_db):
         original = _class_doc()

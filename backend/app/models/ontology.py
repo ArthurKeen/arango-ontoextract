@@ -93,6 +93,19 @@ class UpdateClassRequest(BaseModel):
     status: str | None = None
 
 
+class ReparentClassRequest(BaseModel):
+    """Atomically move a class to a new parent in the ``subclass_of`` hierarchy.
+
+    ``new_parent_key`` is the target parent class key, or ``None`` to detach the
+    class from all parents (make it a root). The endpoint expires the class's
+    current live ``subclass_of`` edge(s) before creating the new one, so a move
+    never leaves the old parent edge behind (which would create unintended
+    multiple inheritance). Cycles are rejected.
+    """
+
+    new_parent_key: str | None = None
+
+
 class UpdatePropertyRequest(BaseModel):
     """Partial update for an ontology property (K.6)."""
 

@@ -40,6 +40,9 @@ export default function VCRTimeline({
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // Playback direction: +1 = forward (►), -1 = reverse (◄, "play backward" —
+  // §6.5 / FR-5.7). The interval steps currentIndex by ``direction``.
+  const [direction, setDirection] = useState<1 | -1>(1);
   const [speedIdx, setSpeedIdx] = useState(1);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -151,11 +154,17 @@ export default function VCRTimeline({
       intervalRef.current = setInterval(
         () => {
           setCurrentIndex((prev) => {
-            if (prev >= events.length - 1) {
+            const next = prev + direction;
+            // Stop (and clamp) at whichever end the current direction hits.
+            if (next < 0) {
               setPlaying(false);
-              return prev;
+              return 0;
             }
-            return prev + 1;
+            if (next > events.length - 1) {
+              setPlaying(false);
+              return events.length - 1;
+            }
+            return next;
           });
         },
         1000 / speed,
@@ -168,7 +177,7 @@ export default function VCRTimeline({
         intervalRef.current = null;
       }
     };
-  }, [playing, speed, events.length]);
+  }, [playing, speed, events.length, direction]);
 
   const handleSliderChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -190,13 +199,27 @@ export default function VCRTimeline({
   }, [events.length]);
 
   const handlePlayPause = useCallback(() => {
-    if (currentIndex >= events.length - 1) {
-      setCurrentIndex(0);
-      setPlaying(true);
-    } else {
-      setPlaying((prev) => !prev);
+    // Toggle off only when already playing FORWARD; otherwise (re)start forward.
+    if (playing && direction === 1) {
+      setPlaying(false);
+      return;
     }
-  }, [currentIndex, events.length]);
+    setDirection(1);
+    setCurrentIndex((idx) => (idx >= events.length - 1 ? 0 : idx));
+    setPlaying(true);
+  }, [playing, direction, events.length]);
+
+  const handlePlayBackward = useCallback(() => {
+    // Continuous reverse playback (§6.5 "Play backward ◄"). Toggle off only when
+    // already playing backward; otherwise start reverse (wrap to the end if at 0).
+    if (playing && direction === -1) {
+      setPlaying(false);
+      return;
+    }
+    setDirection(-1);
+    setCurrentIndex((idx) => (idx <= 0 ? events.length - 1 : idx));
+    setPlaying(true);
+  }, [playing, direction, events.length]);
 
   const cycleSpeed = useCallback(() => {
     setSpeedIdx((prev) => (prev + 1) % PLAYBACK_SPEEDS.length);
@@ -246,11 +269,20 @@ export default function VCRTimeline({
             <span className="text-sm">&#9664;&#9664;</span>
           </button>
           <button
+            onClick={handlePlayBackward}
+            className="p-1.5 px-2.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm"
+            title="Play backward"
+            data-testid="timeline-play-backward"
+          >
+            {playing && direction === -1 ? "\u23F8" : "\u25C0"}
+          </button>
+          <button
             onClick={handlePlayPause}
             className="p-1.5 px-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm"
+            title="Play forward"
             data-testid="timeline-play-pause"
           >
-            {playing ? "\u23F8" : "\u25B6"}
+            {playing && direction === 1 ? "\u23F8" : "\u25B6"}
           </button>
           <button
             onClick={handleFastForward}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import VCRTimeline from "@/components/timeline/VCRTimeline";
 import type { TimelineEvent } from "@/types/timeline";
 
@@ -65,10 +65,34 @@ describe("VCRTimeline", () => {
     });
 
     expect(screen.getByTestId("timeline-play-pause")).toBeInTheDocument();
+    expect(screen.getByTestId("timeline-play-backward")).toBeInTheDocument();
     expect(screen.getByTestId("timeline-rewind")).toBeInTheDocument();
     expect(screen.getByTestId("timeline-ff")).toBeInTheDocument();
     expect(screen.getByTestId("timeline-slider")).toBeInTheDocument();
     expect(screen.getByTestId("timeline-speed")).toBeInTheDocument();
+  });
+
+  it("plays backward through history (§6.5 reverse playback)", async () => {
+    mockFetchEvents(mockEvents);
+    render(<VCRTimeline ontologyId="onto_abc" />);
+
+    // Initial load snaps to the LATEST event (3 / 3).
+    await waitFor(() => {
+      expect(screen.getByText("3 / 3")).toBeInTheDocument();
+    });
+
+    jest.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByTestId("timeline-play-backward"));
+      // One interval tick at the default 1x speed steps currentIndex 2 → 1.
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
   });
 
   it("shows loading state", () => {

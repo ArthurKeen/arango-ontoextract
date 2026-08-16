@@ -75,3 +75,11 @@ CLAUDE.md
 
 # Generated documentation artifacts (rendered from the .md sources)
 docs/*.pdf
+.no-drift-gate
+.cursor/.shared-memory-sessions/
+.cursor/hooks.json.pre-update.*
+.cursor/hooks/*.pre-update.*
+# Shared-memory capture queue. Unanchored so it is ignored wherever a hook
+# writes it -- these are created relative to the shell's working directory, so
+# one has already landed inside backend/app/services/ once.
+.pattern-capture-queue/

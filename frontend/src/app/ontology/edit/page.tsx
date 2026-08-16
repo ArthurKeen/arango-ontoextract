@@ -11,6 +11,7 @@ import type {
   OntologyProperty,
   OntologyEdge,
   OntologyRegistryEntry,
+  InstanceGraph,
 } from "@/types/curation";
 import type { TemporalSnapshot } from "@/types/timeline";
 import NodeDetail from "@/components/curation/NodeDetail";
@@ -80,6 +81,14 @@ function OntologyEditorPageInner() {
   const [addClassOpen, setAddClassOpen] = useState(false);
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
 
+  // A-box canvas overlay (FR-18.13). Instances are opt-in and expanded per class
+  // so instance volume cannot swamp the T-box layout.
+  const [instanceCounts, setInstanceCounts] = useState<Record<string, number>>({});
+  const [expandedClassKeys, setExpandedClassKeys] = useState<string[]>([]);
+  const [instanceGraph, setInstanceGraph] = useState<InstanceGraph | null>(null);
+  const [instancesLoading, setInstancesLoading] = useState(false);
+  const [selectedIndividualKey, setSelectedIndividualKey] = useState<string | null>(null);
+
   const fetchGraph = useCallback(async () => {
     if (!ontologyId) {
       setLoading(false);
@@ -138,6 +147,70 @@ function OntologyEditorPageInner() {
   const refreshGraph = useCallback(() => {
     fetchGraph();
   }, [fetchGraph]);
+
+  // --- A-box overlay (FR-18.13) ---
+
+  // Counts only: cheap enough to load with the graph, and it drives the
+  // "Instances (N)" affordance without fetching a single individual.
+  useEffect(() => {
+    if (!ontologyId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{ counts: Record<string, number> }>(
+          `/api/v1/ontology/${ontologyId}/individuals/counts`,
+        );
+        if (!cancelled) setInstanceCounts(res.counts ?? {});
+      } catch {
+        // A-box collections may not exist yet — treat as "no instances".
+        if (!cancelled) setInstanceCounts({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ontologyId]);
+
+  useEffect(() => {
+    if (!ontologyId || expandedClassKeys.length === 0) {
+      setInstanceGraph(null);
+      return;
+    }
+    let cancelled = false;
+    setInstancesLoading(true);
+    (async () => {
+      try {
+        const qs = expandedClassKeys
+          .map((k) => `class_keys=${encodeURIComponent(k)}`)
+          .join("&");
+        const res = await api.get<InstanceGraph>(
+          `/api/v1/ontology/${ontologyId}/instance-graph?${qs}`,
+        );
+        if (!cancelled) setInstanceGraph(res);
+      } catch {
+        if (!cancelled) setInstanceGraph(null);
+      } finally {
+        if (!cancelled) setInstancesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ontologyId, expandedClassKeys]);
+
+  const toggleInstances = useCallback((classKey: string) => {
+    setExpandedClassKeys((prev) =>
+      prev.includes(classKey)
+        ? prev.filter((k) => k !== classKey)
+        : [...prev, classKey],
+    );
+  }, []);
+
+  const selectedIndividual = useMemo(
+    () =>
+      instanceGraph?.individuals.find((i) => i._key === selectedIndividualKey) ?? null,
+    [instanceGraph, selectedIndividualKey],
+  );
 
   const selectedNode = useMemo(
     () => graph?.classes.find((c) => c._key === selectedNodeKey) ?? null,
@@ -480,7 +553,58 @@ function OntologyEditorPageInner() {
                   onEdgeSelect={handleEdgeSelect}
                   onSelectionChange={handleSelectionChange}
                   colorMode={colorMode}
+                  individuals={instanceGraph?.individuals ?? []}
+                  rdfTypeEdges={instanceGraph?.rdf_type_edges ?? []}
+                  assertions={instanceGraph?.assertions ?? []}
+                  onIndividualSelect={setSelectedIndividualKey}
                 />
+
+                {/* A-box overlay status (FR-18.13) */}
+                {expandedClassKeys.length > 0 && (
+                  <div
+                    className="absolute top-3 left-3 z-10 max-w-[420px] rounded-lg bg-amber-50/95 border border-amber-300 px-3 py-2 text-xs text-amber-900 shadow-sm space-y-1"
+                    data-testid="abox-overlay-status"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">
+                        Instances shown for {expandedClassKeys.length}{" "}
+                        {expandedClassKeys.length === 1 ? "class" : "classes"}
+                      </span>
+                      {instancesLoading && (
+                        <span className="animate-pulse text-amber-700">loading…</span>
+                      )}
+                      <button
+                        onClick={() => {
+                          setExpandedClassKeys([]);
+                          setSelectedIndividualKey(null);
+                        }}
+                        className="ml-auto underline hover:no-underline"
+                        data-testid="clear-instances"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {(instanceGraph?.truncated?.length ?? 0) > 0 && (
+                      <p data-testid="abox-truncated" className="text-amber-800">
+                        Capped at the per-class limit for:{" "}
+                        {instanceGraph?.truncated.join(", ")}. Not all instances are
+                        shown.
+                      </p>
+                    )}
+                    {selectedIndividual && (
+                      <p data-testid="abox-selected-individual">
+                        Selected instance: <strong>{selectedIndividual.label}</strong>
+                        {Array.isArray(selectedIndividual.provenance) && (
+                          <>
+                            {" "}
+                            · {selectedIndividual.provenance.length} source span
+                            {selectedIndividual.provenance.length === 1 ? "" : "s"}
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -516,6 +640,29 @@ function OntologyEditorPageInner() {
                       availableClasses={availableClasses}
                       onReparented={refreshGraph}
                     />
+                    {/* A-box instance expansion (FR-18.13) */}
+                    {(instanceCounts[selectedNode._key] ?? 0) > 0 ? (
+                      <button
+                        onClick={() => toggleInstances(selectedNode._key)}
+                        className={`w-full text-xs px-2 py-1.5 rounded-lg border transition-colors ${
+                          expandedClassKeys.includes(selectedNode._key)
+                            ? "bg-amber-100 border-amber-400 text-amber-900"
+                            : "bg-white border-gray-300 text-gray-600 hover:bg-amber-50"
+                        }`}
+                        data-testid="toggle-instances"
+                      >
+                        {expandedClassKeys.includes(selectedNode._key)
+                          ? `Hide instances (${instanceCounts[selectedNode._key]})`
+                          : `Show instances (${instanceCounts[selectedNode._key]})`}
+                      </button>
+                    ) : (
+                      <p
+                        className="text-[11px] text-gray-400"
+                        data-testid="no-instances"
+                      >
+                        No instances extracted for this class.
+                      </p>
+                    )}
                   </div>
                   <NodeDetail
                     node={selectedNode}

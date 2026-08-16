@@ -85,6 +85,7 @@ describe("buildOntologyContextMenu", () => {
       "Compare Schema Evolution…",
       "View Quality Report",
       "Requirements & Coverage…",
+      "Label Collisions…",
       "View Instances (A-box)…",
       "View Feedback Learning",
       "Repair Orphan Properties…",

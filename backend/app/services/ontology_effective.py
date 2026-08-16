@@ -62,8 +62,10 @@ from typing import Any, cast
 
 from arango.database import StandardDatabase
 
+from app.db import lexicon_repo
 from app.db.temporal_constants import NEVER_EXPIRES
 from app.db.utils import run_aql
+from app.services import label_overlay
 from app.services.edge_confidence import (
     compute_edge_confidence,
     enrich_rdfs_range_class_edges,
@@ -173,6 +175,23 @@ def compute_effective_ontology(
         db, source_keys, existing=existing
     )
     t_fetch = time.perf_counter() - t
+
+    # Curated labels (PRD §6.20 FR-20.4) overlay the extracted ones FIRST, before
+    # any enrichment or projection reads a label. Ordering matters twice here:
+    # ``enrich_rdfs_range_class_edges`` below lifts the property's label onto its
+    # edge, so overlaying after it would leave edges showing the pre-curation
+    # name; and ``summarize_*`` projects afterwards, so a late overlay would be
+    # dropped for the summary profile.
+    #
+    # Deliberately NOT scoped to ``self_oid``: the effective graph spans the
+    # target plus its transitive imports, and a decision made in an imported
+    # ontology governs the concept it was made about wherever it surfaces.
+    _lexicon = lexicon_repo.live_decisions_by_uri(
+        db, ontology_id=None, existing_collections=existing
+    )
+    if _lexicon:
+        classes_raw[:] = label_overlay.apply_to_rows(classes_raw, _lexicon)
+        props_raw[:] = label_overlay.apply_to_rows(props_raw, _lexicon)
 
     # Lift label / description / confidence / evidence from the owning
     # object-property vertex onto each ``rdfs_range_class`` edge -- the same

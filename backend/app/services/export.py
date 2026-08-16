@@ -29,10 +29,12 @@ from typing import Any, cast
 from rdflib import OWL, RDF, RDFS, XSD, BNode, Graph, Literal, Namespace, URIRef
 
 from app.config import settings
+from app.db import lexicon_repo
 from app.db.client import get_db
 from app.db.constraints_repo import list_constraints_for_ontology
 from app.db.ontology_repo import list_classes, list_properties
 from app.db.registry_repo import get_registry_entry
+from app.services import label_overlay
 from app.services.temporal import NEVER_EXPIRES
 
 SH = Namespace("http://www.w3.org/ns/shacl#")
@@ -100,7 +102,14 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
     # standards body publishes their ontology files).
     _add_imports_to_graph(db, g, ont_node, ontology_id)
 
-    classes = list_classes(db, ontology_id=ontology_id, include_expired=False)
+    # Curated labels overlay the extracted ones before serialization (PRD §6.20
+    # FR-20.4). Export is what downstream lexicon consumers actually read, so a
+    # curated rdfs:label that stopped at the UI would not have been delivered.
+    _lexicon = lexicon_repo.live_decisions_by_uri(db, ontology_id=ontology_id)
+
+    classes = label_overlay.apply_to_rows(
+        list_classes(db, ontology_id=ontology_id, include_expired=False), _lexicon
+    )
     for cls in classes:
         cls_uri = URIRef(cls["uri"])
         g.add((cls_uri, RDF.type, OWL.Class))
@@ -109,7 +118,7 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
         if cls.get("description"):
             g.add((cls_uri, RDFS.comment, Literal(cls["description"])))
 
-    properties = list_properties(db, ontology_id=ontology_id)
+    properties = label_overlay.apply_to_rows(list_properties(db, ontology_id=ontology_id), _lexicon)
     for prop in properties:
         prop_uri = URIRef(prop["uri"])
         ptype = prop.get("property_type", "datatype")
@@ -155,11 +164,18 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
 
     individuals_emitted = 0
     if include_individuals:
-        prop_label_to_uri = {
-            str(p["label"]).lower(): URIRef(p["uri"])
-            for p in properties
-            if p.get("uri") and p.get("label")
-        }
+        # Indexed under BOTH the curated and the pre-curation label. A-box
+        # assertions persist ``predicate`` as the label extraction saw it, so
+        # keying only on the curated label would miss every assertion on a
+        # renamed property and silently mint a parallel predicate IRI instead of
+        # reusing the declared one.
+        prop_label_to_uri: dict[str, URIRef] = {}
+        for p in properties:
+            if not p.get("uri"):
+                continue
+            for candidate in (p.get("label"), p.get("extracted_label")):
+                if candidate:
+                    prop_label_to_uri.setdefault(str(candidate).lower(), URIRef(p["uri"]))
         individuals_emitted = _add_individuals_to_graph(
             db,
             g,

@@ -9,6 +9,24 @@ export const FILTERED_FROM_CLASS_GRAPH = new Set(["rdfs_domain", "has_property"]
 /** Shown on synthetic domain→range edges when the API omits `edge.label`. */
 export const RDFS_RANGE_CLASS_LABEL_FALLBACK = "owl:ObjectProperty";
 
+/**
+ * A-box node ids are namespaced (FR-18.13): an individual `_key` and a class
+ * `_key` are drawn from different collections and could otherwise collide on a
+ * single React Flow node id, silently dropping one of the two nodes.
+ */
+export const INDIVIDUAL_NODE_PREFIX = "ind:";
+
+export function individualNodeId(individualKey: string): string {
+  return `${INDIVIDUAL_NODE_PREFIX}${individualKey}`;
+}
+
+/** Inverse of {@link individualNodeId}; returns null for class node ids. */
+export function individualKeyFromNodeId(nodeId: string): string | null {
+  return nodeId.startsWith(INDIVIDUAL_NODE_PREFIX)
+    ? nodeId.slice(INDIVIDUAL_NODE_PREFIX.length)
+    : null;
+}
+
 export function getEdgeType(edge: OntologyEdge): string {
   return ((edge as unknown as Record<string, unknown>).edge_type ?? edge.type) as string;
 }

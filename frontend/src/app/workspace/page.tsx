@@ -21,6 +21,7 @@ import MergeCandidatesOverlay from "@/components/workspace/MergeCandidatesOverla
 import AlignmentReviewOverlay from "@/components/workspace/AlignmentReviewOverlay";
 import RequirementsOverlay from "@/components/workspace/RequirementsOverlay";
 import IndividualsOverlay from "@/components/workspace/IndividualsOverlay";
+import LexiconQueueOverlay from "@/components/workspace/LexiconQueueOverlay";
 import FeedbackLearningOverlay from "@/components/workspace/FeedbackLearningOverlay";
 import CanvasLensLegend from "@/components/workspace/CanvasLensLegend";
 import ToastHost from "@/components/workspace/ToastHost";
@@ -229,6 +230,12 @@ function WorkspacePageInner() {
   // Stream 21 AB-PR6: A-box instance lens. Opened from the ontology context
   // menu's "View Instances (A-box)…" action.
   const [individualsOverlay, setIndividualsOverlay] = useState<{
+    key: string;
+    name: string;
+  } | null>(null);
+  // §6.20: label-collision work queue. Opened from the ontology context menu's
+  // "Label Collisions…" action.
+  const [lexiconQueue, setLexiconQueue] = useState<{
     key: string;
     name: string;
   } | null>(null);
@@ -1271,6 +1278,7 @@ function WorkspacePageInner() {
     setAlignmentReview,
     setRequirementsOverlay,
     setIndividualsOverlay,
+    setLexiconQueue,
     exportOntology,
     removeImportEdge,
     retryRun,
@@ -1783,6 +1791,19 @@ function WorkspacePageInner() {
           ontologyId={individualsOverlay.key}
           ontologyName={individualsOverlay.name}
           onClose={() => setIndividualsOverlay(null)}
+        />
+      )}
+
+      {lexiconQueue && (
+        <LexiconQueueOverlay
+          ontologyId={lexiconQueue.key}
+          ontologyName={lexiconQueue.name}
+          // TODO: no curator identity is plumbed through the frontend yet —
+          // ``BatchActions`` posts the same placeholder. The §6.20 audit trail
+          // is only as good as this value, so it should come from auth before
+          // the queue is used in anger.
+          curatorId="anonymous"
+          onClose={() => setLexiconQueue(null)}
         />
       )}
 

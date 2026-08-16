@@ -21,6 +21,9 @@ import type {
   OntologyProperty,
   OntologyEdge,
   CurationStatus,
+  OntologyIndividual,
+  RdfTypeEdge,
+  IndividualAssertion,
 } from "@/types/curation";
 import type {
   MergeCandidate,
@@ -34,7 +37,11 @@ import {
   buildSyntheticRdfsRangeClassEdges,
   RDFS_RANGE_CLASS_LABEL_FALLBACK,
 } from "./graphCanvasEdges";
-import { ONTOLOGY_EDGE_COLORS as EDGE_COLORS } from "./graphVisualPalette";
+import {
+  ONTOLOGY_EDGE_COLORS as EDGE_COLORS,
+  INDIVIDUAL_NODE_STYLE,
+} from "./graphVisualPalette";
+import { individualNodeId, individualKeyFromNodeId } from "./graphCanvasEdges";
 import { CONFIDENCE_HIGH, CONFIDENCE_MEDIUM } from "@/lib/thresholds";
 
 // --- Confidence-based color helpers ---
@@ -190,7 +197,63 @@ function OntologyNode({ data, selected }: NodeProps<OntologyNodeData>) {
   );
 }
 
-const nodeTypes = { ontologyNode: OntologyNode };
+// --- A-box individual node (FR-18.13) ---
+
+export interface IndividualNodeData {
+  label: string;
+  individualKey: string;
+  typeLabel: string;
+  spanCount: number;
+  status?: CurationStatus | null;
+}
+
+/**
+ * Deliberately a different silhouette from `OntologyNode` — pill-shaped, amber,
+ * smaller, and badged "instance" — so a curator can never mistake an assertion
+ * for a class at a glance when both are on the canvas.
+ */
+function IndividualNode({ data, selected }: NodeProps<IndividualNodeData>) {
+  const { label, spanCount, status, typeLabel } = data;
+  const rejected = status === "rejected";
+
+  return (
+    <div
+      className={`rounded-full border-2 ${INDIVIDUAL_NODE_STYLE.border} ${INDIVIDUAL_NODE_STYLE.fill} px-3 py-1.5 shadow-sm transition-all ${
+        rejected ? "opacity-50 line-through" : ""
+      } ${selected ? "ring-2 ring-amber-500 ring-offset-1" : ""}`}
+      style={{ minWidth: INDIVIDUAL_NODE_WIDTH }}
+      title={typeLabel ? `${label} — rdf:type ${typeLabel}` : label}
+      data-testid={`graph-individual-${data.individualKey}`}
+    >
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ opacity: 0, width: 0, height: 0, border: "none", background: "none" }}
+        isConnectable={false}
+      />
+      <div className="flex items-center gap-1.5">
+        <span className="text-[9px] px-1 py-0.5 rounded bg-amber-200 text-amber-900 font-semibold shrink-0">
+          instance
+        </span>
+        <span className="text-xs font-medium text-gray-800 truncate">{label}</span>
+        {spanCount > 0 && (
+          <span className="text-[10px] text-amber-700 shrink-0" title="source spans">
+            {"\u{1F4CE}"}
+            {spanCount}
+          </span>
+        )}
+      </div>
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ opacity: 0, width: 0, height: 0, border: "none", background: "none" }}
+        isConnectable={false}
+      />
+    </div>
+  );
+}
+
+const nodeTypes = { ontologyNode: OntologyNode, individualNode: IndividualNode };
 
 // --- Edge label config ---
 
@@ -208,10 +271,15 @@ const HIERARCHY_EDGE_TYPES = new Set([
 
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 80;
+const INDIVIDUAL_NODE_WIDTH = 150;
+const INDIVIDUAL_NODE_HEIGHT = 40;
 
 function computeLayout(
   classes: OntologyClass[],
   edges: OntologyEdge[],
+  individuals: OntologyIndividual[] = [],
+  rdfTypeEdges: RdfTypeEdge[] = [],
+  assertions: IndividualAssertion[] = [],
 ): Map<string, { x: number; y: number }> {
   if (classes.length === 0) {
     return new Map();
@@ -249,6 +317,33 @@ function computeLayout(
     );
   }
 
+  // A-box: individuals rank BELOW their class (class -> individual), so the
+  // instance layer reads as a tier under the T-box rather than interleaving.
+  const individualNodeIds = new Set<string>();
+  for (const ind of individuals) {
+    const nodeId = individualNodeId(ind._key);
+    individualNodeIds.add(nodeId);
+    g.setNode(nodeId, {
+      width: INDIVIDUAL_NODE_WIDTH,
+      height: INDIVIDUAL_NODE_HEIGHT,
+    });
+  }
+
+  for (const edge of rdfTypeEdges) {
+    const nodeId = individualNodeId(documentKey(edge._from));
+    const classKey = documentKey(edge._to);
+    if (!individualNodeIds.has(nodeId) || !classKeySet.has(classKey)) continue;
+    g.setEdge(classKey, nodeId);
+  }
+
+  for (const assertion of assertions) {
+    const fromId = individualNodeId(documentKey(assertion._from));
+    const toId = individualNodeId(documentKey(assertion._to));
+    if (!individualNodeIds.has(fromId) || !individualNodeIds.has(toId)) continue;
+    if (fromId === toId) continue;
+    g.setEdge(fromId, toId);
+  }
+
   dagre.layout(g);
 
   const positions = new Map<string, { x: number; y: number }>();
@@ -258,6 +353,15 @@ function computeLayout(
       positions.set(cls._key, {
         x: node.x - NODE_WIDTH / 2,
         y: node.y - NODE_HEIGHT / 2,
+      });
+    }
+  }
+  for (const nodeId of individualNodeIds) {
+    const node = g.node(nodeId);
+    if (node) {
+      positions.set(nodeId, {
+        x: node.x - INDIVIDUAL_NODE_WIDTH / 2,
+        y: node.y - INDIVIDUAL_NODE_HEIGHT / 2,
       });
     }
   }
@@ -281,6 +385,12 @@ export interface GraphCanvasProps {
   showMergeCandidates?: boolean;
   classificationMap?: Record<string, ExtractionClassification>;
   tierMap?: Record<string, TierStyle>;
+  /** A-box overlay (FR-18.13). Empty by default — instances are opt-in per class. */
+  individuals?: OntologyIndividual[];
+  rdfTypeEdges?: RdfTypeEdge[];
+  assertions?: IndividualAssertion[];
+  /** Fired with the individual `_key` (not the namespaced node id). */
+  onIndividualSelect?: (individualKey: string) => void;
 }
 
 export default function GraphCanvas({
@@ -297,17 +407,21 @@ export default function GraphCanvas({
   showMergeCandidates = false,
   classificationMap = {},
   tierMap = {},
+  individuals = [],
+  rdfTypeEdges = [],
+  assertions = [],
+  onIndividualSelect,
 }: GraphCanvasProps) {
   const [internalSelected, setInternalSelected] = useState<string[]>([]);
   const effectiveSelected = selectedNodes.length > 0 ? selectedNodes : internalSelected;
 
   const positions = useMemo(
-    () => computeLayout(classes, edges),
-    [classes, edges],
+    () => computeLayout(classes, edges, individuals, rdfTypeEdges, assertions),
+    [classes, edges, individuals, rdfTypeEdges, assertions],
   );
 
   const { nodes, flowEdges } = useMemo(() => {
-    const flowNodes: Node<OntologyNodeData>[] = classes.map((cls) => {
+    const flowNodes: Node[] = classes.map((cls) => {
       const pos = positions.get(cls._key) ?? { x: 0, y: 0 };
       return {
         id: cls._key,
@@ -407,6 +521,90 @@ export default function GraphCanvas({
       });
     }
 
+    // --- A-box overlay (FR-18.13) ---
+    // Only individuals whose rdf:type resolves to a class currently on the canvas
+    // are drawn; a type edge into a filtered-out class would strand its instance.
+    if (individuals.length > 0) {
+      const classLabelByKey = new Map(classes.map((c) => [c._key, c.label]));
+      const typeClassKeyByIndividual = new Map<string, string>();
+      for (const te of rdfTypeEdges) {
+        const classKey = documentKey(te._to);
+        if (classKeySet.has(classKey)) {
+          typeClassKeyByIndividual.set(documentKey(te._from), classKey);
+        }
+      }
+
+      const drawnIndividuals = new Set<string>();
+      for (const ind of individuals) {
+        const typeClassKey = typeClassKeyByIndividual.get(ind._key);
+        if (!typeClassKey) continue;
+        const nodeId = individualNodeId(ind._key);
+        const pos = positions.get(nodeId);
+        if (!pos) continue;
+        drawnIndividuals.add(ind._key);
+        flowNodes.push({
+          id: nodeId,
+          type: "individualNode",
+          position: pos,
+          selected: effectiveSelected.includes(nodeId),
+          data: {
+            label: ind.label,
+            individualKey: ind._key,
+            typeLabel: classLabelByKey.get(typeClassKey) ?? "",
+            spanCount: Array.isArray(ind.provenance) ? ind.provenance.length : 0,
+            status: ind.status,
+          } satisfies IndividualNodeData,
+        });
+      }
+
+      for (const te of rdfTypeEdges) {
+        const individualKey = documentKey(te._from);
+        const classKey = documentKey(te._to);
+        if (!drawnIndividuals.has(individualKey) || !classKeySet.has(classKey)) continue;
+        fe.push({
+          id: `rdftype-${te._key}`,
+          // Class is the source so dagre ranks it above; markerStart puts the
+          // arrowhead back on the class, preserving `instance rdf:type Class`.
+          source: classKey,
+          target: individualNodeId(individualKey),
+          label: "rdf:type",
+          type: "default",
+          markerStart: { type: MarkerType.ArrowClosed },
+          style: {
+            stroke: EDGE_COLORS.rdf_type ?? "#94a3b8",
+            strokeWidth: 1.5,
+            strokeDasharray: "3 3",
+          },
+          labelStyle: { fill: "#64748b", fontSize: 10, fontWeight: 500 },
+          labelBgStyle: { fill: "#f8fafc", fillOpacity: 0.95 },
+          labelBgPadding: [3, 2] as [number, number],
+          data: { edgeKey: te._key, aboxEdge: "rdf_type" },
+        });
+      }
+
+      for (const assertion of assertions) {
+        const fromKey = documentKey(assertion._from);
+        const toKey = documentKey(assertion._to);
+        if (!drawnIndividuals.has(fromKey) || !drawnIndividuals.has(toKey)) continue;
+        fe.push({
+          id: `assert-${assertion._key}`,
+          source: individualNodeId(fromKey),
+          target: individualNodeId(toKey),
+          label: assertion.predicate || "asserts",
+          type: "default",
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: {
+            stroke: EDGE_COLORS.individual_assertion ?? "#f59e0b",
+            strokeWidth: 2,
+          },
+          labelStyle: { fill: "#b45309", fontSize: 10, fontWeight: 600 },
+          labelBgStyle: { fill: "#fffbeb", fillOpacity: 0.95 },
+          labelBgPadding: [3, 2] as [number, number],
+          data: { edgeKey: assertion._key, aboxEdge: "individual_assertion" },
+        });
+      }
+    }
+
     if (showMergeCandidates && mergeCandidates.length > 0) {
       for (const mc of mergeCandidates) {
         fe.push({
@@ -438,7 +636,7 @@ export default function GraphCanvas({
     }
 
     return { nodes: flowNodes, flowEdges: fe };
-  }, [classes, edges, positions, effectiveSelected, colorMode, classificationMap, tierMap, showMergeCandidates, mergeCandidates]);
+  }, [classes, edges, positions, effectiveSelected, colorMode, classificationMap, tierMap, showMergeCandidates, mergeCandidates, individuals, rdfTypeEdges, assertions]);
 
   const onInit = useCallback((instance: { fitView: () => void }) => {
     instance.fitView();
@@ -446,9 +644,17 @@ export default function GraphCanvas({
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
+      // Individual node ids are namespaced; routing them to `onNodeSelect` would
+      // make the class detail panel look up `ind:<key>` in the class list and
+      // silently blank out.
+      const individualKey = individualKeyFromNodeId(node.id);
+      if (individualKey !== null) {
+        onIndividualSelect?.(individualKey);
+        return;
+      }
       onNodeSelect?.(node.id);
     },
-    [onNodeSelect],
+    [onNodeSelect, onIndividualSelect],
   );
 
   const handleEdgeClick = useCallback(
@@ -510,6 +716,7 @@ export default function GraphCanvas({
         />
         <MiniMap
           nodeColor={(node) => {
+            if (node.type === "individualNode") return INDIVIDUAL_NODE_STYLE.miniMap;
             const nd = node.data as OntologyNodeData | undefined;
             if (colorMode === "classification" && nd?.classification) {
               return classificationMiniMapColor(nd.classification);

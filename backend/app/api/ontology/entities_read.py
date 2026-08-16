@@ -7,7 +7,9 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.errors import NotFoundError
 from app.api.ontology import _shared
+from app.db import lexicon_repo
 from app.db.temporal_constants import NEVER_EXPIRES
+from app.services import label_overlay
 from app.services import temporal as temporal_svc
 from app.services.edge_confidence import (
     compute_edge_confidence,
@@ -124,6 +126,7 @@ async def list_ontology_classes(
             bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
         )
     )
+    classes = label_overlay.apply_for_ontology(db, ontology_id, classes)
     ms_aql = round((time.perf_counter() - t0) * 1000, 1)
     log.info(
         f"list_ontology_classes timing ont={ontology_id} "
@@ -168,7 +171,10 @@ def _list_classes_paginated(
     except (ValueError, KeyError, TypeError, binascii.Error) as exc:
         raise HTTPException(status_code=400, detail="Invalid pagination cursor") from exc
 
-    data = page.data
+    # Curated labels overlay the extracted ones BEFORE projection, mirroring the
+    # rdfs_range_class enrichment rule: a read path that projects first would
+    # serve the pre-curation label (PRD §6.20 FR-20.4).
+    data = label_overlay.apply_for_ontology(db, ontology_id, list(page.data))
     if profile == INCLUDE_SUMMARY:
         data = [summarize_class(c) for c in data]
 
@@ -292,11 +298,18 @@ async def get_class_detail(ontology_id: str, class_key: str) -> dict[str, Any]:
             )
         )
 
+    # One decision lookup for the whole panel — the class and every property it
+    # owns are overlaid together (PRD §6.20 FR-20.4). This is the surface a
+    # curator actually reads, so serving a stale label here would defeat the
+    # feature even if every list endpoint were correct.
+    decisions = lexicon_repo.live_decisions_by_uri(db, ontology_id=ontology_id)
+    overlaid_class = label_overlay.apply_to_rows([dict(cls)], decisions)[0]
+
     return {
-        **cls,
-        "attributes": attributes,
-        "relationships": relationships,
-        "legacy_properties": legacy_properties,
+        **overlaid_class,
+        "attributes": label_overlay.apply_to_rows(attributes, decisions),
+        "relationships": label_overlay.apply_to_rows(relationships, decisions),
+        "legacy_properties": label_overlay.apply_to_rows(legacy_properties, decisions),
     }
 
 
@@ -343,7 +356,9 @@ async def list_ontology_properties(
                     bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
                 )
             )
-    return {"data": props}
+    # Attribute labels are where collisions actually live (Document.role vs
+    # Contact.role), so this is the overlay's most load-bearing call site.
+    return {"data": label_overlay.apply_for_ontology(db, ontology_id, props)}
 
 
 _EDGE_HISTORY_COLLECTIONS = (
@@ -595,7 +610,8 @@ async def get_property_detail(ontology_id: str, prop_key: str) -> dict[str, Any]
         # Annotate which collection owns this property so the detail
         # panel can branch on object vs datatype without a second
         # round-trip.
-        return dict(doc, property_collection=col_name)
+        row = dict(doc, property_collection=col_name)
+        return label_overlay.apply_for_ontology(db, ontology_id, [row])[0]
     raise NotFoundError(f"Property '{prop_key}' not found in ontology '{ontology_id}'")
 
 

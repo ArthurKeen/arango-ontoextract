@@ -11,7 +11,7 @@ export type EdgeType =
   | "extracted_from"
   | "imports";
 
-export interface OntologyClass {
+export interface OntologyClass extends CuratedLabelFields {
   _key: string;
   uri: string;
   label: string;
@@ -37,7 +37,101 @@ export interface OntologyClass {
   is_imported?: boolean;
 }
 
-export interface OntologyProperty {
+/**
+ * A-box (assertion graph) types — FR-18.13 canvas rendering.
+ *
+ * Individuals are fetched on demand per class via
+ * ``GET /api/v1/ontology/{id}/instance-graph?class_keys=...``, never as part of
+ * the T-box graph load, so instance volume cannot swamp the canvas.
+ */
+export interface OntologyIndividual {
+  _key: string;
+  _id: string;
+  label: string;
+  uri?: string | null;
+  status?: CurationStatus | null;
+  provenance?: Array<Record<string, unknown>> | null;
+  ontology_id?: string;
+}
+
+/** ``rdf_type`` edge: individual ``_from`` → ``ontology_classes`` ``_to``. */
+export interface RdfTypeEdge {
+  _key: string;
+  _from: string;
+  _to: string;
+}
+
+/** ``individual_assertion`` edge: individual → individual, carrying a predicate. */
+export interface IndividualAssertion {
+  _key: string;
+  _from: string;
+  _to: string;
+  predicate?: string | null;
+  provenance?: Array<Record<string, unknown>> | null;
+}
+
+export interface InstanceGraph {
+  individuals: OntologyIndividual[];
+  rdf_type_edges: RdfTypeEdge[];
+  assertions: IndividualAssertion[];
+  /** Class keys whose instance list hit the per-class cap. */
+  truncated: string[];
+}
+
+/**
+ * Curated-lexicon types — PRD §6.20.
+ *
+ * A collision is filed against a normalized label; the decision is recorded per
+ * `concept_uri`, which is the only identifier stable across re-extraction.
+ */
+export interface CollisionOccurrence {
+  concept_uri: string;
+  concept_type?: string | null;
+  ontology_id?: string | null;
+  label?: string | null;
+  description?: string | null;
+  /** Which system this concept came from; only external producers can supply it. */
+  source_system?: string | null;
+  /** Example values — often settles the judgement faster than any description. */
+  sample_values?: string[];
+}
+
+export interface LabelCollision {
+  _key: string;
+  scope: string;
+  label: string;
+  normalized_label: string;
+  occurrences: CollisionOccurrence[];
+  occurrence_count?: number;
+  status: "open" | "resolved" | "dismissed";
+  source: string;
+  detected_at?: number;
+  resolved_at?: number | null;
+  resolved_by?: string | null;
+}
+
+export interface LabelDecision {
+  concept_uri: string;
+  label: string;
+  description?: string | null;
+  concept_type?: string | null;
+  decided_by?: string | null;
+  decided_at?: number | null;
+}
+
+/**
+ * Annotations the read-time overlay adds to any class/property whose label was
+ * curated (FR-20.4). ``label`` already carries the curated value; these say so,
+ * and preserve what extraction called it.
+ */
+export interface CuratedLabelFields {
+  curated_label?: boolean;
+  extracted_label?: string | null;
+  curated_by?: string | null;
+  curated_at?: number | null;
+}
+
+export interface OntologyProperty extends CuratedLabelFields {
   _key: string;
   uri: string;
   label: string;

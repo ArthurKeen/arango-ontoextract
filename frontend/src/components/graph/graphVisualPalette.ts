@@ -12,7 +12,18 @@ export const ONTOLOGY_EDGE_COLORS: Record<string, string> = {
   rdfs_range_class: "#2dd4bf",
   extracted_from: "#4ade80",
   imports: "#f87171",
+  // A-box (FR-18.13). Deliberately off the T-box hues above so an instance link
+  // is never mistaken for subclass_of / has_property at a glance.
+  rdf_type: "#94a3b8",
+  individual_assertion: "#f59e0b",
 };
+
+/** Fill + border for A-box individual nodes (FR-18.13). */
+export const INDIVIDUAL_NODE_STYLE = {
+  border: "border-amber-400",
+  fill: "bg-amber-50",
+  miniMap: "#f59e0b",
+} as const;
 
 /** Ordered rows for CanvasLensLegend (semantic). */
 export const SEMANTIC_EDGE_LEGEND: { edgeType: string; label: string }[] = [
@@ -25,4 +36,6 @@ export const SEMANTIC_EDGE_LEGEND: { edgeType: string; label: string }[] = [
   { edgeType: "rdfs_range_class", label: "Range → class" },
   { edgeType: "extracted_from", label: "Extracted from document" },
   { edgeType: "imports", label: "Imports" },
+  { edgeType: "rdf_type", label: "Instance of (rdf:type)" },
+  { edgeType: "individual_assertion", label: "Assertion (instance → instance)" },
 ];

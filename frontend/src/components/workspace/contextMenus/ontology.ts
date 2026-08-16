@@ -125,6 +125,16 @@ export function buildOntologyContextMenu(
       },
     },
     {
+      // §6.20: label-collision work queue (overlay §9).
+      label: "Label Collisions…",
+      icon: "🔤",
+      onClick: () => {
+        if (!ontKey) return;
+        const n = String(data.name ?? data.label ?? ontKey).trim();
+        actions.setLexiconQueue({ key: ontKey, name: n || ontKey });
+      },
+    },
+    {
       // Stream 21: A-box instance lens (overlay §9).
       label: "View Instances (A-box)…",
       icon: "📎",

@@ -3,6 +3,8 @@ import {
   buildSyntheticRdfsRangeClassEdges,
   documentKey,
   getEdgeType,
+  individualKeyFromNodeId,
+  individualNodeId,
   RDFS_RANGE_CLASS_LABEL_FALLBACK,
 } from "./graphCanvasEdges";
 
@@ -90,6 +92,26 @@ describe("graphCanvasEdges", () => {
       ];
       const syn = buildSyntheticRdfsRangeClassEdges(edges, classKeys);
       expect(syn[0]?.label).toBe(RDFS_RANGE_CLASS_LABEL_FALLBACK);
+    });
+  });
+
+  describe("individual node ids (FR-18.13)", () => {
+    it("namespaces an individual key", () => {
+      expect(individualNodeId("i1")).toBe("ind:i1");
+    });
+
+    it("round-trips through individualKeyFromNodeId", () => {
+      expect(individualKeyFromNodeId(individualNodeId("i1"))).toBe("i1");
+    });
+
+    it("returns null for a class node id", () => {
+      // A class named "i1" must not be mistaken for individual "i1".
+      expect(individualKeyFromNodeId("i1")).toBeNull();
+      expect(individualKeyFromNodeId("Person")).toBeNull();
+    });
+
+    it("preserves a key that itself contains the delimiter", () => {
+      expect(individualKeyFromNodeId(individualNodeId("ind:odd"))).toBe("ind:odd");
     });
   });
 });

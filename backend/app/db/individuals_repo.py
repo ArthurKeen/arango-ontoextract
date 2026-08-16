@@ -190,6 +190,162 @@ def list_individuals(
 
 
 # ---------------------------------------------------------------------------
+# FR-18.13 — A-box canvas rendering (per-class instance expansion)
+# ---------------------------------------------------------------------------
+
+
+def count_individuals_by_class(
+    db: StandardDatabase | None,
+    ontology_id: str,
+) -> dict[str, int]:
+    """Live individual count per T-box class key, for an ontology.
+
+    Powers the canvas "Instances (N)" affordance (FR-18.13) so a curator can see
+    which classes are worth expanding WITHOUT loading any individual. Returns an
+    empty mapping when the A-box collections do not exist yet.
+    """
+    if db is None:
+        db = get_db()
+    if not (db.has_collection(INDIVIDUALS) and db.has_collection(RDF_TYPE)):
+        return {}
+    rows = run_aql(
+        db,
+        f"""
+        FOR e IN {RDF_TYPE}
+          FILTER e.expired == @never
+          FOR i IN {INDIVIDUALS}
+            FILTER i._id == e._from
+              AND i.expired == @never
+              AND i.ontology_id == @oid
+            COLLECT ck = PARSE_IDENTIFIER(e._to).key WITH COUNT INTO n
+            RETURN {{class_key: ck, count: n}}
+        """,
+        bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES},
+    )
+    return {str(r["class_key"]): int(r["count"]) for r in rows if r.get("class_key")}
+
+
+def get_instance_graph(
+    db: StandardDatabase | None,
+    ontology_id: str,
+    *,
+    class_keys: list[str],
+    limit_per_class: int = 25,
+) -> dict[str, Any]:
+    """Individuals typed to ``class_keys``, plus their type + assertion edges.
+
+    This is a DEDICATED read path, deliberately not folded into the effective-graph
+    projection (``ontology_effective``): instance volume dwarfs class volume, and
+    the canvas T-box fetch is latency-sensitive (Stream 12 T6). Expansion is
+    per-class and capped by ``limit_per_class`` so one document's extraction cannot
+    swamp the layout.
+
+    ``assertions`` are restricted to edges whose BOTH endpoints are in the returned
+    individual set — a dangling half-edge would render as an arrow into nothing.
+
+    Returns ``{individuals, rdf_type_edges, assertions, truncated}`` where
+    ``truncated`` lists the class keys that hit ``limit_per_class``.
+    """
+    if db is None:
+        db = get_db()
+    empty: dict[str, Any] = {
+        "individuals": [],
+        "rdf_type_edges": [],
+        "assertions": [],
+        "truncated": [],
+    }
+    if not class_keys:
+        return empty
+    if not (db.has_collection(INDIVIDUALS) and db.has_collection(RDF_TYPE)):
+        return empty
+
+    # Per-class LIMIT must live inside a subquery: a LIMIT in the nested FOR would
+    # cap the flattened result set instead of each class's slice.
+    grouped = run_aql(
+        db,
+        f"""
+        FOR ck IN @class_keys
+          LET rows = (
+            FOR e IN {RDF_TYPE}
+              FILTER e._to == CONCAT("ontology_classes/", ck)
+                AND e.expired == @never
+              FOR i IN {INDIVIDUALS}
+                FILTER i._id == e._from
+                  AND i.expired == @never
+                  AND i.ontology_id == @oid
+                SORT i.label ASC
+                LIMIT @cap
+                RETURN {{
+                  individual: {{
+                    _key: i._key,
+                    _id: i._id,
+                    label: i.label,
+                    uri: i.uri,
+                    status: i.status,
+                    provenance: i.provenance,
+                    ontology_id: i.ontology_id
+                  }},
+                  edge: {{_key: e._key, _from: e._from, _to: e._to}}
+                }}
+          )
+          RETURN {{class_key: ck, rows: rows}}
+        """,
+        bind_vars={
+            "oid": ontology_id,
+            "class_keys": class_keys,
+            "never": NEVER_EXPIRES,
+            "cap": limit_per_class,
+        },
+    )
+
+    individuals: list[dict[str, Any]] = []
+    rdf_type_edges: list[dict[str, Any]] = []
+    truncated: list[str] = []
+    seen: set[str] = set()
+    for group in grouped:
+        rows = group.get("rows") or []
+        if len(rows) >= limit_per_class:
+            truncated.append(str(group["class_key"]))
+        for row in rows:
+            ind = row["individual"]
+            # An individual with two live rdf_type edges (multi-typing) would
+            # otherwise be emitted twice and collide on node id in the canvas.
+            if ind["_id"] not in seen:
+                seen.add(ind["_id"])
+                individuals.append(ind)
+            rdf_type_edges.append(row["edge"])
+
+    assertions: list[dict[str, Any]] = []
+    if seen and db.has_collection(ASSERTION):
+        assertions = list(
+            run_aql(
+                db,
+                f"""
+                FOR a IN {ASSERTION}
+                  FILTER a.expired == @never
+                    AND a._from IN @ids
+                    AND a._to IN @ids
+                  RETURN {{
+                    _key: a._key,
+                    _from: a._from,
+                    _to: a._to,
+                    predicate: a.predicate,
+                    provenance: a.provenance
+                  }}
+                """,
+                bind_vars={"ids": sorted(seen), "never": NEVER_EXPIRES},
+            )
+        )
+
+    return {
+        "individuals": individuals,
+        "rdf_type_edges": rdf_type_edges,
+        "assertions": assertions,
+        "truncated": truncated,
+    }
+
+
+# ---------------------------------------------------------------------------
 # FR-18.9 — A-box curation write path (approve / reject / edit)
 # ---------------------------------------------------------------------------
 

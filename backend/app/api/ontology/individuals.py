@@ -57,6 +57,39 @@ async def validate_individuals(ontology_id: str) -> dict[str, Any]:
     return report.to_dict()
 
 
+@router.get("/{ontology_id}/individuals/counts")
+async def individuals_counts_by_class(ontology_id: str) -> dict[str, Any]:
+    """Live individual count per T-box class key (FR-18.13).
+
+    Lets the canvas show an "Instances (N)" affordance on each class without
+    fetching a single individual.
+    """
+    counts = individuals_repo.count_individuals_by_class(_shared.get_db(), ontology_id)
+    return {"ontology_id": ontology_id, "counts": counts, "total": sum(counts.values())}
+
+
+@router.get("/{ontology_id}/instance-graph")
+async def instance_graph(
+    ontology_id: str,
+    class_keys: list[str] = Query(
+        default=[], description="T-box class keys to expand instances for."
+    ),
+    limit_per_class: int = Query(25, ge=1, le=200),
+) -> dict[str, Any]:
+    """Individuals for the named classes, with rdf:type + assertion edges (FR-18.13).
+
+    Deliberately a separate endpoint from ``/effective``: instance volume dwarfs
+    class volume, so folding it into the canvas T-box projection would regress the
+    latency-sensitive path. Expansion is opt-in and capped per class.
+    """
+    return individuals_repo.get_instance_graph(
+        _shared.get_db(),
+        ontology_id,
+        class_keys=class_keys,
+        limit_per_class=limit_per_class,
+    )
+
+
 @router.get("/{ontology_id}/individuals")
 async def list_individuals(
     ontology_id: str,

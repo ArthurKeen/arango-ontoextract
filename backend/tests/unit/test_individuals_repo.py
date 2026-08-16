@@ -171,3 +171,135 @@ class TestCurateIndividual:
         with patch.object(repo, "get_individual", return_value={"_key": "i1", "ontology_id": "o"}):
             repo.curate_individual(db, key="i1", action="edit")
         col.update.assert_not_called()
+
+
+class TestCountIndividualsByClass:
+    """FR-18.13 — per-class instance counts drive the canvas expand affordance."""
+
+    def test_missing_collections_is_empty(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = False
+        assert repo.count_individuals_by_class(db, "ont1") == {}
+
+    def test_maps_class_key_to_count(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = True
+        rows = [
+            {"class_key": "Organization", "count": 12},
+            {"class_key": "Person", "count": 3},
+        ]
+        with patch.object(repo, "run_aql", return_value=iter(rows)) as raq:
+            out = repo.count_individuals_by_class(db, "ont1")
+        assert out == {"Organization": 12, "Person": 3}
+        assert raq.call_args.kwargs["bind_vars"]["oid"] == "ont1"
+
+    def test_drops_rows_with_no_class_key(self) -> None:
+        # A dangling rdf_type edge would otherwise produce a None-keyed bucket.
+        db = MagicMock()
+        db.has_collection.return_value = True
+        rows = [{"class_key": None, "count": 4}, {"class_key": "Person", "count": 1}]
+        with patch.object(repo, "run_aql", return_value=iter(rows)):
+            assert repo.count_individuals_by_class(db, "ont1") == {"Person": 1}
+
+
+class TestGetInstanceGraph:
+    """FR-18.13 — per-class instance expansion for the canvas."""
+
+    @staticmethod
+    def _row(key: str, class_key: str, label: str | None = None) -> dict:
+        return {
+            "individual": {
+                "_key": key,
+                "_id": f"ontology_individuals/{key}",
+                "label": label or key,
+                "uri": None,
+                "status": None,
+                "provenance": [],
+                "ontology_id": "ont1",
+            },
+            "edge": {
+                "_key": f"e-{key}",
+                "_from": f"ontology_individuals/{key}",
+                "_to": f"ontology_classes/{class_key}",
+            },
+        }
+
+    def test_no_class_keys_short_circuits(self) -> None:
+        db = MagicMock()
+        out = repo.get_instance_graph(db, "ont1", class_keys=[])
+        assert out == {
+            "individuals": [],
+            "rdf_type_edges": [],
+            "assertions": [],
+            "truncated": [],
+        }
+        db.has_collection.assert_not_called()
+
+    def test_missing_collections_is_empty(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = False
+        out = repo.get_instance_graph(db, "ont1", class_keys=["Person"])
+        assert out["individuals"] == []
+
+    def test_returns_individuals_edges_and_assertions(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = True
+        grouped = [{"class_key": "Person", "rows": [self._row("i1", "Person")]}]
+        assertions = [
+            {
+                "_key": "a1",
+                "_from": "ontology_individuals/i1",
+                "_to": "ontology_individuals/i1",
+                "predicate": "knows",
+                "provenance": [],
+            }
+        ]
+        with patch.object(repo, "run_aql", side_effect=[iter(grouped), iter(assertions)]) as raq:
+            out = repo.get_instance_graph(db, "ont1", class_keys=["Person"])
+        assert [i["_key"] for i in out["individuals"]] == ["i1"]
+        assert [e["_key"] for e in out["rdf_type_edges"]] == ["e-i1"]
+        assert out["assertions"] == assertions
+        # assertion lookup is scoped to the returned individual ids
+        assert raq.call_args.kwargs["bind_vars"]["ids"] == ["ontology_individuals/i1"]
+
+    def test_per_class_cap_is_reported_as_truncated(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = True
+        grouped = [
+            {
+                "class_key": "Person",
+                "rows": [self._row("i1", "Person"), self._row("i2", "Person")],
+            },
+            {"class_key": "Org", "rows": [self._row("i3", "Org")]},
+        ]
+        with patch.object(repo, "run_aql", side_effect=[iter(grouped), iter([])]):
+            out = repo.get_instance_graph(
+                db, "ont1", class_keys=["Person", "Org"], limit_per_class=2
+            )
+        assert out["truncated"] == ["Person"]
+        assert len(out["individuals"]) == 3
+
+    def test_multi_typed_individual_is_not_duplicated(self) -> None:
+        # Same individual typed to two expanded classes must yield ONE node but
+        # BOTH rdf_type edges, or the canvas drops a node on id collision.
+        db = MagicMock()
+        db.has_collection.return_value = True
+        grouped = [
+            {"class_key": "Person", "rows": [self._row("i1", "Person")]},
+            {"class_key": "Agent", "rows": [self._row("i1", "Agent")]},
+        ]
+        with patch.object(repo, "run_aql", side_effect=[iter(grouped), iter([])]):
+            out = repo.get_instance_graph(db, "ont1", class_keys=["Person", "Agent"])
+        assert len(out["individuals"]) == 1
+        assert {e["_to"] for e in out["rdf_type_edges"]} == {
+            "ontology_classes/Person",
+            "ontology_classes/Agent",
+        }
+
+    def test_skips_assertion_query_when_no_individuals(self) -> None:
+        db = MagicMock()
+        db.has_collection.return_value = True
+        with patch.object(repo, "run_aql", side_effect=[iter([])]) as raq:
+            out = repo.get_instance_graph(db, "ont1", class_keys=["Person"])
+        assert out["assertions"] == []
+        assert raq.call_count == 1

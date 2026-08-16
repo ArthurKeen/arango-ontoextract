@@ -118,6 +118,15 @@ export type IndividualsOverlayArg = {
   name: string;
 } | null;
 
+/** Argument shape for ``setLexiconQueue`` (``null`` closes the overlay).
+ *  Drives the §6.20 ``LexiconQueueOverlay``: the label-collision work queue,
+ *  where a curator resolves a colliding attribute/class label and the choice is
+ *  recorded as a decision that survives re-extraction. Overlay-not-route (rule 9). */
+export type LexiconQueueArg = {
+  key: string;
+  name: string;
+} | null;
+
 /** Argument shape for ``setOntologyDelete`` (``null`` closes the dialog).
  *  Drives the H.4 ``OntologyDeleteDialog``: fetches a deletion-impact
  *  preview before allowing the typed-name confirmation. */
@@ -272,6 +281,7 @@ export interface WorkspaceContextMenuActions {
   setAlignmentReview: (arg: AlignmentReviewArg) => void;
   setRequirementsOverlay: (arg: RequirementsOverlayArg) => void;
   setIndividualsOverlay: (arg: IndividualsOverlayArg) => void;
+  setLexiconQueue: (arg: LexiconQueueArg) => void;
   exportOntology: (ontologyKey: string, format: "turtle" | "jsonld" | "csv") => void;
 
   // ── Imports (Stream 1 H.16) ───────────────────────────────────────────

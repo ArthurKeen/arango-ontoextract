@@ -147,3 +147,96 @@ class TestCurateIndividual:
                 "/api/v1/ontology/individuals/nope/curate", json={"action": "approve"}
             )
         assert resp.status_code == 404
+
+
+class TestInstanceCounts:
+    """FR-18.13 — per-class counts for the canvas expand affordance."""
+
+    def test_returns_counts_and_total(self) -> None:
+        counts = {"Organization": 12, "Person": 3}
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(individuals_repo, "count_individuals_by_class", return_value=counts) as mk,
+        ):
+            resp = client.get("/api/v1/ontology/o1/individuals/counts")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["counts"] == counts
+        assert body["total"] == 15
+        assert mk.call_args[0][1] == "o1"
+
+    def test_empty_abox_totals_zero(self) -> None:
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(individuals_repo, "count_individuals_by_class", return_value={}),
+        ):
+            resp = client.get("/api/v1/ontology/o1/individuals/counts")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_counts_route_is_not_shadowed_by_individual_lookup(self) -> None:
+        # `/individuals/counts` must not be captured by `/individuals/{key}`.
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(individuals_repo, "count_individuals_by_class", return_value={"A": 1}),
+            patch.object(individuals_repo, "get_individual") as mk_get,
+        ):
+            resp = client.get("/api/v1/ontology/o1/individuals/counts")
+        assert resp.status_code == 200
+        mk_get.assert_not_called()
+
+
+class TestInstanceGraph:
+    """FR-18.13 — dedicated per-class instance-graph read path."""
+
+    def test_threads_class_keys_and_limit(self) -> None:
+        payload = {
+            "individuals": [{"_key": "i1", "_id": "ontology_individuals/i1", "label": "Acme"}],
+            "rdf_type_edges": [
+                {
+                    "_key": "e1",
+                    "_from": "ontology_individuals/i1",
+                    "_to": "ontology_classes/Org",
+                }
+            ],
+            "assertions": [],
+            "truncated": [],
+        }
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(individuals_repo, "get_instance_graph", return_value=payload) as mk,
+        ):
+            resp = client.get(
+                "/api/v1/ontology/o1/instance-graph"
+                "?class_keys=Org&class_keys=Person&limit_per_class=10"
+            )
+        assert resp.status_code == 200
+        assert resp.json()["individuals"][0]["label"] == "Acme"
+        assert mk.call_args.kwargs["class_keys"] == ["Org", "Person"]
+        assert mk.call_args.kwargs["limit_per_class"] == 10
+
+    def test_defaults_to_empty_class_keys(self) -> None:
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(
+                individuals_repo,
+                "get_instance_graph",
+                return_value={
+                    "individuals": [],
+                    "rdf_type_edges": [],
+                    "assertions": [],
+                    "truncated": [],
+                },
+            ) as mk,
+        ):
+            resp = client.get("/api/v1/ontology/o1/instance-graph")
+        assert resp.status_code == 200
+        assert mk.call_args.kwargs["class_keys"] == []
+        assert mk.call_args.kwargs["limit_per_class"] == 25
+
+    def test_rejects_out_of_range_limit(self) -> None:
+        with patch.object(_shared, "get_db", return_value=MagicMock()):
+            resp = client.get(
+                "/api/v1/ontology/o1/instance-graph?class_keys=Org&limit_per_class=500"
+            )
+        assert resp.status_code == 422

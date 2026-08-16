@@ -40,6 +40,7 @@
    - 6.17 Multi-Source Ontology Alignment & Merging
    - 6.18 Assertion-Graph (A-box) Extraction
    - 6.19 Use-Case / Competency-Question-Driven Ontology Requirements
+   - 6.20 Curated Lexicon — Label-Collision Resolution
 7. [API Specification](#7-api-specification-backend)
    - 7.1–7.7 Endpoint groups
    - 7.8 Frontend Architecture: Object-Centric Workspace

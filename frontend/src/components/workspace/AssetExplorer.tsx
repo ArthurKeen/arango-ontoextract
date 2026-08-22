@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { api, ApiError, type PaginatedResponse } from "@/lib/api-client";
 import { fetchOntologyData } from "@/lib/ontologyDataCache";
 import { writeImportDragPayload } from "@/lib/importDragCheck";
-import type { OntologyRegistryEntry } from "@/types/curation";
+import type { OntologyRegistryEntry, SearchResponse, SearchResult } from "@/types/curation";
 import type { ExtractionRun } from "@/types/pipeline";
 
 /** Per-request ceiling; documents and library use separate AbortControllers so one slow route does not cancel the other. */
@@ -124,6 +124,22 @@ export default function AssetExplorer({
   onOpenCatalogBrowser,
 }: AssetExplorerProps) {
   const [search, setSearch] = useState("");
+
+  // FR-7.8.13 — search must reach class and property labels, not just asset
+  // names. The backend endpoint already exists (BM25 over `ontology_search_view`,
+  // migration 015) and the library page already uses it; the explorer simply
+  // never called it, which is why searching a class name returned nothing.
+  // Client-side name filtering is kept as the instant local pass.
+  const [conceptHits, setConceptHits] = useState<SearchResult[]>([]);
+  const [conceptSearching, setConceptSearching] = useState(false);
+  const conceptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // FR-7.8.14 — pending work must be visible without opening a menu. The
+  // revisions inbox is reachable only by right-clicking an ontology and knowing
+  // it exists, so a curator has no way to tell there is anything waiting.
+  // Fetched for the OPEN ontology only: badging every row would be one request
+  // per ontology on every explorer render, for a number nobody is reading yet.
+  const [pendingCount, setPendingCount] = useState(0);
   const [expanded, setExpanded] = useState<Record<SectionId, boolean>>({
     documents: true,
     ontologies: true,
@@ -258,6 +274,65 @@ export default function AssetExplorer({
     }
   }, [expanded.runs, runs.length, runsLoading, fetchRuns]);
 
+  useEffect(() => {
+    if (!selectedOntologyId) {
+      setPendingCount(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{ count: number }>(
+          `/api/v1/revisions/inbox?ontology_id=${encodeURIComponent(selectedOntologyId)}`,
+        );
+        if (!cancelled) setPendingCount(res.count ?? 0);
+      } catch {
+        // No inbox, or the endpoint is unavailable — show no badge rather than
+        // an error. An absent badge reads as "nothing pending", which is the
+        // safe wrong answer; a broken row is not.
+        if (!cancelled) setPendingCount(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOntologyId, libraryReloadNonce]);
+
+  useEffect(() => {
+    const q = search.trim();
+    if (conceptTimer.current) clearTimeout(conceptTimer.current);
+    if (q.length < 2) {
+      setConceptHits([]);
+      setConceptSearching(false);
+      return;
+    }
+    setConceptSearching(true);
+    conceptTimer.current = setTimeout(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const res = await api.get<SearchResponse>(
+            `/api/v1/ontology/search?q=${encodeURIComponent(q)}`,
+          );
+          if (cancelled) return;
+          // Classes first, then properties — a curator searching a term is
+          // usually after the concept before the attribute.
+          setConceptHits([...res.results.classes, ...res.results.properties]);
+        } catch {
+          if (!cancelled) setConceptHits([]);
+        } finally {
+          if (!cancelled) setConceptSearching(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, 300);
+    return () => {
+      if (conceptTimer.current) clearTimeout(conceptTimer.current);
+    };
+  }, [search]);
+
   const filteredDocs = search
     ? documents.filter((d) =>
         d.filename.toLowerCase().includes(search.toLowerCase()),
@@ -351,6 +426,60 @@ export default function AssetExplorer({
           ))}
         </Section>
 
+        {/* Concepts (FR-7.8.13) — classes and properties matching the query,
+            from the backend search view. Only rendered while searching, so it
+            costs nothing in the normal browsing case. */}
+        {search.trim().length >= 2 && (
+          <div className="border-b border-gray-100" data-testid="concept-results">
+            <div className="px-3 py-1.5 flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                Concepts
+              </span>
+              <span className="text-[11px] text-gray-400">
+                {conceptSearching ? "…" : conceptHits.length}
+              </span>
+            </div>
+            {!conceptSearching && conceptHits.length === 0 && (
+              <p className="px-3 pb-2 text-xs text-gray-400" data-testid="concept-empty">
+                No classes or properties match.
+              </p>
+            )}
+            {conceptHits.slice(0, 25).map((hit) => (
+              <button
+                key={`${hit.source}-${hit._key}`}
+                onClick={() => {
+                  if (hit.source === "class" && hit.ontology_id) {
+                    onSelectClass?.(hit._key, hit.ontology_id);
+                  } else if (hit.ontology_id) {
+                    onSelectOntology(hit.ontology_id);
+                  }
+                }}
+                className="w-full text-left pl-5 pr-3 py-1.5 text-xs flex items-center gap-1.5 hover:bg-gray-50 group"
+                data-testid={`concept-hit-${hit._key}`}
+              >
+                <span className="text-[10px] text-gray-400 w-3 text-center flex-shrink-0">
+                  {hit.source === "class" ? "\u25C7" : "\u00B7"}
+                </span>
+                <span className="truncate flex-1 font-medium text-gray-700 group-hover:text-gray-900">
+                  {hit.label ?? hit.name ?? hit._key}
+                </span>
+                {/* Which ontology a hit belongs to is essential — the same label
+                    can exist in several, and an unattributed hit is unusable. */}
+                {hit.ontology_name && (
+                  <span className="text-[10px] text-gray-400 truncate max-w-[38%]">
+                    {hit.ontology_name}
+                  </span>
+                )}
+              </button>
+            ))}
+            {conceptHits.length > 25 && (
+              <p className="px-3 pb-2 text-[11px] text-gray-400">
+                +{conceptHits.length - 25} more — refine the search.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Ontologies */}
         <Section
           id="ontologies"
@@ -400,6 +529,7 @@ export default function AssetExplorer({
               ont={ont}
               displayName={ontologyDisplayName(ont)}
               isSelected={selectedOntologyId === ont._key}
+              pendingCount={selectedOntologyId === ont._key ? pendingCount : 0}
               onSelect={() => onSelectOntology(ont._key, ontologyDisplayName(ont))}
               onContextMenu={onContextMenu}
               selectedClassKey={selectedOntologyId === ont._key ? selectedClassKey ?? null : null}
@@ -577,6 +707,7 @@ interface ClassPropertyEntry {
 function OntologyItem({
   ont,
   displayName,
+  pendingCount = 0,
   isSelected,
   onSelect,
   onContextMenu,
@@ -587,6 +718,8 @@ function OntologyItem({
 }: {
   ont: OntologyRegistryEntry;
   displayName: string;
+  /** Unreviewed revisions awaiting this ontology (FR-7.8.14). 0 hides the badge. */
+  pendingCount?: number;
   isSelected: boolean;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent, type: string, data: unknown) => void;
@@ -752,6 +885,15 @@ function OntologyItem({
         >
           {displayName}
         </span>
+        {pendingCount > 0 && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium flex-shrink-0"
+            title={`${pendingCount} suggestion${pendingCount === 1 ? "" : "s"} awaiting review — right-click → Revisions Inbox`}
+            data-testid={`pending-badge-${ont._key}`}
+          >
+            {pendingCount > 99 ? "99+" : pendingCount}
+          </span>
+        )}
         {ont.current_release_version ? (
           <span className="text-[10px] text-emerald-700 font-medium flex-shrink-0">
             v{ont.current_release_version}

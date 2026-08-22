@@ -3,6 +3,11 @@ description: When unsure, ask the user - never silently guess on ambiguous requi
 alwaysApply: true
 ---
 
+> **Mirrored in `AGENTS.md`.** Cursor reads `.cursor/rules/`; Claude Code and
+> Codex read `AGENTS.md`. Both copies are tracked — if you change this rule,
+> change it there too.
+
+
 # Surface Don't Guess
 
 > **"When unsure, ask—don't bet the codebase."**

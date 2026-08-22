@@ -3,6 +3,11 @@ description: Test mocks must mirror the real implementation's signature - never 
 alwaysApply: true
 ---
 
+> **Mirrored in `AGENTS.md` and `frontend/AGENTS.md`.** Cursor reads `.cursor/rules/`; Claude Code and
+> Codex read `AGENTS.md`. Both copies are tracked — if you change this rule,
+> change it there too.
+
+
 # Mock Fidelity
 
 > **"A test that passes against a wrong-signature mock is a test that didn't run."**

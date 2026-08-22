@@ -3,6 +3,11 @@ description: Every code change deserves a test change - new functions get tests,
 alwaysApply: true
 ---
 
+> **Mirrored in `AGENTS.md`.** Cursor reads `.cursor/rules/`; Claude Code and
+> Codex read `AGENTS.md`. Both copies are tracked — if you change this rule,
+> change it there too.
+
+
 # Test What You Touch
 
 > **"Every code change deserves a test change."**

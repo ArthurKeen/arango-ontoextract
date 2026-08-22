@@ -3,6 +3,11 @@ description: Commit early, push often - never lose work to uncommitted changes
 alwaysApply: true
 ---
 
+> **Mirrored in `AGENTS.md`.** Cursor reads `.cursor/rules/`; Claude Code and
+> Codex read `AGENTS.md`. Both copies are tracked — if you change this rule,
+> change it there too.
+
+
 # Checkpoint Regularly
 
 > **"Commit early, push often, never lose work."**

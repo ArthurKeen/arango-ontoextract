@@ -3,6 +3,11 @@ description: If you didn't run it, you didn't ship it - always build, test, and 
 alwaysApply: true
 ---
 
+> **Mirrored in `AGENTS.md`.** Cursor reads `.cursor/rules/`; Claude Code and
+> Codex read `AGENTS.md`. Both copies are tracked — if you change this rule,
+> change it there too.
+
+
 # Verify Before Claiming Done
 
 > **"If you didn't run it, you didn't ship it."**

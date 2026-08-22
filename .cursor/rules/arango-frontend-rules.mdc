@@ -3,6 +3,11 @@ alwaysApply: true
 description: Arango specific UI design pattern
 ---
 
+> **Mirrored in `frontend/AGENTS.md`.** Cursor reads `.cursor/rules/`; Claude Code and
+> Codex read `AGENTS.md`. Both copies are tracked — if you change this rule,
+> change it there too.
+
+
 # Arango AI Front-End Design Rules
 
 This document defines the agent rules and front-end design patterns for Arango AI applications. All interface generations, components, and styling configurations must strictly adhere to these specifications to align with the ArangoDB web platform (Agentic AI Suite, chat, GraphRAG, etc.).

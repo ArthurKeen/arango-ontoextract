@@ -3,6 +3,11 @@ description: Small verifiable steps over big-bang changes - each increment must 
 alwaysApply: true
 ---
 
+> **Mirrored in `AGENTS.md`.** Cursor reads `.cursor/rules/`; Claude Code and
+> Codex read `AGENTS.md`. Both copies are tracked — if you change this rule,
+> change it there too.
+
+
 # Incremental Over Atomic
 
 > **"Small steps that individually work > Large steps that eventually work."**

@@ -316,6 +316,23 @@ export interface SigmaCanvasProps {
   focusNodeKey?: string | null;
   /** Hop radius for {@link focusNodeKey}. ``null`` means "no limit" (show all). */
   focusHops?: number | null;
+  /**
+   * Additional selected nodes beyond {@link selectedNodeKey} (FR-7.8.18).
+   * Rendered with the same ring so a multi-selection reads as one thing.
+   */
+  multiSelectedKeys?: Set<string> | null;
+  /**
+   * Shift-click on a node. Adds it to the selection, or removes it if already
+   * selected — so a multi-selection can be unpicked without starting over.
+   */
+  onNodeShiftSelect?: (nodeKey: string) => void;
+  /** Click on empty canvas. The way OUT of a selection (FR-7.8.18). */
+  onStageClick?: () => void;
+  /**
+   * Lasso (FR-7.8.18): every node inside the dragged rectangle. Fired once on
+   * release. Held modifier + drag, so ordinary panning is unaffected.
+   */
+  onLassoSelect?: (nodeKeys: string[]) => void;
 }
 
 /**
@@ -658,11 +675,24 @@ export default function SigmaCanvas({
   selectedEdgeKey,
   focusNodeKey,
   focusHops = 1,
+  multiSelectedKeys,
+  onNodeShiftSelect,
+  onStageClick,
+  onLassoSelect,
 }: SigmaCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph | null>(null);
   const [layoutRunning, setLayoutRunning] = useState(false);
+  // Screen-space rectangle while a lasso drag is in progress (FR-7.8.18).
+  const [lassoRect, setLassoRect] = useState<
+    { x: number; y: number; w: number; h: number } | null
+  >(null);
+  // The mouseup handler is bound once, so it cannot close over `lassoRect`
+  // state — it would always read the value from first render.
+  const lassoRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  lassoRectRef.current = lassoRect;
+  const lassoCleanupRef = useRef<(() => void) | null>(null);
 
   const stableClassesKey = useMemo(
     () => classes.map((c) => c._key).sort().join(","),
@@ -707,6 +737,12 @@ export default function SigmaCanvas({
   onEdgeSelectRef.current = onEdgeSelect;
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
+  const onNodeShiftSelectRef = useRef(onNodeShiftSelect);
+  onNodeShiftSelectRef.current = onNodeShiftSelect;
+  const onStageClickRef = useRef(onStageClick);
+  onStageClickRef.current = onStageClick;
+  const onLassoSelectRef = useRef(onLassoSelect);
+  onLassoSelectRef.current = onLassoSelect;
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
 
@@ -829,9 +865,94 @@ export default function SigmaCanvas({
       renderer.setSetting("enableCameraPanning", true);
     });
 
-    renderer.on("clickNode", ({ node }) => {
+    renderer.on("clickNode", ({ node, event }) => {
       if (isDragging) return;
+      // Shift toggles membership of a multi-selection (FR-7.8.18); a plain
+      // click replaces it.
+      const ev = event.original as MouseEvent | undefined;
+      if (ev?.shiftKey && onNodeShiftSelectRef.current) {
+        onNodeShiftSelectRef.current(node);
+        return;
+      }
       onNodeSelectRef.current(node);
+    });
+
+    // Clicking empty canvas clears the selection. Without this the only exit
+    // from a selection is to select something else (FR-7.8.18).
+    // ── Lasso (FR-7.8.18) ──────────────────────────────────────────────
+    // Modifier + drag draws a rectangle and selects every node inside it, for
+    // grabbing a cluster no single click can express. Gated on the modifier so
+    // ordinary drag-to-pan is untouched, and Sigma's camera is disabled for the
+    // duration so the canvas does not pan underneath the rectangle.
+    // The component's own container, not renderer.getContainer() — one less
+    // renderer API to depend on, and it is already non-null past the guard at
+    // the top of this effect. Deliberately NOT an early return: this sits above
+    // the remaining handlers and the cleanup, so bailing here would leak the
+    // renderer and silently drop clickStage.
+    const container = containerRef.current;
+    let lassoStart: { x: number; y: number } | null = null;
+
+    const isLassoModifier = (e: MouseEvent) => e.ctrlKey || e.metaKey;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (!isLassoModifier(e) || !onLassoSelectRef.current) return;
+      const rect = container.getBoundingClientRect();
+      lassoStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      setLassoRect({ x: lassoStart.x, y: lassoStart.y, w: 0, h: 0 });
+      renderer.setSetting("enableCameraPanning", false);
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!lassoStart) return;
+      const rect = container.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      setLassoRect({
+        x: Math.min(lassoStart.x, cx),
+        y: Math.min(lassoStart.y, cy),
+        w: Math.abs(cx - lassoStart.x),
+        h: Math.abs(cy - lassoStart.y),
+      });
+    };
+
+    const onMouseUp = () => {
+      if (!lassoStart) return;
+      const box = lassoRectRef.current;
+      lassoStart = null;
+      setLassoRect(null);
+      renderer.setSetting("enableCameraPanning", true);
+      if (!box || box.w < 4 || box.h < 4) return; // a click, not a drag
+
+      // Compare in VIEWPORT space: node positions are graph coordinates, and
+      // the rectangle the user drew is on screen. Converting each node forward
+      // is correct under any zoom/pan; converting the box back is not, because
+      // the projection is not affine under Sigma's camera ratio handling.
+      const picked: string[] = [];
+      graph.forEachNode((node) => {
+        const p = renderer.getNodeDisplayData(node);
+        if (!p) return;
+        if (p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h) {
+          picked.push(node);
+        }
+      });
+      if (picked.length > 0) onLassoSelectRef.current?.(picked);
+    };
+
+    if (container) {
+      container.addEventListener("mousedown", onMouseDown);
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+      lassoCleanupRef.current = () => {
+        container.removeEventListener("mousedown", onMouseDown);
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+      };
+    }
+
+    renderer.on("clickStage", () => {
+      if (isDragging) return;
+      onStageClickRef.current?.();
     });
 
     renderer.on("clickEdge", ({ edge }) => {
@@ -882,6 +1003,9 @@ export default function SigmaCanvas({
     return () => {
       killed = true;
       resizeObserver?.disconnect();
+      // Window-level lasso listeners outlive the renderer unless removed.
+      lassoCleanupRef.current?.();
+      lassoCleanupRef.current = null;
       renderer.kill();
       sigmaRef.current = null;
       graphRef.current = null;
@@ -905,7 +1029,7 @@ export default function SigmaCanvas({
     const inFocus = (key: string) => !focusSet || focusSet.has(key);
 
     const needsReducer =
-      hasVisFilter || hasEdgeVisFilter || hasNodeSel || hasEdgeSel || !!focusSet;
+      hasVisFilter || hasEdgeVisFilter || hasNodeSel || hasEdgeSel || !!focusSet || !!multiSelectedKeys?.size;
 
     if (!needsReducer) {
       s.setSetting("nodeReducer", null);
@@ -921,7 +1045,9 @@ export default function SigmaCanvas({
         if (!inFocus(_node)) {
           return { ...d, color: DIMMED_NODE_COLOR, label: "", zIndex: 0 };
         }
-        if (hasNodeSel && _node === selectedNodeKey) {
+        // Primary and shift-added selections render identically — a
+        // multi-selection should read as one thing, not a hierarchy.
+        if ((hasNodeSel && _node === selectedNodeKey) || multiSelectedKeys?.has(_node)) {
           d = { ...d, highlighted: true, zIndex: 10 };
         }
         return d;
@@ -963,7 +1089,7 @@ export default function SigmaCanvas({
       });
     }
     s.refresh();
-  }, [visibleNodeKeys, visibleEdgeKeys, selectedNodeKey, selectedEdgeKey, focusNodeKey, focusHops]);
+  }, [visibleNodeKeys, visibleEdgeKeys, selectedNodeKey, selectedEdgeKey, focusNodeKey, focusHops, multiSelectedKeys]);
 
   const handleRelayout = useCallback((layout: LayoutType = "force") => {
     if (!graphRef.current || !sigmaRef.current) return;
@@ -1147,6 +1273,20 @@ export default function SigmaCanvas({
         overflow: "hidden",
       }}
     >
+      {/* Lasso rectangle (FR-7.8.18). pointer-events-none so the drag it is
+          drawn for keeps reaching the canvas underneath. */}
+      {lassoRect && (
+        <div
+          data-testid="lasso-rect"
+          className="absolute z-30 pointer-events-none border border-indigo-400 bg-indigo-400/10"
+          style={{
+            left: lassoRect.x,
+            top: lassoRect.y,
+            width: lassoRect.w,
+            height: lassoRect.h,
+          }}
+        />
+      )}
       {layoutRunning && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#1a1a2e]/60 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3">

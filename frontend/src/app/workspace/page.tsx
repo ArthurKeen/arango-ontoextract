@@ -161,6 +161,33 @@ function WorkspacePageInner() {
   // visualizer's remove-others has no way back, which makes it a dead end.
   const [hiddenNodeKeys, setHiddenNodeKeys] = useState<Set<string>>(new Set());
 
+  // Multi-selection (FR-7.8.18). Shift-click adds; shift-clicking a selected
+  // node removes it, so a selection can be unpicked without starting over.
+  const [multiSelectedKeys, setMultiSelectedKeys] = useState<Set<string>>(new Set());
+
+  const handleNodeShiftSelect = useCallback((nodeKey: string) => {
+    setMultiSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeKey)) next.delete(nodeKey);
+      else next.add(nodeKey);
+      return next;
+    });
+  }, []);
+
+  /** Lasso result: replaces the multi-selection with everything in the box. */
+  const handleLassoSelect = useCallback((nodeKeys: string[]) => {
+    setMultiSelectedKeys(new Set(nodeKeys));
+    setSelectedNodeKey(null);
+    setSelectedEdgeKey(null);
+  }, []);
+
+  /** Clicking empty canvas clears everything — the way OUT of a selection. */
+  const handleStageClick = useCallback(() => {
+    setSelectedNodeKey(null);
+    setSelectedEdgeKey(null);
+    setMultiSelectedKeys(new Set());
+  }, []);
+
   /** Keep the focus neighbourhood, hide everything else (FR-7.8.17). */
   const hideOtherNodes = useCallback(() => {
     const api = viewportApiRef.current;
@@ -740,9 +767,12 @@ function WorkspacePageInner() {
   }, [selectedOntologyId, fetchGraphData]);
 
   const handleNodeSelect = useCallback((classKey: string) => {
+    // FR-7.8.19 — selection does NOT open the detail panel. Selection is now a
+    // frequent, low-cost gesture (hide, focus, lasso), and auto-opening a panel
+    // that occludes the canvas made exploratory clicking tedious. Reading is
+    // the deliberate act: right-click → View Details.
     setSelectedNodeKey(classKey);
     setSelectedEdgeKey(null);
-    setDetailPanelOpen(true);
   }, []);
 
   const handleEdgeSelect = useCallback((edgeKey: string) => {
@@ -1523,6 +1553,10 @@ function WorkspacePageInner() {
                       selectedEdgeKey={selectedEdgeKey}
                       focusNodeKey={selectedNodeKey}
                       focusHops={focusHops}
+                      multiSelectedKeys={multiSelectedKeys}
+                      onNodeShiftSelect={handleNodeShiftSelect}
+                      onStageClick={handleStageClick}
+                      onLassoSelect={handleLassoSelect}
                     />
                   )}
                   {/* FR-7.8.17 — the undo. Persistent while anything is hidden,

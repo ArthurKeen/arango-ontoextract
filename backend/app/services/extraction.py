@@ -40,6 +40,7 @@ from app.services.domain_detection import (
     detected_domains_from_segments,
 )
 from app.services.edge_repair import resolve_range_class
+from app.services.ontology_uri import normalize_uri
 from app.services.visual_extraction import (
     aggregate_document_visual_diagnostics,
     build_orphan_risk_warning,
@@ -1282,7 +1283,11 @@ def _materialize_to_graph(
     for cls in classes:
         cls_data = cls.model_dump() if hasattr(cls, "model_dump") else dict(cls)
         label = cls_data.get("label", "Unknown")
-        uri = cls_data.get("uri", f"http://example.org/ontology#{label.replace(' ', '')}")
+        # FR-2.19 — absolute IRI on the ontology's own base. The LLM used to copy
+        # the prompt's "namespace#ClassName" placeholder verbatim, which is
+        # invalid RDF on export and collides across ontologies in the §6.20
+        # decision store (which joins on concept_uri).
+        uri = normalize_uri(cls_data.get("uri"), ontology_id=ontology_id, label=label)
         key = uri.split("#")[-1].split("/")[-1]
 
         class_doc = {
@@ -1365,7 +1370,11 @@ def _materialize_to_graph(
         for attr in attributes:
             attr_label = attr.get("label", "unknown_attr")
             prop_key = f"{key}_{attr_label.replace(' ', '_').lower()}"
-            attr_uri = attr.get("uri") or f"{uri.rsplit('#', 1)[0]}#{attr_label.replace(' ', '')}"
+            attr_uri = normalize_uri(
+                attr.get("uri") or f"{uri.rsplit('#', 1)[0]}#{attr_label.replace(' ', '')}",
+                ontology_id=ontology_id,
+                label=attr_label,
+            )
             class_prop_uri_map[attr_uri] = (prop_key, "ontology_datatype_properties")
             prop_doc = {
                 "_key": prop_key,
@@ -1404,7 +1413,11 @@ def _materialize_to_graph(
         for rel in relationships:
             rel_label = rel.get("label", "unknown_rel")
             prop_key = f"{key}_{rel_label.replace(' ', '_').lower()}"
-            rel_uri = rel.get("uri") or f"{uri.rsplit('#', 1)[0]}#{rel_label.replace(' ', '')}"
+            rel_uri = normalize_uri(
+                rel.get("uri") or f"{uri.rsplit('#', 1)[0]}#{rel_label.replace(' ', '')}",
+                ontology_id=ontology_id,
+                label=rel_label,
+            )
             class_prop_uri_map[rel_uri] = (prop_key, "ontology_object_properties")
             deferred_rels.append(
                 {

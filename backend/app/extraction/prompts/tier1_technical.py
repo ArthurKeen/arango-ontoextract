@@ -14,7 +14,7 @@ You MUST output valid JSON matching the following schema exactly:
 {{
   "classes": [
     {{
-      "uri": "string (namespace#ClassName)",
+      "uri": "string — ABSOLUTE IRI, e.g. http://example.org/ontology#ClassName",
       "label": "string (human-readable name)",
       "description": "string (precise technical definition)",
       "parent_uri": "string | null (URI of parent class via rdfs:subClassOf)",
@@ -40,7 +40,7 @@ You MUST output valid JSON matching the following schema exactly:
       ],
       "attributes": [
         {{
-          "uri": "string (namespace#attributeName)",
+          "uri": "string — ABSOLUTE IRI, e.g. http://example.org/ontology#attributeName",
           "label": "string",
           "description": "string",
           "range_datatype": "string (XSD datatype, e.g., xsd:string or xsd:date)",
@@ -58,7 +58,7 @@ You MUST output valid JSON matching the following schema exactly:
       ],
       "relationships": [
         {{
-          "uri": "string (namespace#relationshipName)",
+          "uri": "string — ABSOLUTE IRI, e.g. http://example.org/ontology#relationshipName",
           "label": "string (verb phrase, e.g., 'holds', 'contains', 'is managed by')",
           "description": "string",
           "target_class_uri": "string (MUST be the URI of another class in this response)",

@@ -52,7 +52,10 @@ export function buildClassContextMenu(
     label: "View Details",
     icon: "🔍",
     onClick: () => {
+      // Selection alone no longer opens the panel (FR-7.8.19), so this — the
+      // deliberate request to read — has to open it explicitly.
       actions.handleNodeSelect(classKey);
+      actions.setDetailPanelOpen(true);
     },
   };
 

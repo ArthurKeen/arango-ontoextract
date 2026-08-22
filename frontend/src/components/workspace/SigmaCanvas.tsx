@@ -305,6 +305,54 @@ export interface SigmaCanvasProps {
   selectedNodeKey?: string | null;
   /** Externally-driven edge selection (e.g. sidebar click). */
   selectedEdgeKey?: string | null;
+  /**
+   * Focus mode (FR-7.8.15). When set, everything more than ``focusHops`` hops
+   * from this node is dimmed — NOT hidden, so surrounding structure still reads
+   * as context. ``null`` disables focus entirely.
+   *
+   * Dimming rather than highlighting is the point: at 667 classes a single
+   * highlighted node is one lit circle among hundreds and cannot be found.
+   */
+  focusNodeKey?: string | null;
+  /** Hop radius for {@link focusNodeKey}. ``null`` means "no limit" (show all). */
+  focusHops?: number | null;
+}
+
+/**
+ * Keys within ``hops`` undirected steps of ``origin`` (FR-7.8.15), origin included.
+ *
+ * Undirected on purpose: a curator tracing "what is this connected to" does not
+ * care which way the arrow points. ``hops = null`` means no limit, and returns
+ * ``null`` so callers can skip dimming entirely rather than build a set of every
+ * node — the difference matters on a 667-node graph.
+ *
+ * Exported for testing: this is the part worth pinning, and it needs no WebGL.
+ */
+export function computeFocusSet(
+  graph: Graph,
+  origin: string,
+  hops: number | null,
+): Set<string> | null {
+  if (hops === null) return null;
+  if (!graph.hasNode(origin)) return new Set();
+
+  const seen = new Set<string>([origin]);
+  let frontier = [origin];
+
+  for (let depth = 0; depth < hops; depth++) {
+    const next: string[] = [];
+    for (const node of frontier) {
+      graph.forEachNeighbor(node, (neighbor: string) => {
+        if (!seen.has(neighbor)) {
+          seen.add(neighbor);
+          next.push(neighbor);
+        }
+      });
+    }
+    if (next.length === 0) break;
+    frontier = next;
+  }
+  return seen;
 }
 
 /* ── Topology graph (lens-independent positions & structure) ── */
@@ -523,6 +571,15 @@ function centerCameraOnGraph(sigma: Sigma): void {
   sigma.refresh();
 }
 
+/**
+ * Focus-mode dim colours (FR-7.8.15), tuned for the dark canvas (#111118).
+ * Low enough to recede, high enough that the graph's shape still reads —
+ * hiding out-of-focus nodes would remove the context that makes the
+ * neighbourhood meaningful.
+ */
+const DIMMED_NODE_COLOR = "#2a2a3d";
+const DIMMED_EDGE_COLOR = "#1e1e2c";
+
 export type LayoutType = "force" | "circular" | "grid" | "random";
 export type EdgeStyleType = "curved" | "straight";
 
@@ -590,6 +647,8 @@ export default function SigmaCanvas({
   visibleEdgeKeys,
   selectedNodeKey,
   selectedEdgeKey,
+  focusNodeKey,
+  focusHops = 1,
 }: SigmaCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -827,8 +886,17 @@ export default function SigmaCanvas({
     const hasEdgeVisFilter = !!visibleEdgeKeys;
     const hasNodeSel = !!selectedNodeKey;
     const hasEdgeSel = !!selectedEdgeKey;
+
+    // FR-7.8.15 — focus set. Computed once per render, not per node.
+    const g = graphRef.current;
+    const focusSet =
+      focusNodeKey && g ? computeFocusSet(g, focusNodeKey, focusHops ?? null) : null;
+    // An edge is in focus iff BOTH endpoints are, so a dimmed node never keeps a
+    // bright edge dangling off it.
+    const inFocus = (key: string) => !focusSet || focusSet.has(key);
+
     const needsReducer =
-      hasVisFilter || hasEdgeVisFilter || hasNodeSel || hasEdgeSel;
+      hasVisFilter || hasEdgeVisFilter || hasNodeSel || hasEdgeSel || !!focusSet;
 
     if (!needsReducer) {
       s.setSetting("nodeReducer", null);
@@ -839,6 +907,11 @@ export default function SigmaCanvas({
         if (hasVisFilter && !visibleNodeKeys!.has(_node)) {
           return { ...d, hidden: true };
         }
+        // Dim, never hide: the shape of the surrounding graph is the context
+        // that makes the focused neighbourhood interpretable.
+        if (!inFocus(_node)) {
+          return { ...d, color: DIMMED_NODE_COLOR, label: "", zIndex: 0 };
+        }
         if (hasNodeSel && _node === selectedNodeKey) {
           d = { ...d, highlighted: true, zIndex: 10 };
         }
@@ -847,6 +920,13 @@ export default function SigmaCanvas({
       s.setSetting("edgeReducer", (edge: string, data: Record<string, unknown>) => {
         const g = graphRef.current;
         if (!g) return data;
+        if (focusSet) {
+          // Both endpoints must be in focus, otherwise a bright edge would
+          // trail off a dimmed node and read as a live connection.
+          if (!inFocus(g.source(edge)) || !inFocus(g.target(edge))) {
+            return { ...data, color: DIMMED_EDGE_COLOR, label: "", zIndex: 0 };
+          }
+        }
         if (hasVisFilter) {
           const src = g.source(edge);
           const tgt = g.target(edge);
@@ -874,7 +954,7 @@ export default function SigmaCanvas({
       });
     }
     s.refresh();
-  }, [visibleNodeKeys, visibleEdgeKeys, selectedNodeKey, selectedEdgeKey]);
+  }, [visibleNodeKeys, visibleEdgeKeys, selectedNodeKey, selectedEdgeKey, focusNodeKey, focusHops]);
 
   const handleRelayout = useCallback((layout: LayoutType = "force") => {
     if (!graphRef.current || !sigmaRef.current) return;

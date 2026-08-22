@@ -84,6 +84,23 @@ export function buildCanvasContextMenu(
     if (actions.graphViewMode === "network") {
       items.push(
         {
+          // FR-7.8.15 — dims everything beyond N hops of the selected node.
+          // Network-only: the Box & Arrow renderer has no dimming pass, so
+          // offering the control there would be a no-op with a checkmark.
+          label: "Focus",
+          icon: "🎯",
+          submenu: [
+            { hops: 1 as number | null, label: "1 hop" },
+            { hops: 2 as number | null, label: "2 hops" },
+            { hops: 3 as number | null, label: "3 hops" },
+            { hops: null as number | null, label: "Show all (off)" },
+          ].map((opt) => ({
+            label: opt.label,
+            checked: actions.focusHops === opt.hops,
+            onClick: () => actions.setFocusHops(opt.hops),
+          })),
+        },
+        {
           label: "Layout",
           icon: "🔄",
           submenu: [

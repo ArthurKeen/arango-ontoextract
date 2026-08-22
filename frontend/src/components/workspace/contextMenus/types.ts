@@ -303,6 +303,9 @@ export interface WorkspaceContextMenuActions {
 
   // ── Lens / graph style (canvas menu only) ─────────────────────────────
   activeLens: LensType;
+  /** Focus mode (FR-7.8.15): hop radius around the selected node, or null for "show all". */
+  focusHops: number | null;
+  setFocusHops: (hops: number | null) => void;
   setActiveLens: (lens: LensType) => void;
   graphViewMode: GraphViewMode;
   setGraphViewMode: (mode: GraphViewMode) => void;

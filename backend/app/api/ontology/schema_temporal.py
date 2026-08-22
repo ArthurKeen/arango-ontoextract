@@ -133,32 +133,102 @@ async def get_snapshot(
     return temporal_svc.get_snapshot(ontology_id=ontology_id, timestamp=at)
 
 
+_CHUNK_RETURN = (
+    "RETURN { _key: c._key, text: c.text, chunk_index: c.chunk_index, "
+    "         doc_id: c.doc_id, section_heading: c.section_heading }"
+)
+
+
+def _chunks_by_key(db: Any, chunk_ids: list[str]) -> list[dict[str, Any]]:
+    """Fetch specific chunks by key, ordered as the document reads."""
+    if not chunk_ids or not db.has_collection("chunks"):
+        return []
+    return list(
+        _shared.run_aql(
+            db,
+            "FOR c IN chunks FILTER c._key IN @ids SORT c.chunk_index ASC " + _CHUNK_RETURN,
+            bind_vars={"ids": chunk_ids},
+        )
+    )
+
+
+def _all_chunks_for_linked_documents(db: Any, class_key: str) -> list[dict[str, Any]]:
+    """Every chunk of every document linked to the class via ``extracted_from``.
+
+    The pre-evidence fallback. Coarse by construction — it cannot say which
+    passage defined the class, only which documents were involved — so callers
+    MUST label it as document-level rather than presenting it as evidence.
+    """
+    if not (db.has_collection("extracted_from") and db.has_collection("chunks")):
+        return []
+    return list(
+        _shared.run_aql(
+            db,
+            "FOR e IN extracted_from "
+            "  FILTER e._from == CONCAT('ontology_classes/', @key) "
+            "  LET doc_id = PARSE_IDENTIFIER(e._to).key "
+            "  FOR c IN chunks "
+            "    FILTER c.doc_id == doc_id "
+            "    SORT c.chunk_index ASC " + _CHUNK_RETURN,
+            bind_vars={"key": class_key},
+        )
+    )
+
+
 @router.get("/class/{class_key}/provenance")
 async def get_class_provenance(class_key: str) -> dict[str, Any]:
-    """Chunks from documents linked to this class via ``extracted_from`` (class → document).
+    """Evidence recorded for this class at extraction (FR-4.7).
 
-    Provenance is **document-level**: we do not store which substring of a chunk defined the class.
-    The query returns all chunks for those documents (same as the workspace list view).
+    Reads ``evidence[]`` off the class document — ``source_chunk_ids``,
+    ``source_spans``, ``evidence_text``, ``evidence_confidence`` and
+    ``extraction_rationale`` — and returns exactly the chunks the extractor
+    used, in the same shape ``get_edge_provenance`` returns so the frontend
+    renders both through one path.
+
+    Falls back to every chunk of every linked document for classes extracted
+    before evidence was populated. That path is flagged ``level="document"`` in
+    the response: it is a coarse answer and must not be presented as evidence.
     """
     db = _shared.get_db()
-    chunks: list[dict[str, Any]] = []
-    if db.has_collection("extracted_from") and db.has_collection("chunks"):
-        rows = list(
-            _shared.run_aql(
-                db,
-                "FOR e IN extracted_from "
-                "  FILTER e._from == CONCAT('ontology_classes/', @key) "
-                "  LET doc_id = PARSE_IDENTIFIER(e._to).key "
-                "  FOR c IN chunks "
-                "    FILTER c.doc_id == doc_id "
-                "    SORT c.chunk_index ASC "
-                "    RETURN { _key: c._key, text: c.text, chunk_index: c.chunk_index, "
-                "             doc_id: c.doc_id, section_heading: c.section_heading }",
-                bind_vars={"key": class_key},
-            )
+    doc = temporal_svc.get_current(db, collection="ontology_classes", key=class_key)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Class '{class_key}' not found")
+
+    chunk_ids: list[str] = []
+    inline_evidence: list[dict[str, Any]] = []
+    for item in doc.get("evidence") or []:
+        if not isinstance(item, dict):
+            continue
+        for cid in item.get("source_chunk_ids") or []:
+            if isinstance(cid, str) and cid not in chunk_ids:
+                chunk_ids.append(cid)
+        inline_evidence.append(
+            {
+                "evidence_text": item.get("evidence_text"),
+                "evidence_confidence": item.get("evidence_confidence"),
+                "extraction_rationale": item.get("extraction_rationale"),
+                "source_chunk_ids": item.get("source_chunk_ids"),
+                "source_spans": item.get("source_spans"),
+            }
         )
-        chunks = rows
-    return {"data": chunks, "total_count": len(chunks)}
+
+    chunks = _chunks_by_key(db, chunk_ids)
+    if chunks:
+        return {
+            "data": chunks,
+            "total_count": len(chunks),
+            "evidence": inline_evidence,
+            "level": "evidence",
+        }
+
+    # No recorded evidence (or its chunks are gone) — degrade, and say so.
+    fallback = _all_chunks_for_linked_documents(db, class_key)
+    return {
+        "data": fallback,
+        "total_count": len(fallback),
+        "evidence": inline_evidence,
+        "level": "document",
+    }
 
 
 @router.get("/class/{class_key}/history")

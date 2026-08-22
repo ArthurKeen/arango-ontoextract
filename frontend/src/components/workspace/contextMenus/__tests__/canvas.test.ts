@@ -80,6 +80,7 @@ describe("buildCanvasContextMenu", () => {
     expect(visibleLabels).toEqual([
       "View As",
       "Graph Style",
+      "Focus",
       "Layout",
       "Edge Style",
       "Fit All Nodes",
@@ -110,6 +111,38 @@ describe("buildCanvasContextMenu", () => {
     expect(visibleLabels).toContain("Extract from Relational DB…");
     // The first item is not a leading separator.
     expect(items[0]?.separator).toBeFalsy();
+  });
+
+  it("hides Focus in box-arrow mode — that renderer has no dimming pass", () => {
+    // Offering the control where it cannot act would show a checkmark for a
+    // setting that does nothing (FR-7.8.15 applies to the Sigma canvas only).
+    const netLabels = buildCanvasContextMenu({}, makeActions({ graphViewMode: "network" }))
+      .filter((it) => !it.separator)
+      .map((it) => it.label);
+    const boxLabels = buildCanvasContextMenu({}, makeActions({ graphViewMode: "box-arrow" }))
+      .filter((it) => !it.separator)
+      .map((it) => it.label);
+    expect(netLabels).toContain("Focus");
+    expect(boxLabels).not.toContain("Focus");
+  });
+
+  it("Focus submenu offers 1/2/3 hops plus off, and checks the active radius", () => {
+    const setFocusHops = jest.fn();
+    const items = buildCanvasContextMenu(
+      {},
+      makeActions({ graphViewMode: "network", focusHops: 2, setFocusHops }),
+    );
+    const focus = items.find((it) => it.label === "Focus");
+    expect(focus?.submenu?.map((s) => s.label)).toEqual([
+      "1 hop",
+      "2 hops",
+      "3 hops",
+      "Show all (off)",
+    ]);
+    expect(focus?.submenu?.find((s) => s.label === "2 hops")?.checked).toBe(true);
+
+    focus?.submenu?.find((s) => s.label === "Show all (off)")?.onClick?.();
+    expect(setFocusHops).toHaveBeenCalledWith(null);
   });
 
   it("hides Layout and Edge Style in box-arrow mode", () => {

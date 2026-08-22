@@ -150,6 +150,11 @@ function WorkspacePageInner() {
   const [selectedOntologyId, setSelectedOntologyId] = useState<string | null>(null);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
+
+  // Focus mode (FR-7.8.15). Dims beyond N hops of the selected node; null = off.
+  // Defaults to 2 — one hop is often too tight to show why a node sits where it
+  // does, three already re-crowds a dense graph.
+  const [focusHops, setFocusHops] = useState<number | null>(2);
   const [assetExplorerWidth, setAssetExplorerWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [activeLens, setActiveLens] = useState<LensType>("semantic");
@@ -1274,6 +1279,8 @@ function WorkspacePageInner() {
     setFeedbackLearning,
     setEdgeRepair,
     setRevisionsInbox,
+    focusHops,
+    setFocusHops,
     setMergeCandidates,
     setAlignmentReview,
     setRequirementsOverlay,
@@ -1462,6 +1469,8 @@ function WorkspacePageInner() {
                       visibleEdgeKeys={confidenceVisibleEdges}
                       selectedNodeKey={selectedNodeKey}
                       selectedEdgeKey={selectedEdgeKey}
+                      focusNodeKey={selectedNodeKey}
+                      focusHops={focusHops}
                     />
                   )}
                   {graphViewMode !== "box-arrow" && (

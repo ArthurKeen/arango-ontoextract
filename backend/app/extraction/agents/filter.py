@@ -8,6 +8,7 @@ tiers and provenance metadata.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -86,7 +87,8 @@ def filter_agent_node(state: ExtractionPipelineState) -> dict[str, Any]:
     input_classes = consistency_result.classes
     input_count = len(input_classes)
 
-    filtered = _remove_generic_terms(input_classes)
+    filtered = _remove_structural_artifacts(input_classes)
+    filtered = _remove_generic_terms(filtered)
     filtered = _remove_low_confidence_single_words(filtered)
     filtered = _remove_within_run_duplicates(filtered)
 
@@ -145,6 +147,44 @@ def filter_agent_node(state: ExtractionPipelineState) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Filtering stages
 # ---------------------------------------------------------------------------
+
+
+# FR-2.18 — document furniture.
+#
+# A running header, figure caption or cross-reference is an artefact OF the
+# document, not a concept described BY it. Neither existing filter catches them:
+# GENERIC_TERMS is exact-match, and the low-confidence rule only fires on
+# single-word labels, so "Page 697" at 0.53 passes both.
+#
+# The trailing number is load-bearing. It is what separates the artefact
+# ("Page 812", "Figure 4", "Table 12.3") from the genuine concept
+# ("Page Layout", "Table of Contents", "Section Heading"), which must survive.
+_STRUCTURAL_ARTIFACT = re.compile(
+    r"^(?:page|pages|pg|figure|fig|table|tbl|section|sect|chapter|chap|appendix|"
+    r"annex|step|note|item|paragraph|para|exhibit|plate|diagram|illustration)"
+    r"\s*[.:#-]?\s*"
+    # Identifier: numeric ("812", "12.3", "4-2", "7a") or lettered
+    # ("B", "B2", "A.1") — appendices and plates are commonly lettered.
+    # A single letter only, so "Table saw" and "Step by" are unaffected.
+    r"(?:[0-9]+(?:[.\-][0-9]+)*[a-z]?|[a-z](?:[.\-]?[0-9]+)*)$",
+    re.IGNORECASE,
+)
+
+
+def is_structural_artifact(label: str) -> bool:
+    """True when the label names a piece of document furniture (FR-2.18)."""
+    return bool(_STRUCTURAL_ARTIFACT.match(label.strip()))
+
+
+def _remove_structural_artifacts(classes: list[ExtractedClass]) -> list[ExtractedClass]:
+    """Drop labels that name a document's own furniture rather than a concept."""
+    result = []
+    for cls in classes:
+        if is_structural_artifact(cls.label):
+            log.debug("filtered structural artifact: %s", cls.label)
+            continue
+        result.append(cls)
+    return result
 
 
 def _remove_generic_terms(classes: list[ExtractedClass]) -> list[ExtractedClass]:

@@ -341,7 +341,7 @@ export default function RelationalExtractionOverlay({ onClose, onImported }: Pro
                 type="button"
                 onClick={handlePreview}
                 disabled={state.submitting}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:brightness-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {state.submitting ? "Connecting…" : "Connect & Preview"}
               </button>
@@ -361,7 +361,7 @@ export default function RelationalExtractionOverlay({ onClose, onImported }: Pro
                 type="button"
                 onClick={handleExtract}
                 disabled={state.submitting || state.preview.table_count === 0}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:brightness-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {state.submitting ? "Extracting…" : "Extract & Import"}
               </button>
@@ -371,7 +371,7 @@ export default function RelationalExtractionOverlay({ onClose, onImported }: Pro
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:brightness-90"
             >
               Close
             </button>

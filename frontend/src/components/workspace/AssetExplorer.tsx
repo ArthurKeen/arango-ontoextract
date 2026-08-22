@@ -742,7 +742,14 @@ function OntologyItem({
           {expanded ? "▼" : "▶"}
         </span>
         <StatusDot status={ont.status} />
-        <span className="truncate flex-1 font-medium group-hover:text-gray-900">
+        {/* Explicit base colour, matching the document / class / run rows. This
+            row was the only one relying on the inherited UA default, which made
+            it the first casualty when `color-scheme` changed that default. */}
+        <span
+          className={`truncate flex-1 font-medium group-hover:text-gray-900 ${
+            isSelected ? "text-blue-800" : "text-gray-700"
+          }`}
+        >
           {displayName}
         </span>
         {ont.current_release_version ? (

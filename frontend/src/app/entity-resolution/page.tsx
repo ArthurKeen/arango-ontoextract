@@ -20,6 +20,7 @@ import type {
 } from "@/types/entity-resolution";
 import MergeCandidates from "@/components/curation/MergeCandidates";
 import MergeExecutor from "@/components/curation/MergeExecutor";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 const GraphCanvas = dynamic(
   () => import("@/components/graph/GraphCanvas"),
@@ -250,6 +251,7 @@ export default function EntityResolutionPage() {
             >
               Home
             </a>
+            <ThemeToggle className="ml-1" />
           </div>
         </div>
       </header>
@@ -297,7 +299,7 @@ export default function EntityResolutionPage() {
                 <p className="text-red-500 text-lg mb-2">{graphError}</p>
                 <button
                   onClick={fetchGraphData}
-                  className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90"
                 >
                   Retry
                 </button>

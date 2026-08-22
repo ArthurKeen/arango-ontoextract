@@ -52,7 +52,7 @@ export default function NodeActions({
         <button
           onClick={() => handleDecision("approve")}
           disabled={loading !== null}
-          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-green-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           data-testid="approve-btn"
         >
           {loading === "approve" ? (
@@ -65,7 +65,7 @@ export default function NodeActions({
         <button
           onClick={() => handleDecision("reject")}
           disabled={loading !== null}
-          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-red-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           data-testid="reject-btn"
         >
           {loading === "reject" ? (
@@ -80,7 +80,7 @@ export default function NodeActions({
         <button
           onClick={() => handleDecision("edit")}
           disabled={loading !== null}
-          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           data-testid="edit-btn"
         >
           {loading === "edit" ? <Spinner /> : <span>&#9998;</span>}
@@ -89,7 +89,7 @@ export default function NodeActions({
         <button
           onClick={() => handleDecision("merge")}
           disabled={loading !== null}
-          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-purple-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           data-testid="merge-btn"
         >
           {loading === "merge" ? <Spinner /> : <span>&#8644;</span>}

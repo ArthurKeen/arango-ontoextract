@@ -524,7 +524,7 @@ export default function SchemaExtractionOverlay({ onClose, onImported }: Props) 
                 type="button"
                 onClick={handleDiscover}
                 disabled={state.submitting}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:brightness-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {state.submitting ? "Connecting…" : "Connect & Discover"}
               </button>
@@ -544,7 +544,7 @@ export default function SchemaExtractionOverlay({ onClose, onImported }: Props) 
                 type="button"
                 onClick={handleExtract}
                 disabled={state.submitting || state.selectedGraphs.size + (state.includeLoose ? state.topology.loose_collections.length : 0) === 0}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:brightness-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {state.submitting ? "Extracting…" : "Extract & Import"}
               </button>
@@ -554,7 +554,7 @@ export default function SchemaExtractionOverlay({ onClose, onImported }: Props) 
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:brightness-90"
             >
               Close
             </button>

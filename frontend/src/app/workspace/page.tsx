@@ -1312,7 +1312,11 @@ function WorkspacePageInner() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-[#12121f]">
+    // data-canvas-chrome: the workspace opts out of light/dark theming. It is
+    // hand-painted dark and its graph palette is tuned for a dark canvas, so it
+    // keeps the light-mode neutral tokens in both themes and renders
+    // identically either way. See the block in globals.css.
+    <div data-canvas-chrome className="h-screen flex flex-col overflow-hidden bg-[#12121f]">
       {/* Toast host — bottom-centre overlay, mounted once at the page
           root so any module (drag-and-drop import, future undo-toast
           migrations) can ``pushToast`` without threading context. */}

@@ -68,7 +68,7 @@ export default function BatchActions({
       <button
         onClick={() => handleBatch("approve")}
         disabled={loading !== null}
-        className="flex items-center gap-1.5 text-sm px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+        className="flex items-center gap-1.5 text-sm px-4 py-1.5 bg-green-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 transition-colors"
         data-testid="batch-approve-btn"
       >
         {loading === "approve" ? "..." : "Approve All"}
@@ -77,7 +77,7 @@ export default function BatchActions({
       <button
         onClick={() => handleBatch("reject")}
         disabled={loading !== null}
-        className="flex items-center gap-1.5 text-sm px-4 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+        className="flex items-center gap-1.5 text-sm px-4 py-1.5 bg-red-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 transition-colors"
         data-testid="batch-reject-btn"
       >
         {loading === "reject" ? "..." : "Reject All"}

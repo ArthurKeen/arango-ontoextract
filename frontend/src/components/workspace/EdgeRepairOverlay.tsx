@@ -193,7 +193,7 @@ export default function EdgeRepairOverlay({
                   type="button"
                   onClick={handleApply}
                   disabled={phase === "applying" || repaired.length === 0}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:brightness-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {phase === "applying"
                     ? "Applying…"
@@ -417,7 +417,7 @@ function AppliedSummary({
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:brightness-90"
         >
           Close
         </button>

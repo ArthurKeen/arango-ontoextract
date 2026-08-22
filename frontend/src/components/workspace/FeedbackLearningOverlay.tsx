@@ -155,7 +155,7 @@ export default function FeedbackLearningOverlay({
                   <button
                     type="button"
                     onClick={downloadFixture}
-                    className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+                    className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:brightness-90"
                   >
                     Download JSON
                   </button>

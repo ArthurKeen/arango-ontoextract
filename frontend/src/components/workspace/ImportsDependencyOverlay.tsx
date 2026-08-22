@@ -239,7 +239,7 @@ export default function ImportsDependencyOverlay({
               <button
                 type="button"
                 onClick={() => onNavigate(selectedNode._key, selectedNode.name ?? selectedNode._key)}
-                className="text-xs font-medium px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                className="text-xs font-medium px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:brightness-90"
               >
                 Open in workspace
               </button>

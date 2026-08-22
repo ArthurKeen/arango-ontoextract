@@ -153,7 +153,7 @@ export default function OntologyReleaseDialog({
             </button>
             <button
               type="submit"
-              className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:brightness-90 disabled:opacity-50"
               disabled={submitting}
             >
               {submitting ? "Releasing…" : "Submit release"}

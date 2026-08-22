@@ -21,6 +21,7 @@ import AddClassDialog from "@/components/graph/AddClassDialog";
 import AddPropertyDialog from "@/components/graph/AddPropertyDialog";
 import EditableLabel from "@/components/graph/EditableLabel";
 import ReparentSelect from "@/components/graph/ReparentSelect";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 const GraphCanvas = dynamic(
   () => import("@/components/graph/GraphCanvas"),
@@ -347,7 +348,7 @@ function OntologyEditorPageInner() {
             <button
               disabled={!hasData && !loading}
               onClick={() => setAddClassOpen(true)}
-              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs px-3 py-1.5 bg-blue-600 text-on-accent rounded-lg hover:brightness-90 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
               data-testid="add-class-btn"
             >
               + Add Class
@@ -448,6 +449,7 @@ function OntologyEditorPageInner() {
               >
                 Home
               </a>
+              <ThemeToggle className="ml-1" />
 
             </div>
           </div>
@@ -470,7 +472,7 @@ function OntologyEditorPageInner() {
             </div>
             <button
               onClick={returnToCurrent}
-              className="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+              className="text-xs px-3 py-1.5 bg-amber-600 text-on-accent rounded-lg hover:brightness-90"
               data-testid="return-to-current"
             >
               Return to current
@@ -498,7 +500,7 @@ function OntologyEditorPageInner() {
                   <p className="text-red-500 text-lg mb-2">{error}</p>
                   <button
                     onClick={refreshGraph}
-                    className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90"
                   >
                     Retry
                   </button>
@@ -521,7 +523,7 @@ function OntologyEditorPageInner() {
                       onClick={() => {
                         /* AddClassDialog will be wired here */
                       }}
-                      className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90"
                     >
                       Add First Class
                     </button>
@@ -740,7 +742,7 @@ function OntologyEditorPageInner() {
         <div className="lg:hidden fixed bottom-4 right-4 z-20">
           <button
             onClick={() => setActivePanel("detail")}
-            className="bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium hover:bg-blue-700"
+            className="bg-blue-600 text-on-accent px-4 py-2 rounded-full shadow-lg text-sm font-medium hover:brightness-90"
           >
             View: {selectedNode.label}
           </button>

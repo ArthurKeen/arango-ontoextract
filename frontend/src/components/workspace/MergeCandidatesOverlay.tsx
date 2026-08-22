@@ -572,7 +572,7 @@ function CandidateListItem({
           type="button"
           onClick={onAccept}
           disabled={busy}
-          className="text-xs px-2.5 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
+          className="text-xs px-2.5 py-1 bg-emerald-600 text-white rounded-md hover:brightness-90 disabled:opacity-50"
           data-testid={`merge-accept-btn-${pair.pair_id}`}
         >
           Merge

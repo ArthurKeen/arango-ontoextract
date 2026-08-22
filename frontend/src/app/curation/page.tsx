@@ -28,6 +28,7 @@ import ProvenancePanel from "@/components/curation/ProvenancePanel";
 import DiffView from "@/components/curation/DiffView";
 import PromotePanel from "@/components/curation/PromotePanel";
 import EntityHistory from "@/components/timeline/EntityHistory";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 const GraphCanvas = dynamic(
   () => import("@/components/graph/GraphCanvas"),
@@ -387,7 +388,7 @@ function CurationPageInner() {
             <button
               onClick={() => setActivePanel("promote")}
               disabled={!hasData}
-              className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs px-3 py-1.5 bg-emerald-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Promote
             </button>
@@ -410,6 +411,7 @@ function CurationPageInner() {
             >
               Home
             </a>
+            <ThemeToggle className="ml-1" />
           </div>
         </div>
       </header>
@@ -430,7 +432,7 @@ function CurationPageInner() {
             </div>
             <button
               onClick={returnToCurrent}
-              className="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+              className="text-xs px-3 py-1.5 bg-amber-600 text-on-accent rounded-lg hover:brightness-90"
               data-testid="return-to-current"
             >
               Return to current
@@ -458,7 +460,7 @@ function CurationPageInner() {
                   <p className="text-red-500 text-lg mb-2">{error}</p>
                   <button
                     onClick={fetchGraph}
-                    className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90"
                   >
                     Retry
                   </button>
@@ -489,7 +491,7 @@ function CurationPageInner() {
                     </a>
                     <a
                       href={withBasePath("/library")}
-                      className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90"
                     >
                       Browse Library
                     </a>

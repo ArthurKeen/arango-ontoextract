@@ -278,7 +278,7 @@ export default function VCRTimeline({
           </button>
           <button
             onClick={handlePlayPause}
-            className="p-1.5 px-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm"
+            className="p-1.5 px-2.5 rounded-lg bg-blue-600 text-on-accent hover:brightness-90 text-sm"
             title="Play forward"
             data-testid="timeline-play-pause"
           >

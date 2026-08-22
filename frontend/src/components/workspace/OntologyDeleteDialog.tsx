@@ -216,7 +216,7 @@ export default function OntologyDeleteDialog({
             type="button"
             onClick={() => onConfirm(ontologyId)}
             disabled={!canConfirm}
-            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Delete
           </button>

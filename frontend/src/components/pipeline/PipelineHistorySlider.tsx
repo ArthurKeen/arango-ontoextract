@@ -228,7 +228,7 @@ export default function PipelineHistorySlider({
           </button>
           <button
             onClick={handlePlayPause}
-            className="p-1 px-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs"
+            className="p-1 px-2 rounded-lg bg-indigo-600 text-on-accent hover:brightness-90 text-xs"
             data-testid="history-play-pause"
           >
             {playing ? "\u23F8" : "\u25B6"}

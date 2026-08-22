@@ -12,6 +12,7 @@ import ErrorLog from "@/components/pipeline/ErrorLog";
 import RunTimeline from "@/components/pipeline/RunTimeline";
 import PipelineHistorySlider from "@/components/pipeline/PipelineHistorySlider";
 import { useExtractionSocket } from "@/lib/use-websocket";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 const AgentDAG = dynamic(() => import("@/components/pipeline/AgentDAG"), {
   ssr: false,
@@ -164,6 +165,7 @@ function PipelineMonitorInner() {
             >
               Home
             </a>
+            <ThemeToggle className="ml-1" />
           </div>
         </div>
       </header>
@@ -224,7 +226,7 @@ function PipelineMonitorInner() {
                       </span>
                       <a
                         href={withBasePath(`/workspace?ontologyId=${selectedRunId}`)}
-                        className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                        className="text-xs px-3 py-1 bg-indigo-600 text-on-accent rounded-lg hover:brightness-90 transition-colors"
                       >
                         Open in Workspace
                       </a>

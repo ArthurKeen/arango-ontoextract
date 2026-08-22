@@ -365,7 +365,7 @@ function CandidateRow({
             <button
               onClick={() => onAccept(candidate)}
               disabled={actionLoading}
-              className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+              className="text-xs px-2.5 py-1 bg-green-600 text-on-accent rounded-md hover:brightness-90 disabled:opacity-50"
               data-testid={`accept-btn-${candidate.pair_id}`}
             >
               Accept
@@ -373,7 +373,7 @@ function CandidateRow({
             <button
               onClick={() => onReject(candidate.pair_id)}
               disabled={actionLoading}
-              className="text-xs px-2.5 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+              className="text-xs px-2.5 py-1 bg-red-600 text-on-accent rounded-md hover:brightness-90 disabled:opacity-50"
               data-testid={`reject-btn-${candidate.pair_id}`}
             >
               Reject

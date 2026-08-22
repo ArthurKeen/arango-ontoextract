@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, backendUrl } from "@/lib/api-client";
 import { withBasePath } from "@/lib/base-path";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 interface UploadResult {
   doc_id: string;
@@ -328,6 +329,7 @@ export default function UploadPage() {
           <a href={withBasePath("/")} className="text-gray-400 hover:text-gray-600 text-sm">
             ← Home
           </a>
+          <ThemeToggle className="ml-1" />
           <h1 className="text-2xl font-bold">
             {mode === "extract" ? "Upload Document" : "Import Ontology"}
           </h1>
@@ -335,13 +337,13 @@ export default function UploadPage() {
         <div className="max-w-4xl mx-auto px-6 pb-4 flex gap-4">
           <button
             onClick={() => setMode("extract")}
-            className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${mode === "extract" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${mode === "extract" ? "bg-blue-600 text-on-accent" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
           >
             Extract from Document
           </button>
           <button
             onClick={() => setMode("import")}
-            className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${mode === "import" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${mode === "import" ? "bg-blue-600 text-on-accent" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
           >
             Import OWL / TTL / RDF
           </button>
@@ -436,7 +438,7 @@ export default function UploadPage() {
                   )}
                 </div>
                 <div className="mt-3 flex gap-3">
-                  <a href={withBasePath("/library")} className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                  <a href={withBasePath("/library")} className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90 transition-colors">
                     View in Library
                   </a>
                   {importResult.ontology_id && (
@@ -605,7 +607,7 @@ export default function UploadPage() {
                 href={withBasePath(
                   extractionRunId ? `/pipeline?runId=${extractionRunId}` : "/pipeline",
                 )}
-                className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90 transition-colors"
               >
                 View Extraction Pipeline →
               </a>
@@ -678,7 +680,7 @@ export default function UploadPage() {
                         ) : (
                           <button
                             onClick={() => extractDocument(doc._key)}
-                            className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                            className="text-xs px-3 py-1.5 bg-blue-600 text-on-accent rounded-lg hover:brightness-90 transition-colors font-medium"
                           >
                             Extract
                           </button>

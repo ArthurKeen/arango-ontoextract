@@ -336,7 +336,7 @@ function ImportButton({
       type="button"
       onClick={onClick}
       disabled={isDisabled}
-      className="text-xs font-medium px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+      className="text-xs font-medium px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:brightness-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
     >
       Import
     </button>

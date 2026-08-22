@@ -581,7 +581,7 @@ function RevisionsActivitySection({
           <button
             type="button"
             onClick={() => onShowInbox(ontologyId, ontologyName)}
-            className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+            className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-on-accent hover:brightness-90"
           >
             Show inbox →
           </button>

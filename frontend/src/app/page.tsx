@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, backendUrl } from "@/lib/api-client";
 import { withBasePath } from "@/lib/base-path";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 interface HealthStatus {
   status: string;
@@ -57,14 +58,19 @@ export default function Home() {
     <main className="min-h-screen bg-gray-50 text-gray-900">
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-6 py-8">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Arango-OntoExtract
-          </h1>
-          <p className="mt-2 text-gray-500 text-lg">
-            LLM-driven ontology extraction and curation platform built on
-            ArangoDB.
-          </p>
+        {/* Unlike the other dashboards this header had no right-hand actions
+            area, so one is introduced here purely to host the theme toggle. */}
+        <div className="max-w-5xl mx-auto px-6 py-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Arango-OntoExtract
+            </h1>
+            <p className="mt-2 text-gray-500 text-lg">
+              LLM-driven ontology extraction and curation platform built on
+              ArangoDB.
+            </p>
+          </div>
+          <ThemeToggle />
         </div>
       </header>
 

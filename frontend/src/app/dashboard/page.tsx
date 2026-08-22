@@ -15,6 +15,7 @@ import StrengthsWeaknesses from "@/components/dashboard/StrengthsWeaknesses";
 import SchemaMetricsPanel from "@/components/dashboard/SchemaMetricsPanel";
 import PerOntologyQualityReport from "@/components/dashboard/PerOntologyQualityReport";
 import CQCoverageTile from "@/components/dashboard/CQCoverageTile";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 /** Dashboard aggregates every ontology with many AQL queries each; short client timeouts were aborting healthy backends. */
 const DASHBOARD_FETCH_TIMEOUT_MS = 120_000;
@@ -167,6 +168,7 @@ function DashboardPageInner() {
               <a href={withBasePath("/")} className="text-sm text-gray-500 hover:text-gray-700">
                 Home
               </a>
+              <ThemeToggle className="ml-1" />
             </div>
           </div>
 
@@ -216,7 +218,7 @@ function DashboardPageInner() {
                 <p className="text-red-600 mb-3">{error}</p>
                 <button
                   onClick={fetchDashboard}
-                  className="text-sm px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  className="text-sm px-4 py-2 bg-red-600 text-on-accent rounded-lg hover:brightness-90"
                 >
                   Retry
                 </button>

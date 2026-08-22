@@ -92,7 +92,7 @@ export default function EdgeActions({
         <button
           onClick={() => handleDecision("approve")}
           disabled={loading !== null}
-          className="flex-1 text-sm px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+          className="flex-1 text-sm px-3 py-2 bg-green-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 transition-colors"
           data-testid="edge-approve-btn"
         >
           {loading === "approve" ? "..." : "Approve"}
@@ -100,7 +100,7 @@ export default function EdgeActions({
         <button
           onClick={() => handleDecision("reject")}
           disabled={loading !== null}
-          className="flex-1 text-sm px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+          className="flex-1 text-sm px-3 py-2 bg-red-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 transition-colors"
           data-testid="edge-reject-btn"
         >
           {loading === "reject" ? "..." : "Reject"}
@@ -127,7 +127,7 @@ export default function EdgeActions({
           <button
             onClick={handleChangeType}
             disabled={loading !== null || selectedType === currentType}
-            className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="text-sm px-3 py-1.5 bg-blue-600 text-on-accent rounded-lg hover:brightness-90 disabled:opacity-50 transition-colors"
             data-testid="edge-change-type-btn"
           >
             {loading === "change_type" ? "..." : "Apply"}

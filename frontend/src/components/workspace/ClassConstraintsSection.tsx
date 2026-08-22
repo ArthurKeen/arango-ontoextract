@@ -637,7 +637,7 @@ function ConstraintManageRow({
               type="button"
               disabled={busy}
               onClick={commit}
-              className="px-2 py-0.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-40"
+              className="px-2 py-0.5 bg-indigo-600 text-white rounded hover:brightness-90 disabled:opacity-40"
             >
               Save
             </button>

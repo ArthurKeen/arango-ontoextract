@@ -74,4 +74,319 @@
   --color-red-500: #e23b40;
   --color-red-600: #da1a20;
   --color-red-700: #b71419;
+
+  /* Foreground for filled brand surfaces (green buttons, dark canvas chrome).
+     ALWAYS white, in both themes. `text-white` cannot be used for this because
+     `--color-white` is a *surface* token and flips in dark mode — see below. */
+  --color-on-accent: #ffffff;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Dark theme (mirrors r2g's model: one variable set, two palettes)
+ * ---------------------------------------------------------------------------
+ *
+ * Same trick as the blue -> Arango-green remap above, applied to the neutrals.
+ * Tailwind v4 compiles `bg-white` to `background-color: var(--color-white)`
+ * (verified against tailwindcss 4.2.2), so redefining the neutral tokens under
+ * a dark selector re-skins all ~1,775 hardcoded neutral utilities across 83
+ * components without touching a single one of them.
+ *
+ * The ramp is INVERTED rather than merely darkened, which preserves every
+ * light/dark relationship the components were authored against: `bg-gray-50`
+ * (page) stays a step darker than `bg-white` (card), `text-gray-500` stays
+ * muted against `text-gray-900`, and so on.
+ *
+ * Brand greens and the error red are deliberately NOT remapped — they are
+ * identical in both themes, which is what keeps the product recognisably
+ * Arango when the neutrals flip.
+ *
+ * `html[data-theme=...]` (specificity 0,1,1) beats the `:root` (0,1,0) that
+ * `@theme` emits, so source order cannot bite us.
+ */
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces: white becomes the raised surface, gray-50 the page beneath it. */
+  --color-white: #1e293b;
+  --color-black: #f8fafc;
+
+  --color-gray-50: #0f172a;
+  --color-gray-100: #1e293b;
+  --color-gray-200: #334155;
+  --color-gray-300: #475569;
+  --color-gray-400: #64748b;
+  --color-gray-500: #94a3b8;
+  --color-gray-600: #cbd5e1;
+  --color-gray-700: #e2e8f0;
+  --color-gray-800: #f1f5f9;
+  --color-gray-900: #f8fafc;
+  --color-gray-950: #ffffff;
+
+  --color-slate-50: #0f172a;
+  --color-slate-100: #1e293b;
+  --color-slate-200: #334155;
+  --color-slate-300: #475569;
+  --color-slate-400: #64748b;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #cbd5e1;
+  --color-slate-700: #e2e8f0;
+  --color-slate-800: #f1f5f9;
+  --color-slate-900: #f8fafc;
+  --color-slate-950: #ffffff;
+
+  /*
+   * Semantic tints (status panels, chips, callouts).
+   *
+   * Across every hue the codebase uses the ramp the same way:
+   *   50/100  -> panel background      100+ uses
+   *   200     -> that panel's border    71 uses
+   *   700/800 -> the text on it        150+ uses
+   *   500/600 -> filled buttons         (untouched — they must stay saturated,
+   *              and carry `text-on-accent` white text in both themes)
+   *
+   * So the low end goes dark and the high end goes light, which flips a status
+   * panel as a unit. Leaving only 50/100 remapped — the original mistake — gave
+   * dark text on a dark panel; leaving nothing remapped gave a glaring cream box
+   * on a dark page, which is what the quality dashboard showed.
+   *
+   * 700 was ALSO the hover state of every filled button (`bg-x-600
+   * hover:bg-x-700`). Lightening it would make buttons flash pale on hover, so
+   * those were converted to `hover:brightness-90`, which darkens whatever the
+   * base colour is and therefore needs no per-theme value at all.
+   */
+
+  /* blue / indigo / sky are the Arango-green ramp (see @theme above). */
+  --color-blue-50: #0d2b1a;
+  --color-blue-100: #123a23;
+  --color-blue-200: #1c5636;
+  --color-blue-700: #84d49a;
+  --color-blue-800: #b9e8c4;
+  --color-blue-900: #def5e3;
+  --color-indigo-50: #0d2b1a;
+  --color-indigo-100: #123a23;
+  --color-indigo-200: #1c5636;
+  --color-indigo-700: #84d49a;
+  --color-indigo-800: #b9e8c4;
+  --color-indigo-900: #def5e3;
+  --color-sky-50: #0d2b1a;
+  --color-sky-100: #123a23;
+  --color-sky-200: #1c5636;
+  --color-sky-700: #84d49a;
+  --color-sky-800: #b9e8c4;
+  --color-sky-900: #def5e3;
+
+  --color-red-50: #2a1113;
+  --color-red-100: #3b171a;
+  --color-red-200: #5c2327;
+  --color-red-700: #fca5a5;
+  --color-red-800: #fecaca;
+  --color-red-900: #fee2e2;
+
+  --color-rose-50: #2b0f16;
+  --color-rose-100: #3d151f;
+  --color-rose-200: #5c1f2e;
+  --color-rose-700: #fda4af;
+  --color-rose-800: #fecdd3;
+  --color-rose-900: #ffe4e6;
+
+  --color-green-50: #0d2b1a;
+  --color-green-100: #123a23;
+  --color-green-200: #1c5636;
+  --color-green-700: #86efac;
+  --color-green-800: #bbf7d0;
+  --color-green-900: #dcfce7;
+
+  --color-emerald-50: #072a1e;
+  --color-emerald-100: #0b3a2a;
+  --color-emerald-200: #115740;
+  --color-emerald-700: #6ee7b7;
+  --color-emerald-800: #a7f3d0;
+  --color-emerald-900: #d1fae5;
+
+  --color-amber-50: #2b1d05;
+  --color-amber-100: #3d2907;
+  --color-amber-200: #5c3f0b;
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+
+  --color-yellow-50: #2b2705;
+  --color-yellow-100: #3d3707;
+  --color-yellow-200: #5c520b;
+  --color-yellow-700: #fde047;
+  --color-yellow-800: #fef08a;
+  --color-yellow-900: #fef9c3;
+
+  --color-orange-50: #2b1608;
+  --color-orange-100: #3d1f0b;
+  --color-orange-200: #5c3010;
+  --color-orange-700: #fdba74;
+  --color-orange-800: #fed7aa;
+  --color-orange-900: #ffedd5;
+
+  --color-purple-50: #1f1030;
+  --color-purple-100: #2c1745;
+  --color-purple-200: #432268;
+  --color-purple-700: #d8b4fe;
+  --color-purple-800: #e9d5ff;
+  --color-purple-900: #f3e8ff;
+
+  --color-violet-50: #1c1236;
+  --color-violet-100: #28194c;
+  --color-violet-200: #3c2673;
+  --color-violet-700: #c4b5fd;
+  --color-violet-800: #ddd6fe;
+  --color-violet-900: #ede9fe;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Canvas chrome — opts OUT of theming
+ * ---------------------------------------------------------------------------
+ *
+ * The graph workspace is hand-painted dark: literal hexes (#111118, #12121f,
+ * #16162a, #1e1e32) for the canvas and its shell, plus Tailwind neutrals chosen
+ * against them (`bg-gray-900` UML nodes, `border-gray-800` chrome,
+ * `text-gray-300` labels). The edge palette in `graphVisualPalette.ts` is
+ * likewise tuned for separation on a dark canvas.
+ *
+ * Inverting the neutrals underneath that would break it — `border-gray-800`
+ * would turn light against a hard-coded dark background. So the workspace keeps
+ * the light-mode token values in BOTH themes, which means it renders exactly as
+ * it does today no matter what the toggle says. One attribute on the workspace
+ * root does it, rather than pinning ~15 utilities individually and having the
+ * next component added to the canvas silently get it wrong.
+ *
+ * These are Tailwind 4.2.2's stock neutral values, restored verbatim.
+ */
+[data-canvas-chrome] {
+  /*
+   * `light`, despite the canvas being dark — and this is not a typo.
+   *
+   * `color-scheme` sets the UA's DEFAULT text colour (`canvastext`) for any
+   * element that does not declare one. This subtree restores the light token
+   * set and its floating panels are white, so declaring `dark` here flipped the
+   * inherited default to white and made every panel row that relies on
+   * inheritance invisible on white. The dark parts of the workspace paint
+   * themselves with explicit hexes and do not need the UA hint.
+   */
+  color-scheme: light;
+
+  --color-white: #fff;
+  --color-black: #000;
+
+  --color-gray-50: oklch(98.5% 0.002 247.839);
+  --color-gray-100: oklch(96.7% 0.003 264.542);
+  --color-gray-200: oklch(92.8% 0.006 264.531);
+  --color-gray-300: oklch(87.2% 0.01 258.338);
+  --color-gray-400: oklch(70.7% 0.022 261.325);
+  --color-gray-500: oklch(55.1% 0.027 264.364);
+  --color-gray-600: oklch(44.6% 0.03 256.802);
+  --color-gray-700: oklch(37.3% 0.034 259.733);
+  --color-gray-800: oklch(27.8% 0.033 256.848);
+  --color-gray-900: oklch(21% 0.034 264.665);
+  --color-gray-950: oklch(13% 0.028 261.692);
+
+  --color-slate-50: oklch(98.4% 0.003 247.858);
+  --color-slate-100: oklch(96.8% 0.007 247.896);
+  --color-slate-200: oklch(92.9% 0.013 255.508);
+  --color-slate-300: oklch(86.9% 0.022 252.894);
+  --color-slate-400: oklch(70.4% 0.04 256.788);
+  --color-slate-500: oklch(55.4% 0.046 257.417);
+  --color-slate-600: oklch(44.6% 0.043 257.281);
+  --color-slate-700: oklch(37.2% 0.044 257.287);
+  --color-slate-800: oklch(27.9% 0.041 260.031);
+  --color-slate-900: oklch(20.8% 0.042 265.755);
+  --color-slate-950: oklch(12.9% 0.042 264.695);
+
+  /* The workspace's floating panels are light (its `--color-white` is restored
+     to #fff above), so the semantic tints must be restored too — otherwise a
+     dark red error panel lands inside a white overlay. 225 such utilities live
+     under this subtree. Brand ramp first, then Tailwind's stock hues. */
+  --color-blue-50: #f4fef2;
+  --color-blue-100: #def5e3;
+  --color-blue-200: #b9e8c4;
+  --color-blue-700: #005329;
+  --color-blue-800: #064020;
+  --color-blue-900: #07331b;
+  --color-indigo-50: #f4fef2;
+  --color-indigo-100: #def5e3;
+  --color-indigo-200: #b9e8c4;
+  --color-indigo-700: #005329;
+  --color-indigo-800: #064020;
+  --color-indigo-900: #07331b;
+  --color-sky-50: #f4fef2;
+  --color-sky-100: #def5e3;
+  --color-sky-200: #b9e8c4;
+  --color-sky-700: #005329;
+  --color-sky-800: #064020;
+  --color-sky-900: #07331b;
+
+  --color-red-50: oklch(97.1% 0.013 17.38);
+  --color-red-100: oklch(93.6% 0.032 17.717);
+  --color-red-200: oklch(88.5% 0.062 18.334);
+  --color-red-700: oklch(50.5% 0.213 27.518);
+  --color-red-800: oklch(44.4% 0.177 26.899);
+  --color-red-900: oklch(39.6% 0.141 25.723);
+
+  --color-rose-50: oklch(96.9% 0.015 12.422);
+  --color-rose-100: oklch(94.1% 0.03 12.58);
+  --color-rose-200: oklch(89.2% 0.058 10.001);
+  --color-rose-700: oklch(51.4% 0.222 16.935);
+  --color-rose-800: oklch(45.5% 0.188 13.697);
+  --color-rose-900: oklch(41% 0.159 10.272);
+
+  --color-green-50: oklch(98.2% 0.018 155.826);
+  --color-green-100: oklch(96.2% 0.044 156.743);
+  --color-green-200: oklch(92.5% 0.084 155.995);
+  --color-green-700: oklch(52.7% 0.154 150.069);
+  --color-green-800: oklch(44.8% 0.119 151.328);
+  --color-green-900: oklch(39.3% 0.095 152.535);
+
+  --color-emerald-50: oklch(97.9% 0.021 166.113);
+  --color-emerald-100: oklch(95% 0.052 163.051);
+  --color-emerald-200: oklch(90.5% 0.093 164.15);
+  --color-emerald-700: oklch(50.8% 0.118 165.612);
+  --color-emerald-800: oklch(43.2% 0.095 166.913);
+  --color-emerald-900: oklch(37.8% 0.077 168.94);
+
+  --color-amber-50: oklch(98.7% 0.022 95.277);
+  --color-amber-100: oklch(96.2% 0.059 95.617);
+  --color-amber-200: oklch(92.4% 0.12 95.746);
+  --color-amber-700: oklch(55.5% 0.163 48.998);
+  --color-amber-800: oklch(47.3% 0.137 46.201);
+  --color-amber-900: oklch(41.4% 0.112 45.904);
+
+  --color-yellow-50: oklch(98.7% 0.026 102.212);
+  --color-yellow-100: oklch(97.3% 0.071 103.193);
+  --color-yellow-200: oklch(94.5% 0.129 101.54);
+  --color-yellow-700: oklch(55.4% 0.135 66.442);
+  --color-yellow-800: oklch(47.6% 0.114 61.907);
+  --color-yellow-900: oklch(42.1% 0.095 57.708);
+
+  --color-orange-50: oklch(98% 0.016 73.684);
+  --color-orange-100: oklch(95.4% 0.038 75.164);
+  --color-orange-200: oklch(90.1% 0.076 70.697);
+  --color-orange-700: oklch(55.3% 0.195 38.402);
+  --color-orange-800: oklch(47% 0.157 37.304);
+  --color-orange-900: oklch(40.8% 0.123 38.172);
+
+  --color-purple-50: oklch(97.7% 0.014 308.299);
+  --color-purple-100: oklch(94.6% 0.033 307.174);
+  --color-purple-200: oklch(90.2% 0.063 306.703);
+  --color-purple-700: oklch(49.6% 0.265 301.924);
+  --color-purple-800: oklch(43.8% 0.218 303.724);
+  --color-purple-900: oklch(38.1% 0.176 304.987);
+
+  --color-violet-50: oklch(96.9% 0.016 293.756);
+  --color-violet-100: oklch(94.3% 0.029 294.588);
+  --color-violet-200: oklch(89.4% 0.057 293.283);
+  --color-violet-700: oklch(49.1% 0.27 292.581);
+  --color-violet-800: oklch(43.2% 0.232 292.759);
+  --color-violet-900: oklch(38% 0.189 293.745);
 }

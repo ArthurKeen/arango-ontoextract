@@ -128,7 +128,7 @@ export default function OntologyRenameDialog({
             </button>
             <button
               type="submit"
-              className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:brightness-90 disabled:opacity-50"
               disabled={saving}
             >
               {saving ? "Saving…" : "Save"}

@@ -207,7 +207,7 @@ export default function RecallComparisonOverlay({
             <button
               onClick={runComparison}
               disabled={running || !referenceContent}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-on-accent hover:brightness-90 disabled:opacity-40 disabled:cursor-not-allowed"
               data-testid="recall-run-btn"
             >
               {running ? "Computing…" : "Compute recall"}

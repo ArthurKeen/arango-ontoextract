@@ -114,8 +114,8 @@ export default function ConfirmDialog({
   const messageId = "confirm-dialog-message";
 
   const confirmClass = danger
-    ? "px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-    : "px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed";
+    ? "px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed"
+    : "px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed";
 
   return (
     <div

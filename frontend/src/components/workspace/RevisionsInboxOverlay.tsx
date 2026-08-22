@@ -529,7 +529,7 @@ function RevisionDetailPanel({
           type="button"
           onClick={onAccept}
           disabled={busy}
-          className="w-full px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50"
+          className="w-full px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium hover:brightness-90 disabled:opacity-50"
         >
           {busy ? "Working…" : "Accept and apply"}
         </button>
@@ -581,7 +581,7 @@ function RevisionDetailPanel({
               type="button"
               onClick={submitModify}
               disabled={busy}
-              className="w-full px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
+              className="w-full px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs font-medium hover:brightness-90 disabled:opacity-50"
             >
               Apply modification
             </button>

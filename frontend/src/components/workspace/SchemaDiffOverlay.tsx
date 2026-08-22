@@ -267,7 +267,7 @@ export default function SchemaDiffOverlay({
             type="button"
             onClick={handleCompare}
             disabled={loading || !ontologyBKey}
-            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:brightness-90 disabled:bg-gray-300 disabled:cursor-not-allowed"
             data-testid="schema-diff-compare-btn"
           >
             {loading ? "Comparing…" : "Compare"}

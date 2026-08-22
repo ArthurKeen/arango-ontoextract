@@ -116,7 +116,7 @@ export default function NodeDetail({
             <div className="flex gap-2">
               <button
                 onClick={handleSaveDescription}
-                className="text-xs px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="text-xs px-3 py-1 bg-blue-600 text-on-accent rounded-md hover:brightness-90"
                 data-testid="save-description-btn"
               >
                 Save

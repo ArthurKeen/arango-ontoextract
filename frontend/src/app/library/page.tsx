@@ -13,6 +13,7 @@ import type {
 import OntologyCard from "@/components/library/OntologyCard";
 import ClassHierarchy from "@/components/library/ClassHierarchy";
 import QualityPanel from "@/components/library/QualityPanel";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 interface ClassDetail extends OntologyClass {
   properties?: {
@@ -352,6 +353,7 @@ export default function LibraryPage() {
             >
               Home
             </a>
+            <ThemeToggle className="ml-1" />
           </div>
         </div>
       </header>
@@ -449,7 +451,7 @@ export default function LibraryPage() {
             <p className="text-red-500 mb-3">{error}</p>
             <button
               onClick={fetchOntologies}
-              className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="text-sm px-4 py-2 bg-blue-600 text-on-accent rounded-lg hover:brightness-90"
             >
               Retry
             </button>
@@ -530,7 +532,7 @@ export default function LibraryPage() {
                   <div className="flex gap-2 mb-3">
                     <a
                       href={withBasePath(`/workspace?ontologyId=${selectedOntology._key}`)}
-                      className="flex-1 text-center text-xs px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium"
+                      className="flex-1 text-center text-xs px-3 py-2 bg-indigo-600 hover:brightness-90 text-on-accent rounded-lg transition-colors font-medium"
                     >
                       Open in Workspace
                     </a>
@@ -596,7 +598,7 @@ export default function LibraryPage() {
                     <button
                       onClick={() => addDocRef.current?.click()}
                       disabled={addingDoc}
-                      className="w-full text-xs px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-1.5"
+                      className="w-full text-xs px-3 py-2 bg-green-600 hover:brightness-90 disabled:bg-green-400 text-on-accent rounded-lg transition-colors font-medium flex items-center justify-center gap-1.5"
                     >
                       {addingDoc ? (
                         <>

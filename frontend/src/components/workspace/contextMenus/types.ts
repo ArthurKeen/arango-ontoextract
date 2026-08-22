@@ -306,6 +306,11 @@ export interface WorkspaceContextMenuActions {
   /** Focus mode (FR-7.8.15): hop radius around the selected node, or null for "show all". */
   focusHops: number | null;
   setFocusHops: (hops: number | null) => void;
+  /** Hide/isolate view actions (FR-7.8.17). Non-destructive; reversible via showAllHidden. */
+  hideOtherNodes: () => void;
+  hideSelectedNode: () => void;
+  showAllHidden: () => void;
+  hiddenCount: number;
   setActiveLens: (lens: LensType) => void;
   graphViewMode: GraphViewMode;
   setGraphViewMode: (mode: GraphViewMode) => void;

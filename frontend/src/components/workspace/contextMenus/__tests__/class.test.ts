@@ -20,7 +20,9 @@ const mockedApi = apiClient.api as jest.Mocked<typeof apiClient.api>;
 
 /** Build a ``WorkspaceContextMenuActions`` whose every method is a Jest mock,
  *  so individual tests can assert the right one fired with the right args. */
-function makeActions(): WorkspaceContextMenuActions {
+function makeActions(
+  overrides: Partial<WorkspaceContextMenuActions> = {},
+): WorkspaceContextMenuActions {
   return {
     handleNodeSelect: jest.fn(),
     handleEdgeSelect: jest.fn(),
@@ -74,6 +76,7 @@ function makeActions(): WorkspaceContextMenuActions {
     closeContextMenu: jest.fn(),
     requestConfirm: jest.fn(),
     selectedOntologyId: "ont-1",
+    ...overrides,
   };
 }
 
@@ -99,6 +102,8 @@ describe("buildClassContextMenu", () => {
       "Reject",
       "View Version History",
       "View Provenance",
+      "Hide other nodes",
+      "Hide this node",
       "Delete",
     ]);
   });
@@ -247,6 +252,8 @@ describe("buildClassContextMenu", () => {
         "View Details",
         "View Version History",
         "View Provenance",
+        "Hide other nodes",
+        "Hide this node",
         "Open Source Ontology (FOAF)",
         "Remove Import (FOAF)",
       ]);
@@ -421,8 +428,49 @@ describe("buildClassContextMenu", () => {
         "Reject",
         "View Version History",
         "View Provenance",
+        "Hide other nodes",
+        "Hide this node",
         "Delete",
       ]);
     });
+  });
+});
+
+/**
+ * Hide / isolate (FR-7.8.17).
+ *
+ * These read as destructive but are not: they operate on a view set, nothing is
+ * expired or deleted, and "Show all" reverses them. The ArangoDB visualizer's
+ * remove-others has no way back, which turns exploration into a dead end — the
+ * undo is the requirement, so these must NOT be danger-styled and must sit away
+ * from Delete.
+ */
+describe("buildClassContextMenu hide actions (FR-7.8.17)", () => {
+  it("fires hideOtherNodes and hideSelectedNode", () => {
+    const hideOtherNodes = jest.fn();
+    const hideSelectedNode = jest.fn();
+    const items = buildClassContextMenu(
+      { _key: "C1", label: "Vehicle" },
+      makeActions({ hideOtherNodes, hideSelectedNode }),
+    );
+    items.find((i) => i.label === "Hide other nodes")?.onClick?.();
+    items.find((i) => i.label === "Hide this node")?.onClick?.();
+    expect(hideOtherNodes).toHaveBeenCalled();
+    expect(hideSelectedNode).toHaveBeenCalled();
+  });
+
+  it("is not danger-styled — it is reversible, unlike Delete", () => {
+    const items = buildClassContextMenu({ _key: "C1", label: "Vehicle" }, makeActions());
+    expect(items.find((i) => i.label === "Hide other nodes")?.danger).toBeFalsy();
+    expect(items.find((i) => i.label === "Hide this node")?.danger).toBeFalsy();
+    expect(items.find((i) => i.label === "Delete")?.danger).toBe(true);
+  });
+
+  it("offers hiding on imported classes too — it is a view action, not an edit", () => {
+    const items = buildClassContextMenu(
+      { _key: "C1", label: "Vehicle", is_imported: true, source_ontology_id: "o2" },
+      makeActions(),
+    );
+    expect(items.map((i) => i.label)).toContain("Hide other nodes");
   });
 });

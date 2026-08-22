@@ -630,6 +630,15 @@ export interface SigmaViewportApi {
   focusNode: (nodeKey: string) => void;
   /** Animate the camera to center on a specific edge (midpoint of source+target). */
   focusEdge: (edgeKey: string) => void;
+  /**
+   * Node keys currently within the focus radius (FR-7.8.15), or null when focus
+   * is off. Imperative rather than a callback prop so "Hide other nodes"
+   * (FR-7.8.17) can read the set on demand without the canvas pushing state
+   * upward on every render.
+   */
+  getFocusSet: () => Set<string> | null;
+  /** Every node key the canvas knows about — the denominator for "hide others". */
+  getAllNodeKeys: () => string[];
 }
 
 /* ── Component ────────────────────────────────────────── */
@@ -1082,6 +1091,17 @@ export default function SigmaCanvas({
     );
   }, []);
 
+  const getFocusSet = useCallback((): Set<string> | null => {
+    const g = graphRef.current;
+    if (!g || !focusNodeKey) return null;
+    return computeFocusSet(g, focusNodeKey, focusHops ?? null);
+  }, [focusNodeKey, focusHops]);
+
+  const getAllNodeKeys = useCallback((): string[] => {
+    const g = graphRef.current;
+    return g ? g.nodes() : [];
+  }, []);
+
   useEffect(() => {
     if (!onViewportApi) return;
     const api: SigmaViewportApi = {
@@ -1091,12 +1111,14 @@ export default function SigmaCanvas({
       setEdgeStyle,
       focusNode,
       focusEdge,
+      getFocusSet,
+      getAllNodeKeys,
     };
     onViewportApi(api);
     return () => {
       onViewportApi(null);
     };
-  }, [onViewportApi, fitAll, centerView, handleRelayout, setEdgeStyle, focusNode, focusEdge]);
+  }, [onViewportApi, fitAll, centerView, handleRelayout, setEdgeStyle, focusNode, focusEdge, getFocusSet, getAllNodeKeys]);
 
   if (classes.length === 0) {
     return (

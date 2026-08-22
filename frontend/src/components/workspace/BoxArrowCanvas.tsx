@@ -313,6 +313,12 @@ export default function BoxArrowCanvas({
       setEdgeStyle: (_style: EdgeStyleType) => {
         // React Flow handles edge styling through props
       },
+      // Focus mode (FR-7.8.15) is Sigma-only — this renderer has no dimming
+      // pass, and its context menu hides the Focus control accordingly. Returning
+      // null (rather than an empty set) tells "hide others" there is no
+      // neighbourhood to isolate, so it declines instead of hiding everything.
+      getFocusSet: () => null,
+      getAllNodeKeys: () => (rfRef.current?.getNodes() ?? []).map((n) => n.id),
       focusNode: (nodeKey: string) => {
         const rf = rfRef.current;
         if (!rf) return;

@@ -11,6 +11,13 @@ interface ProvenancePanelProps {
   onClose?: () => void;
 }
 
+interface RankedChunkFields {
+  /** 0–1 support score (FR-4.19). */
+  support?: number;
+  /** How `support` was derived — shown so the ordering is auditable. */
+  support_basis?: "evidence_confidence" | "keyword_density";
+}
+
 interface EvidenceItem {
   evidence_text?: string | null;
   evidence_confidence?: number | null;
@@ -168,13 +175,31 @@ export default function ProvenancePanel({
 
       {!loading && chunks.length > 0 && (
         <div className="space-y-2 max-h-[400px] overflow-y-auto">
-          {chunks.map((chunk) => (
+          {chunks.map((chunk, idx) => {
+            const ranked = chunk as SourceChunk & RankedChunkFields;
+            const isTop = idx === 0 && (ranked.support ?? 0) > 0;
+            return (
             <div
               key={chunk._key}
-              className="bg-gray-50 rounded-lg border border-gray-100 p-3"
+              className={`rounded-lg border p-3 ${
+                isTop
+                  ? "bg-blue-50 border-blue-200 ring-1 ring-blue-200"
+                  : "bg-gray-50 border-gray-100"
+              }`}
               data-testid={`chunk-${chunk._key}`}
             >
               <div className="flex items-center gap-2 mb-1.5">
+                {/* FR-4.19 — the strongest passage is called out, and the basis
+                    is named so a curator can see why it ranked first and
+                    disagree. An unexplained ordering is just an assertion. */}
+                {isTop && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-600 text-on-accent font-medium"
+                    data-testid="chunk-top-support"
+                  >
+                    strongest
+                  </span>
+                )}
                 <span className="text-xs font-medium text-gray-700">
                   {chunk.document_name}
                 </span>
@@ -192,8 +217,16 @@ export default function ProvenancePanel({
               <p className="text-sm text-gray-600 leading-relaxed">
                 {highlightKeywords(chunk.text, keywords)}
               </p>
+              {ranked.support_basis && (ranked.support ?? 0) > 0 && (
+                <p className="mt-1.5 text-[10px] text-gray-400">
+                  {ranked.support_basis === "evidence_confidence"
+                    ? `Extractor confidence ${Math.round((ranked.support ?? 0) * 100)}%`
+                    : "Ranked by keyword match (no recorded evidence)"}
+                </p>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -92,6 +92,23 @@ export function buildClassContextMenu(
     },
   };
 
+  // FR-7.8.17 — view-only isolation. Not destructive despite the wording, so
+  // no `danger` styling: nothing is expired or deleted and "Show all" reverses
+  // it. Placed beside the read actions rather than next to Delete, so the two
+  // are not confused.
+  const hideItems: ContextMenuItem[] = [
+    {
+      label: "Hide other nodes",
+      icon: "🎯",
+      onClick: () => actions.hideOtherNodes(),
+    },
+    {
+      label: "Hide this node",
+      icon: "🚫",
+      onClick: () => actions.hideSelectedNode(),
+    },
+  ];
+
   if (isImported) {
     const openLabel = sourceOntologyName
       ? `Open Source Ontology (${sourceOntologyName})`
@@ -111,6 +128,8 @@ export function buildClassContextMenu(
       { label: "separator0", separator: true },
       viewHistory,
       viewProvenance,
+      { label: "separatorHide", separator: true },
+      ...hideItems,
       { label: "separator1", separator: true },
       {
         label: openLabel,
@@ -164,6 +183,8 @@ export function buildClassContextMenu(
     { label: "separator1", separator: true },
     viewHistory,
     viewProvenance,
+    { label: "separatorHide", separator: true },
+    ...hideItems,
     { label: "separator2", separator: true },
     {
       label: "Delete",

@@ -155,6 +155,40 @@ function WorkspacePageInner() {
   // Defaults to 2 — one hop is often too tight to show why a node sits where it
   // does, three already re-crowds a dense graph.
   const [focusHops, setFocusHops] = useState<number | null>(2);
+
+  // Hide / isolate (FR-7.8.17). A VIEW set — nothing is expired or deleted, and
+  // reloading the ontology restores everything. Undo is mandatory: the ArangoDB
+  // visualizer's remove-others has no way back, which makes it a dead end.
+  const [hiddenNodeKeys, setHiddenNodeKeys] = useState<Set<string>>(new Set());
+
+  /** Keep the focus neighbourhood, hide everything else (FR-7.8.17). */
+  const hideOtherNodes = useCallback(() => {
+    const api = viewportApiRef.current;
+    if (!api) return;
+    const keep = api.getFocusSet();
+    if (!keep || keep.size === 0) {
+      // No focus neighbourhood (nothing selected, focus off, or the box-arrow
+      // renderer). Hiding "everything else" would hide everything, so decline.
+      return;
+    }
+    setHiddenNodeKeys((prev) => {
+      const next = new Set(prev);
+      for (const k of api.getAllNodeKeys()) {
+        if (!keep.has(k)) next.add(k);
+      }
+      return next;
+    });
+  }, []);
+
+  /** Hide just the selected node (FR-7.8.17). */
+  const hideSelectedNode = useCallback(() => {
+    if (!selectedNodeKey) return;
+    setHiddenNodeKeys((prev) => new Set(prev).add(selectedNodeKey));
+    setSelectedNodeKey(null);
+  }, [selectedNodeKey]);
+
+  /** The undo. Always one click away while anything is hidden. */
+  const showAllHidden = useCallback(() => setHiddenNodeKeys(new Set()), []);
   const [assetExplorerWidth, setAssetExplorerWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [activeLens, setActiveLens] = useState<LensType>("semantic");
@@ -290,17 +324,31 @@ function WorkspacePageInner() {
    *  VCR timeline ∩ confidence threshold). ``null`` means "no filter
    *  active" so ``SigmaCanvas`` can skip the reducer entirely. */
   const mergedVisibleNodeKeys = useMemo<Set<string> | null>(() => {
+    // Three axes now: timeline ∩ confidence, minus the hidden set (FR-7.8.17).
+    let base: Set<string> | null;
     if (timelineVisibleKeys == null && confidenceVisibleClasses == null) {
-      return null;
+      base = null;
+    } else if (timelineVisibleKeys == null) {
+      base = confidenceVisibleClasses;
+    } else if (confidenceVisibleClasses == null) {
+      base = timelineVisibleKeys;
+    } else {
+      const out = new Set<string>();
+      for (const k of timelineVisibleKeys) {
+        if (confidenceVisibleClasses.has(k)) out.add(k);
+      }
+      base = out;
     }
-    if (timelineVisibleKeys == null) return confidenceVisibleClasses;
-    if (confidenceVisibleClasses == null) return timelineVisibleKeys;
-    const out = new Set<string>();
-    for (const k of timelineVisibleKeys) {
-      if (confidenceVisibleClasses.has(k)) out.add(k);
+
+    if (hiddenNodeKeys.size === 0) return base;
+    // No other filter active: the visible set is everything except the hidden.
+    const source = base ?? new Set(classes.map((c) => c._key));
+    const visible = new Set<string>();
+    for (const k of source) {
+      if (!hiddenNodeKeys.has(k)) visible.add(k);
     }
-    return out;
-  }, [timelineVisibleKeys, confidenceVisibleClasses]);
+    return visible;
+  }, [timelineVisibleKeys, confidenceVisibleClasses, hiddenNodeKeys, classes]);
 
   const [pipelineRunId, setPipelineRunId] = useState<string | null>(null);
   const [pipelineSteps, setPipelineSteps] = useState<Map<string, StepStatus>>(new Map());
@@ -1281,6 +1329,10 @@ function WorkspacePageInner() {
     setRevisionsInbox,
     focusHops,
     setFocusHops,
+    hideOtherNodes,
+    hideSelectedNode,
+    showAllHidden,
+    hiddenCount: hiddenNodeKeys.size,
     setMergeCandidates,
     setAlignmentReview,
     setRequirementsOverlay,
@@ -1473,6 +1525,26 @@ function WorkspacePageInner() {
                       focusHops={focusHops}
                     />
                   )}
+                  {/* FR-7.8.17 — the undo. Persistent while anything is hidden,
+                      because a hide with no visible way back is a dead end. */}
+                  {hiddenNodeKeys.size > 0 && (
+                    <div
+                      className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 rounded-full bg-amber-100 border border-amber-300 px-4 py-1.5 shadow-lg"
+                      data-testid="hidden-nodes-banner"
+                    >
+                      <span className="text-xs font-medium text-amber-900">
+                        {hiddenNodeKeys.size} node{hiddenNodeKeys.size === 1 ? "" : "s"} hidden
+                      </span>
+                      <button
+                        onClick={showAllHidden}
+                        className="text-xs font-semibold text-amber-900 underline hover:no-underline"
+                        data-testid="show-all-hidden"
+                      >
+                        Show all
+                      </button>
+                    </div>
+                  )}
+
                   {graphViewMode !== "box-arrow" && (
                     <CanvasLensLegend
                       activeLens={activeLens}

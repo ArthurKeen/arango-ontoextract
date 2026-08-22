@@ -148,3 +148,72 @@ class TestFallback:
             body = client.get(URL).json()
         assert body["level"] == "evidence"
         assert len(body["evidence"]) == 1
+
+
+class TestSupportRanking:
+    """FR-4.19 — the strongest passage comes first, and says why."""
+
+    def _get(self, evidence: list[dict], chunks: list[dict]) -> dict:
+        db = MagicMock()
+        db.has_collection.return_value = True
+        with (
+            patch.object(_shared, "get_db", return_value=db),
+            patch.object(*_GET_CURRENT, return_value=_class(evidence)),
+            patch.object(_shared, "run_aql", return_value=iter(chunks)),
+        ):
+            return client.get(URL).json()
+
+    def test_highest_confidence_passage_is_first(self) -> None:
+        evidence = [
+            {"source_chunk_ids": ["weak"], "evidence_confidence": 0.30},
+            {"source_chunk_ids": ["strong"], "evidence_confidence": 0.95},
+        ]
+        chunks = [
+            {"_key": "weak", "text": "…", "chunk_index": 1},
+            {"_key": "strong", "text": "…", "chunk_index": 9},
+        ]
+        body = self._get(evidence, chunks)
+        # Document order would have put "weak" first; support ordering must win.
+        assert [c["_key"] for c in body["data"]] == ["strong", "weak"]
+        assert body["data"][0]["support"] == 0.95
+        assert body["data"][0]["support_basis"] == "evidence_confidence"
+
+    def test_ties_fall_back_to_document_order(self) -> None:
+        evidence = [{"source_chunk_ids": ["b", "a"], "evidence_confidence": 0.5}]
+        chunks = [
+            {"_key": "b", "text": "…", "chunk_index": 7},
+            {"_key": "a", "text": "…", "chunk_index": 2},
+        ]
+        body = self._get(evidence, chunks)
+        assert [c["_key"] for c in body["data"]] == ["a", "b"]
+
+    def test_keyword_density_never_outranks_a_real_confidence(self) -> None:
+        # A chunk saying the label 50 times is still weaker evidence than the
+        # extractor's own citation — otherwise the heuristic would dominate.
+        evidence = [{"source_chunk_ids": ["cited"], "evidence_confidence": 0.60}]
+        chunks = [
+            {"_key": "spammy", "text": "vehicle security " * 50, "chunk_index": 1},
+            {"_key": "cited", "text": "…", "chunk_index": 8},
+        ]
+        body = self._get(evidence, chunks)
+        assert body["data"][0]["_key"] == "cited"
+        assert body["data"][1]["support_basis"] == "keyword_density"
+        assert body["data"][1]["support"] <= 0.99
+
+    def test_fallback_ranks_by_keyword_density_and_labels_it(self) -> None:
+        chunks = [
+            {"_key": "sparse", "text": "no mention here", "chunk_index": 1},
+            {"_key": "dense", "text": "vehicle security vehicle security", "chunk_index": 5},
+        ]
+        body = self._get([], chunks)
+        assert body["level"] == "document"
+        assert body["data"][0]["_key"] == "dense"
+        # The basis must be visible so the ordering is not mistaken for evidence.
+        assert body["data"][0]["support_basis"] == "keyword_density"
+
+    def test_unscored_passages_still_appear(self) -> None:
+        # Zero support must not mean "dropped" — the reader may still want them.
+        chunks = [{"_key": "x", "text": "unrelated", "chunk_index": 1}]
+        body = self._get([], chunks)
+        assert [c["_key"] for c in body["data"]] == ["x"]
+        assert body["data"][0]["support"] == 0.0

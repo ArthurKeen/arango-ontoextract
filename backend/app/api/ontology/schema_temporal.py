@@ -175,6 +175,69 @@ def _all_chunks_for_linked_documents(db: Any, class_key: str) -> list[dict[str, 
     )
 
 
+def _rank_by_support(
+    chunks: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+    class_doc: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Order passages by how well they support the concept (FR-4.19).
+
+    With a 700-page source, "here are the passages" is barely better than "here
+    is the document" if the reader still has to find the one that matters. Each
+    chunk gains a ``support`` score and a ``support_basis`` naming how it was
+    derived, so a curator can see WHY a passage ranked first and disagree.
+
+    Two bases, deliberately distinguished:
+
+    * ``evidence_confidence`` — the extractor's own recorded confidence for the
+      evidence item citing this chunk. Authoritative.
+    * ``keyword_density`` — occurrences of the class label in the chunk. A
+      heuristic, used only for the document-level fallback where no confidence
+      exists, and labelled as such so an ordering never implies a precision the
+      fallback does not have.
+    """
+    if not chunks:
+        return chunks
+
+    # chunk id -> best recorded confidence citing it
+    by_conf: dict[str, float] = {}
+    for item in evidence:
+        try:
+            conf = float(item.get("evidence_confidence") or 0.0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        for cid in item.get("source_chunk_ids") or []:
+            if isinstance(cid, str):
+                by_conf[cid] = max(by_conf.get(cid, 0.0), conf)
+
+    label = str(class_doc.get("label") or "").strip().lower()
+
+    for c in chunks:
+        cid = str(c.get("_key") or "")
+        if cid in by_conf:
+            c["support"] = round(by_conf[cid], 4)
+            c["support_basis"] = "evidence_confidence"
+        else:
+            text = str(c.get("text") or "").lower()
+            hits = text.count(label) if label else 0
+            # Normalised so it can never outrank a real confidence score.
+            c["support"] = round(min(hits / 10.0, 0.99), 4) if hits else 0.0
+            c["support_basis"] = "keyword_density"
+
+    # Recorded evidence outranks the heuristic CATEGORICALLY, not by score.
+    # Comparing the two on one numeric scale let a chunk that merely repeats the
+    # label 50 times beat the passage the extractor actually cited — the
+    # heuristic dominating the authoritative signal, which is backwards.
+    # So basis is the primary key; support orders within a basis; document
+    # order breaks remaining ties.
+    def _rank(c: dict[str, Any]) -> tuple[int, float, int]:
+        tier = 0 if c.get("support_basis") == "evidence_confidence" else 1
+        return (tier, -float(c.get("support") or 0.0), int(c.get("chunk_index") or 0))
+
+    chunks.sort(key=_rank)
+    return chunks
+
+
 @router.get("/class/{class_key}/provenance")
 async def get_class_provenance(class_key: str) -> dict[str, Any]:
     """Evidence recorded for this class at extraction (FR-4.7).
@@ -212,7 +275,7 @@ async def get_class_provenance(class_key: str) -> dict[str, Any]:
             }
         )
 
-    chunks = _chunks_by_key(db, chunk_ids)
+    chunks = _rank_by_support(_chunks_by_key(db, chunk_ids), inline_evidence, doc)
     if chunks:
         return {
             "data": chunks,
@@ -222,7 +285,7 @@ async def get_class_provenance(class_key: str) -> dict[str, Any]:
         }
 
     # No recorded evidence (or its chunks are gone) — degrade, and say so.
-    fallback = _all_chunks_for_linked_documents(db, class_key)
+    fallback = _rank_by_support(_all_chunks_for_linked_documents(db, class_key), [], doc)
     return {
         "data": fallback,
         "total_count": len(fallback),

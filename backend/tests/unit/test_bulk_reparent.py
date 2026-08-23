@@ -127,3 +127,103 @@ class TestIntroduceSuperclass:
         assert body["moved_count"] == 2
         # Everything must be parented to the class just created.
         assert {c.kwargs["new_parent_key"] for c in mk.call_args_list} == {"VehicleSystem"}
+
+
+class TestUndo:
+    """FR-7.8.21 — a structural set action must be reversible in one click."""
+
+    def test_forward_call_returns_each_class_previous_parent(self) -> None:
+        def side_effect(_db, *, ontology_id, class_key, new_parent_key):
+            return {"expired_parent_ids": [f"ontology_classes/old_{class_key}"]}
+
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(mutations, "_reparent_one", side_effect=side_effect),
+        ):
+            body = client.post(URL, json={"class_keys": ["a", "b"], "new_parent_key": "P"}).json()
+        assert body["undo"] == [
+            {"class_key": "a", "previous_parent_key": "old_a"},
+            {"class_key": "b", "previous_parent_key": "old_b"},
+        ]
+
+    def test_a_class_with_no_previous_parent_records_none(self) -> None:
+        # Restoring must be able to say "this had no parent", not guess one.
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(mutations, "_reparent_one", return_value={"expired_parent_ids": []}),
+        ):
+            body = client.post(URL, json={"class_keys": ["a"], "new_parent_key": "P"}).json()
+        assert body["undo"] == [{"class_key": "a", "previous_parent_key": None}]
+
+    def test_failed_classes_are_not_in_the_undo_payload(self) -> None:
+        # They were never moved, so "restoring" them would be a second edit.
+        def side_effect(_db, *, ontology_id, class_key, new_parent_key):
+            if class_key == "bad":
+                raise ValidationError("cycle")
+            return {"expired_parent_ids": ["ontology_classes/old"]}
+
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(mutations, "_reparent_one", side_effect=side_effect),
+        ):
+            body = client.post(URL, json={"class_keys": ["a", "bad"], "new_parent_key": "P"}).json()
+        assert [u["class_key"] for u in body["undo"]] == ["a"]
+
+    def test_undo_restores_each_previous_parent(self) -> None:
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(mutations, "_reparent_one", return_value={}) as mk,
+        ):
+            body = client.post(
+                f"{URL}/undo",
+                json={
+                    "entries": [
+                        {"class_key": "a", "previous_parent_key": "old_a"},
+                        {"class_key": "b", "previous_parent_key": None},
+                    ]
+                },
+            ).json()
+        assert body["restored_count"] == 2
+        calls = {c.kwargs["class_key"]: c.kwargs["new_parent_key"] for c in mk.call_args_list}
+        assert calls == {"a": "old_a", "b": None}
+
+    def test_undo_reports_partial_failure_rather_than_claiming_success(self) -> None:
+        def side_effect(_db, *, ontology_id, class_key, new_parent_key):
+            if class_key == "gone":
+                raise NotFoundError("Class 'gone' not found")
+            return {}
+
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(mutations, "_reparent_one", side_effect=side_effect),
+        ):
+            body = client.post(
+                f"{URL}/undo",
+                json={
+                    "entries": [
+                        {"class_key": "a", "previous_parent_key": "p"},
+                        {"class_key": "gone", "previous_parent_key": "p"},
+                    ]
+                },
+            ).json()
+        assert body["restored"] == ["a"]
+        assert body["failed"][0]["class_key"] == "gone"
+
+    def test_undo_requires_at_least_one_entry(self) -> None:
+        with patch.object(_shared, "get_db", return_value=MagicMock()):
+            assert client.post(f"{URL}/undo", json={"entries": []}).status_code == 422
+
+    def test_a_forward_then_undo_round_trip_is_symmetric(self) -> None:
+        seen: list[tuple[str, str | None]] = []
+
+        def side_effect(_db, *, ontology_id, class_key, new_parent_key):
+            seen.append((class_key, new_parent_key))
+            return {"expired_parent_ids": ["ontology_classes/orig"]}
+
+        with (
+            patch.object(_shared, "get_db", return_value=MagicMock()),
+            patch.object(mutations, "_reparent_one", side_effect=side_effect),
+        ):
+            fwd = client.post(URL, json={"class_keys": ["a"], "new_parent_key": "NEW"}).json()
+            client.post(f"{URL}/undo", json={"entries": fwd["undo"]})
+        assert seen == [("a", "NEW"), ("a", "orig")]

@@ -111,6 +111,21 @@ class BulkReparentRequest(BaseModel):
     new_parent_description: str = Field(default="", description="Description for a created parent.")
 
 
+class ReparentUndoEntry(BaseModel):
+    """One class and the parent it had before a bulk reparent (FR-7.8.21)."""
+
+    class_key: str
+    previous_parent_key: str | None = Field(
+        default=None, description="None means the class had no parent before."
+    )
+
+
+class BulkReparentUndoRequest(BaseModel):
+    """Reverse a bulk reparent by restoring each class's previous parent."""
+
+    entries: list[ReparentUndoEntry] = Field(..., min_length=1)
+
+
 class ReparentClassRequest(BaseModel):
     """Atomically move a class to a new parent in the ``subclass_of`` hierarchy.
 

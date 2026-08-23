@@ -47,7 +47,8 @@ ONTOLOGY_PREFIX = "/api/v1/ontology"
 # + 7 curated lexicon (PRD §6.20): collisions list/get/detect/ingest/resolve
 #   + decisions list/history.
 # + 1 bulk reparent for set actions on a multi-selection (FR-7.8.20).
-EXPECTED_ROUTE_COUNT = 86
+# + 1 bulk-reparent undo (FR-7.8.21).
+EXPECTED_ROUTE_COUNT = 87
 
 
 def _ontology_openapi_paths() -> dict[str, list[str]]:

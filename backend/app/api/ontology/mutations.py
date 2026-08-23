@@ -13,6 +13,7 @@ from app.api.ontology import _shared
 from app.db.temporal_constants import NEVER_EXPIRES
 from app.models.ontology import (
     BulkReparentRequest,
+    BulkReparentUndoRequest,
     CreateClassRequest,
     CreateEdgeRequest,
     CreatePropertyRequest,
@@ -613,10 +614,19 @@ async def bulk_reparent_classes(ontology_id: str, body: BulkReparentRequest) -> 
 
     moved: list[str] = []
     failed: list[dict[str, str]] = []
+    # FR-7.8.21 — the reparent already computes each class's previous parents.
+    # Keeping them is what makes the operation undoable; discarding them (as
+    # this endpoint originally did) left a twenty-class reshape reversible only
+    # by hand, from parents the UI never showed.
+    undo: list[dict[str, str | None]] = []
     for key in targets:
         try:
-            _reparent_one(db, ontology_id=ontology_id, class_key=key, new_parent_key=parent_key)
+            res = _reparent_one(
+                db, ontology_id=ontology_id, class_key=key, new_parent_key=parent_key
+            )
             moved.append(key)
+            prev = [str(p).split("/")[-1] for p in (res.get("expired_parent_ids") or [])]
+            undo.append({"class_key": key, "previous_parent_key": prev[0] if prev else None})
         except (ValidationError, NotFoundError) as exc:
             failed.append({"class_key": key, "reason": str(exc)})
 
@@ -635,5 +645,48 @@ async def bulk_reparent_classes(ontology_id: str, body: BulkReparentRequest) -> 
         "moved": moved,
         "failed": failed,
         "moved_count": len(moved),
+        "failed_count": len(failed),
+        "undo": undo,
+    }
+
+
+@router.post("/{ontology_id}/classes/bulk-reparent/undo")
+async def undo_bulk_reparent(ontology_id: str, body: BulkReparentUndoRequest) -> dict[str, Any]:
+    """Reverse a bulk reparent by restoring each class's previous parent (FR-7.8.21).
+
+    Takes the ``undo`` payload the forward call returned. Restoring goes through
+    the same cycle-checked reparent path, and a ``previous_parent_key`` of
+    ``None`` means the class had no parent before — so its current one is
+    expired and nothing replaces it.
+
+    Per-class outcomes are reported, exactly as the forward operation does: an
+    undo that half-fails must say which half, or the user is left worse off than
+    before they tried to reverse it.
+    """
+    db = _shared.get_db()
+    restored: list[str] = []
+    failed: list[dict[str, str]] = []
+    for entry in body.entries:
+        try:
+            _reparent_one(
+                db,
+                ontology_id=ontology_id,
+                class_key=entry.class_key,
+                new_parent_key=entry.previous_parent_key,
+            )
+            restored.append(entry.class_key)
+        except (ValidationError, NotFoundError) as exc:
+            failed.append({"class_key": entry.class_key, "reason": str(exc)})
+
+    log.info(
+        "undo bulk reparent",
+        extra={"ontology_id": ontology_id, "restored": len(restored), "failed": len(failed)},
+    )
+    # A superclass left empty by the undo is REPORTED, not deleted: removing a
+    # class the user deliberately named is not the system's call (FR-7.8.21).
+    return {
+        "restored": restored,
+        "failed": failed,
+        "restored_count": len(restored),
         "failed_count": len(failed),
     }

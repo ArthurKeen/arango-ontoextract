@@ -19,12 +19,20 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "@/lib/api-client";
 import type { OntologyClass } from "@/types/curation";
 
+interface UndoEntry {
+  class_key: string;
+  previous_parent_key: string | null;
+}
+
 interface BulkReparentResult {
   parent_key: string;
   moved: string[];
   failed: { class_key: string; reason: string }[];
   moved_count: number;
   failed_count: number;
+  created_parent?: { _key?: string } | null;
+  /** Each moved class's previous parent (FR-7.8.21) — what makes this reversible. */
+  undo?: UndoEntry[];
 }
 
 interface Props {
@@ -51,6 +59,7 @@ export default function BulkParentDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BulkReparentResult | null>(null);
+  const [undone, setUndone] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -93,6 +102,28 @@ export default function BulkParentDialog({
       setError(
         err instanceof ApiError ? err.body.message : "Failed to set the parent",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undo() {
+    if (!result?.undo?.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.post<{ restored_count: number; failed_count: number }>(
+        `/api/v1/ontology/${encodeURIComponent(ontologyId)}/classes/bulk-reparent/undo`,
+        { entries: result.undo },
+      );
+      setUndone(
+        res.failed_count === 0
+          ? `Reversed — ${res.restored_count} classes restored to their previous parents.`
+          : `Reversed ${res.restored_count}, ${res.failed_count} could not be restored.`,
+      );
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.body.message : "Undo failed");
     } finally {
       setBusy(false);
     }
@@ -181,6 +212,28 @@ export default function BulkParentDialog({
                 {f.class_key}: {f.reason}
               </p>
             ))}
+            {/* FR-7.8.21 — the way back. Everything here is temporal and so
+                recoverable in principle, but there is no revert for edges, so
+                without this a twenty-class reshape is reversible only by hand
+                from parents the user was never shown. */}
+            {!undone && (result.undo?.length ?? 0) > 0 && (
+              <button
+                onClick={undo}
+                disabled={busy}
+                className="mt-2 text-xs font-semibold text-blue-700 underline hover:no-underline disabled:opacity-40"
+                data-testid="bulk-parent-undo"
+              >
+                Undo — restore {result.undo?.length} previous parents
+              </button>
+            )}
+            {undone && (
+              <p className="mt-2 text-gray-700" data-testid="bulk-parent-undone">
+                {undone}
+                {/* A superclass emptied by the undo is reported, not deleted —
+                    removing a class the user named is not ours to decide. */}
+                {result.created_parent ? " The new superclass was kept." : ""}
+              </p>
+            )}
           </div>
         )}
 

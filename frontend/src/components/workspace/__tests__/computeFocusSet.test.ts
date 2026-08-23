@@ -97,3 +97,34 @@ describe("computeFocusSet", () => {
     expect(computeFocusSet(g, "x", 5)).toEqual(new Set(["x", "y", "z"]));
   });
 });
+
+/**
+ * Selection must beat dimming (FR-7.8.18 + FR-7.8.15).
+ *
+ * The node reducer returned early on the dim branch, BEFORE checking selection.
+ * With focus on by default at 2 hops, shift-clicking any node outside that
+ * radius updated state and rendered nothing — which is exactly what
+ * "multi-select does not work" looked like from the outside.
+ *
+ * The reducer needs WebGL, so the ordering rule is pinned here as the predicate
+ * it reduces to.
+ */
+describe("selection vs dimming precedence", () => {
+  /** Mirrors the reducer's decision: dim only when NOT selected and out of focus. */
+  function shouldDim(isSelected: boolean, inFocus: boolean): boolean {
+    return !isSelected && !inFocus;
+  }
+
+  it("does not dim a selected node that is outside the focus radius", () => {
+    expect(shouldDim(true, false)).toBe(false);
+  });
+
+  it("still dims an unselected node outside the radius", () => {
+    expect(shouldDim(false, false)).toBe(true);
+  });
+
+  it("never dims anything inside the radius", () => {
+    expect(shouldDim(false, true)).toBe(false);
+    expect(shouldDim(true, true)).toBe(false);
+  });
+});

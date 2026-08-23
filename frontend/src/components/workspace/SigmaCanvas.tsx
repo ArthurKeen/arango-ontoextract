@@ -891,14 +891,23 @@ export default function SigmaCanvas({
     // renderer and silently drop clickStage.
     const container = containerRef.current;
     let lassoStart: { x: number; y: number } | null = null;
+    let lassoBox: { x: number; y: number; w: number; h: number } | null = null;
 
-    const isLassoModifier = (e: MouseEvent) => e.ctrlKey || e.metaKey;
+    // Shift, Alt/Option, Cmd or Ctrl — any of them starts a lasso.
+    //
+    // Ctrl alone is NOT enough: on macOS Ctrl+click is the secondary click, so
+    // the browser fires button 2 and a contextmenu instead of a drag, and the
+    // lasso can never begin. Shift and Alt are unmodified on every platform.
+    // Left button only, for the same reason.
+    const isLassoModifier = (e: MouseEvent) =>
+      e.button === 0 && (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey);
 
     const onMouseDown = (e: MouseEvent) => {
       if (!isLassoModifier(e) || !onLassoSelectRef.current) return;
       const rect = container.getBoundingClientRect();
       lassoStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      setLassoRect({ x: lassoStart.x, y: lassoStart.y, w: 0, h: 0 });
+      lassoBox = { x: lassoStart.x, y: lassoStart.y, w: 0, h: 0 };
+      setLassoRect(lassoBox);
       renderer.setSetting("enableCameraPanning", false);
       e.preventDefault();
     };
@@ -908,18 +917,24 @@ export default function SigmaCanvas({
       const rect = container.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
-      setLassoRect({
+      // The authoritative box is this plain variable, NOT React state. Routing
+      // it through state meant mouseup depended on a re-render having committed
+      // mid-drag; when it had not, the selection silently did nothing. State is
+      // now only for drawing the rectangle.
+      lassoBox = {
         x: Math.min(lassoStart.x, cx),
         y: Math.min(lassoStart.y, cy),
         w: Math.abs(cx - lassoStart.x),
         h: Math.abs(cy - lassoStart.y),
-      });
+      };
+      setLassoRect(lassoBox);
     };
 
     const onMouseUp = () => {
       if (!lassoStart) return;
-      const box = lassoRectRef.current;
+      const box = lassoBox;
       lassoStart = null;
+      lassoBox = null;
       setLassoRect(null);
       renderer.setSetting("enableCameraPanning", true);
       if (!box || box.w < 4 || box.h < 4) return; // a click, not a drag
@@ -1042,12 +1057,19 @@ export default function SigmaCanvas({
         }
         // Dim, never hide: the shape of the surrounding graph is the context
         // that makes the focused neighbourhood interpretable.
-        if (!inFocus(_node)) {
-          return { ...d, color: DIMMED_NODE_COLOR, label: "", zIndex: 0 };
-        }
         // Primary and shift-added selections render identically — a
         // multi-selection should read as one thing, not a hierarchy.
-        if ((hasNodeSel && _node === selectedNodeKey) || multiSelectedKeys?.has(_node)) {
+        const isSelected =
+          (hasNodeSel && _node === selectedNodeKey) || !!multiSelectedKeys?.has(_node);
+
+        // Selection BEATS dimming. This check used to sit after the dim branch,
+        // which returned early — so shift-clicking a node outside the focus
+        // radius updated state and rendered nothing, making multi-select look
+        // broken. Anything the user explicitly picked must stay visible.
+        if (!isSelected && !inFocus(_node)) {
+          return { ...d, color: DIMMED_NODE_COLOR, label: "", zIndex: 0 };
+        }
+        if (isSelected) {
           d = { ...d, highlighted: true, zIndex: 10 };
         }
         return d;

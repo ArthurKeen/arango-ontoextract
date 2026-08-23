@@ -38,6 +38,37 @@ export const LENS_OPTIONS: { id: LensType; label: string }[] = [
   { id: "source", label: "Source Type" },
 ];
 
+
+/**
+ * Traversal-depth control (FR-7.8.15), shared by the canvas AND node menus.
+ *
+ * It lived only on the canvas menu, which made it unreachable from the place
+ * users look for it — the node they just selected — and completely unreachable
+ * once a multi-selection made right-clicking a node open the set menu instead.
+ * Exported so both menus render the identical control and cannot drift.
+ */
+export function buildFocusMenuItem(
+  actions: WorkspaceContextMenuActions,
+): ContextMenuItem {
+  return {
+    label: "Focus depth",
+    icon: "🎯",
+    submenu: [
+      // 0 hops matters most for a lasso: at this graph's density 2 hops from a
+      // 20-node selection reaches 147 of 160 nodes, so almost nothing dims.
+      { hops: 0 as number | null, label: "Selection only" },
+      { hops: 1 as number | null, label: "1 hop" },
+      { hops: 2 as number | null, label: "2 hops" },
+      { hops: 3 as number | null, label: "3 hops" },
+      { hops: null as number | null, label: "Show all (off)" },
+    ].map((opt) => ({
+      label: opt.label,
+      checked: actions.focusHops === opt.hops,
+      onClick: () => actions.setFocusHops(opt.hops),
+    })),
+  };
+}
+
 export function buildCanvasContextMenu(
   _data: Record<string, unknown>,
   actions: WorkspaceContextMenuActions,
@@ -83,27 +114,7 @@ export function buildCanvasContextMenu(
     // same knobs.
     if (actions.graphViewMode === "network") {
       items.push(
-        {
-          // FR-7.8.15 — dims everything beyond N hops of the selected node.
-          // Network-only: the Box & Arrow renderer has no dimming pass, so
-          // offering the control there would be a no-op with a checkmark.
-          label: "Focus",
-          icon: "🎯",
-          submenu: [
-            // 0 hops matters most for a lasso: at this graph's density, 2 hops
-            // from a 20-node selection reaches 147 of 160 nodes, so almost
-            // nothing dims and the selection is invisible.
-            { hops: 0 as number | null, label: "Selection only" },
-            { hops: 1 as number | null, label: "1 hop" },
-            { hops: 2 as number | null, label: "2 hops" },
-            { hops: 3 as number | null, label: "3 hops" },
-            { hops: null as number | null, label: "Show all (off)" },
-          ].map((opt) => ({
-            label: opt.label,
-            checked: actions.focusHops === opt.hops,
-            onClick: () => actions.setFocusHops(opt.hops),
-          })),
-        },
+        buildFocusMenuItem(actions),
         {
           label: "Layout",
           icon: "🔄",

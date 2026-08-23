@@ -80,7 +80,7 @@ describe("buildCanvasContextMenu", () => {
     expect(visibleLabels).toEqual([
       "View As",
       "Graph Style",
-      "Focus",
+      "Focus depth",
       "Layout",
       "Edge Style",
       "Fit All Nodes",
@@ -122,8 +122,8 @@ describe("buildCanvasContextMenu", () => {
     const boxLabels = buildCanvasContextMenu({}, makeActions({ graphViewMode: "box-arrow" }))
       .filter((it) => !it.separator)
       .map((it) => it.label);
-    expect(netLabels).toContain("Focus");
-    expect(boxLabels).not.toContain("Focus");
+    expect(netLabels).toContain("Focus depth");
+    expect(boxLabels).not.toContain("Focus depth");
   });
 
   it("Focus submenu offers selection-only through 3 hops plus off, and checks the active radius", () => {
@@ -132,7 +132,7 @@ describe("buildCanvasContextMenu", () => {
       {},
       makeActions({ graphViewMode: "network", focusHops: 2, setFocusHops }),
     );
-    const focus = items.find((it) => it.label === "Focus");
+    const focus = items.find((it) => it.label === "Focus depth");
     expect(focus?.submenu?.map((s) => s.label)).toEqual([
       // "Selection only" (0 hops) is the one that matters on a dense graph:
       // 2 hops from a 20-node lasso reaches 147 of 160 nodes, so nothing dims.

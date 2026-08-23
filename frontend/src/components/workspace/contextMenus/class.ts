@@ -32,6 +32,7 @@
  * effective-graph endpoint's class annotation).
  */
 
+import { buildFocusMenuItem } from "./canvas";
 import type { ContextMenuItem } from "@/components/workspace/ContextMenu";
 import { api } from "@/lib/api-client";
 
@@ -100,6 +101,9 @@ export function buildClassContextMenu(
   // it. Placed beside the read actions rather than next to Delete, so the two
   // are not confused.
   const hideItems: ContextMenuItem[] = [
+    // Focus depth is a property of the SELECTED node, so it belongs on the node
+    // menu, not only on the canvas menu where it originally lived.
+    buildFocusMenuItem(actions),
     {
       label: "Hide other nodes",
       icon: "🎯",
@@ -192,6 +196,7 @@ export function buildClassContextMenu(
       { label: `Reject these ${n}`, icon: "❌", danger: true,
         onClick: () => actions.rejectSelection() },
       { label: "separatorSet2", separator: true },
+      buildFocusMenuItem(actions),
       { label: `Hide these ${n}`, icon: "🚫", onClick: () => actions.hideSelectedNode() },
       { label: "Hide everything else", icon: "🎯", onClick: () => actions.hideOtherNodes() },
       { label: "Clear selection", icon: "✖", onClick: () => actions.clearSelection() },

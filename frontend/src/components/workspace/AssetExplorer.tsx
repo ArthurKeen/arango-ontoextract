@@ -138,6 +138,7 @@ export default function AssetExplorer({
   // Client-side name filtering is kept as the instant local pass.
   const [conceptHits, setConceptHits] = useState<SearchResult[]>([]);
   const [conceptSearching, setConceptSearching] = useState(false);
+  const [conceptTruncated, setConceptTruncated] = useState(false);
   const conceptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // FR-7.8.14 — pending work must be visible without opening a menu. The
@@ -325,12 +326,21 @@ export default function AssetExplorer({
       (async () => {
         try {
           const res = await api.get<SearchResponse>(
-            `/api/v1/ontology/search?q=${encodeURIComponent(q)}`,
+            // limit=100 (the endpoint's max). The default of 20 silently
+            // truncated: searching "tyre" against a 1688-class ontology
+            // returned exactly 20 and dropped All-Season Tyre, Studded Tyre
+            // and the rest with no indication anything was missing.
+            `/api/v1/ontology/search?q=${encodeURIComponent(q)}&limit=100`,
           );
           if (cancelled) return;
           // Classes first, then properties — a curator searching a term is
           // usually after the concept before the attribute.
           setConceptHits([...res.results.classes, ...res.results.properties]);
+          // A capped result set must say so. Silent truncation is what made
+          // "search cannot find All-Season Tyre" look like a matching bug.
+          setConceptTruncated(
+            res.results.classes.length >= 100 || res.results.properties.length >= 100,
+          );
         } catch {
           if (!cancelled) setConceptHits([]);
         } finally {
@@ -507,7 +517,13 @@ export default function AssetExplorer({
             ))}
             {conceptHits.length > 25 && (
               <p className="px-3 pb-2 text-[11px] text-gray-400">
-                +{conceptHits.length - 25} more — refine the search.
+                Showing 25 of {conceptHits.length}
+                {conceptTruncated ? "+" : ""} — refine the search.
+              </p>
+            )}
+            {conceptTruncated && conceptHits.length <= 25 && (
+              <p className="px-3 pb-2 text-[11px] text-amber-700" data-testid="concept-truncated">
+                Results capped — refine the search.
               </p>
             )}
           </div>

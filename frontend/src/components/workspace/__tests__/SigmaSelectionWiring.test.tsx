@@ -62,22 +62,24 @@ jest.mock("sigma", () => ({
       };
     }
     getNodeDisplayData(node: string) {
-      // FRAMED-GRAPH coordinates, as Sigma really returns — deliberately on a
+      // GRAPH coordinates — verified against a live canvas, where
+      // getNodeDisplayData().x/y equals the node's graph x/y. Deliberately on a
       // different scale from the viewport so a test cannot pass by treating
-      // them as pixels. That is exactly how the original bug slipped through.
+      // them as pixels; that is exactly how two wrong fixes slipped through.
       return node === "A"
-        ? { x: 0.1, y: 0.1, size: 10, color: "#000", label: "A" }
-        : { x: 0.9, y: 0.9, size: 10, color: "#000", label: "B" };
+        ? { x: -40, y: -30, size: 10, color: "#000", label: "A" }
+        : { x: 60, y: 45, size: 10, color: "#000", label: "B" };
     }
-    /** Framed-graph -> viewport, mirroring Sigma: scale by the 800x600 canvas. */
+    /** The transform Sigma actually uses for graph coords: centre + scale. */
+    graphToViewport(c: { x: number; y: number }) {
+      return { x: 400 + c.x * 4, y: 300 + c.y * 4 };
+    }
+    /** Present but WRONG for graph coords — mirrors the real API's behaviour. */
     framedGraphToViewport(c: { x: number; y: number }) {
       return { x: c.x * 800, y: c.y * 600 };
     }
     viewportToGraph() {
       return { x: 0, y: 0 };
-    }
-    graphToViewport(c: { x: number; y: number }) {
-      return { x: c.x * 800, y: c.y * 600 };
     }
   },
 }));
@@ -239,9 +241,9 @@ describe("SigmaCanvas selection wiring", () => {
     const canvasEl = wrapper.lastElementChild as HTMLElement;
     expect(canvasEl).toBeTruthy();
 
-    // A is framed-graph (0.1,0.1) -> viewport (80,60); B -> (720,540).
-    // The 50..300 box therefore covers A only, and ONLY if the component
-    // performs the framed-graph -> viewport conversion.
+    // A is graph (-40,-30) -> viewport (240,180); B is (60,45) -> (640,480).
+    // The 50..300 box covers A only, and ONLY if the component uses
+    // graphToViewport. Using framedGraphToViewport puts A at (-32000,-18000).
     canvasEl.dispatchEvent(
       new MouseEvent("mousedown", { bubbles: true, shiftKey: true, button: 0, clientX: 50, clientY: 50 }),
     );
@@ -249,6 +251,58 @@ describe("SigmaCanvas selection wiring", () => {
     window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 
     expect(onLassoSelect).toHaveBeenCalledWith(["A"]);
+  });
+
+  it("a SHIFT-click on empty canvas does NOT clear the selection", () => {
+    // On a dense graph you miss constantly. Clearing on a near-miss destroyed a
+    // painstakingly built multi-selection, which is why shift-click looked like
+    // it never accumulated. Shift means "modify"; plain click means "start over".
+    const onStageClick = jest.fn();
+    render(
+      <SigmaCanvas
+        classes={CLASSES}
+        edges={EDGES}
+        activeLens="semantic"
+        onStageClick={onStageClick}
+      />,
+    );
+    handlers.get("clickStage")?.({
+      event: { x: 0, y: 0, original: { shiftKey: true } as MouseEvent },
+    });
+    expect(onStageClick).not.toHaveBeenCalled();
+  });
+
+  it("suppresses the synthetic click Sigma emits after a lasso", () => {
+    // Stopping mousemove propagation (to prevent camera panning) starves
+    // Sigma's draggedEvents counter, so on release it thinks the mouse never
+    // moved and emits a click. Unsuppressed, that click ran onStageClick and
+    // wiped the selection the lasso had just made.
+    const onStageClick = jest.fn();
+    const onLassoSelect = jest.fn();
+    const { container } = render(
+      <SigmaCanvas
+        classes={CLASSES}
+        edges={EDGES}
+        activeLens="semantic"
+        onStageClick={onStageClick}
+        onLassoSelect={onLassoSelect}
+      />,
+    );
+    const el = (container.querySelector('[data-testid="sigma-canvas"]') as HTMLElement)
+      .lastElementChild as HTMLElement;
+    el.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, shiftKey: true, button: 0, clientX: 50, clientY: 50 }),
+    );
+    window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 300, clientY: 300 }));
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    expect(onLassoSelect).toHaveBeenCalled();
+
+    // Sigma's post-drag click must be swallowed exactly once...
+    handlers.get("clickStage")?.({ event: { x: 0, y: 0, original: {} as MouseEvent } });
+    expect(onStageClick).not.toHaveBeenCalled();
+    // ...and the NEXT genuine click must still work.
+    handlers.get("clickStage")?.({ event: { x: 0, y: 0, original: {} as MouseEvent } });
+    expect(onStageClick).toHaveBeenCalledTimes(1);
   });
 
   it("fires onStageClick when empty canvas is clicked", () => {
@@ -261,7 +315,7 @@ describe("SigmaCanvas selection wiring", () => {
         onStageClick={onStageClick}
       />,
     );
-    handlers.get("clickStage")?.({ event: { x: 0, y: 0 } });
+    handlers.get("clickStage")?.({ event: { x: 0, y: 0, original: {} as MouseEvent } });
     expect(onStageClick).toHaveBeenCalled();
   });
 });

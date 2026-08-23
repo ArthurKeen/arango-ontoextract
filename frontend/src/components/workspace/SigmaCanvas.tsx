@@ -867,6 +867,10 @@ export default function SigmaCanvas({
 
     renderer.on("clickNode", ({ node, event }) => {
       if (isDragging) return;
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
       // Shift toggles membership of a multi-selection (FR-7.8.18); a plain
       // click replaces it.
       const ev = event.original as MouseEvent | undefined;
@@ -892,6 +896,15 @@ export default function SigmaCanvas({
     const container = containerRef.current;
     let lassoStart: { x: number; y: number } | null = null;
     let lassoBox: { x: number; y: number; w: number; h: number } | null = null;
+    // A completed lasso must not also read as a click.
+    //
+    // We stopPropagation on mousemove so Sigma cannot pan the camera under
+    // the rectangle — but that also starves Sigma's `draggedEvents` counter,
+    // so on release it believes the mouse never moved and emits a click.
+    // That click landed on empty canvas and ran handleStageClick, wiping the
+    // selection the lasso had just made. The symptom was maddening: the
+    // selection appeared only when the drag happened to END on a node.
+    let suppressNextClick = false;
 
     // Shift, Alt/Option, Cmd or Ctrl — any of them starts a lasso.
     //
@@ -921,6 +934,9 @@ export default function SigmaCanvas({
       // it through state meant mouseup depended on a re-render having committed
       // mid-drag; when it had not, the selection silently did nothing. State is
       // now only for drawing the rectangle.
+      // Keep the drag away from Sigma entirely while lassoing.
+      e.preventDefault();
+      e.stopPropagation();
       lassoBox = {
         x: Math.min(lassoStart.x, cx),
         y: Math.min(lassoStart.y, cy),
@@ -938,6 +954,7 @@ export default function SigmaCanvas({
       setLassoRect(null);
       renderer.setSetting("enableCameraPanning", true);
       if (!box || box.w < 4 || box.h < 4) return; // a click, not a drag
+      suppressNextClick = true;
 
       // Compare in VIEWPORT space: node positions are graph coordinates, and
       // the rectangle the user drew is on screen. Converting each node forward
@@ -947,11 +964,13 @@ export default function SigmaCanvas({
       graph.forEachNode((node) => {
         const d = renderer.getNodeDisplayData(node);
         if (!d) return;
-        // getNodeDisplayData returns FRAMED-GRAPH coordinates, not screen
-        // pixels — Sigma converts them itself before drawing. Comparing them
-        // directly against a pixel rectangle meant nothing was ever inside the
-        // box, so the lasso drew and selected nothing.
-        const p = renderer.framedGraphToViewport(d);
+        // getNodeDisplayData returns GRAPH coordinates (verified against a live
+        // canvas: displayXY === the node's graph x/y). graphToViewport is the
+        // transform that lands them in screen pixels; framedGraphToViewport is
+        // for already-framed coordinates and returns values orders of magnitude
+        // outside the canvas for these inputs — which is why the lasso drew a
+        // rectangle and selected nothing.
+        const p = renderer.graphToViewport({ x: d.x, y: d.y });
         if (p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h) {
           picked.push(node);
         }
@@ -960,18 +979,41 @@ export default function SigmaCanvas({
     };
 
     if (container) {
-      container.addEventListener("mousedown", onMouseDown);
-      window.addEventListener("mousemove", onMouseMove);
-      window.addEventListener("mouseup", onMouseUp);
+      // CAPTURE phase, and this is load-bearing rather than a style choice.
+      //
+      // Sigma's MouseCaptor listens for mousemove on `document` and, while the
+      // button is down, calls BOTH preventDefault() and stopPropagation() so it
+      // can pan the camera (sigma.cjs.dev.js handleMove). A bubble-phase
+      // listener on `window` sits AFTER `document` in the bubble path, so every
+      // move after the first was swallowed and the lasso rectangle froze a few
+      // pixels from where it started — visible, but never growing or selecting.
+      //
+      // Capture runs window -> document -> target, so we see the event before
+      // Sigma can stop it, whatever Sigma does afterwards.
+      const CAPTURE = true;
+      container.addEventListener("mousedown", onMouseDown, CAPTURE);
+      window.addEventListener("mousemove", onMouseMove, CAPTURE);
+      window.addEventListener("mouseup", onMouseUp, CAPTURE);
       lassoCleanupRef.current = () => {
-        container.removeEventListener("mousedown", onMouseDown);
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onMouseUp);
+        container.removeEventListener("mousedown", onMouseDown, CAPTURE);
+        window.removeEventListener("mousemove", onMouseMove, CAPTURE);
+        window.removeEventListener("mouseup", onMouseUp, CAPTURE);
       };
     }
 
-    renderer.on("clickStage", () => {
+    renderer.on("clickStage", ({ event }) => {
       if (isDragging) return;
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
+      // A SHIFT-click that misses a node must not wipe the selection. On a
+      // dense graph you miss constantly, so clearing here destroyed a
+      // painstakingly built multi-selection on a near-miss — which read as
+      // "shift-click does not accumulate". Shift means "modify the selection";
+      // an unmodified click means "start over".
+      const ev = (event as { original?: MouseEvent } | undefined)?.original;
+      if (ev?.shiftKey) return;
       onStageClickRef.current?.();
     });
 

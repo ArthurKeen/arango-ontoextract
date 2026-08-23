@@ -1559,6 +1559,27 @@ function WorkspacePageInner() {
                       onLassoSelect={handleLassoSelect}
                     />
                   )}
+                  {/* Selection count (FR-7.8.18). A multi-selection is otherwise
+                      invisible unless every member happens to be on screen, and
+                      the user needs to know what the next action will apply to. */}
+                  {multiSelectedKeys.size > 0 && (
+                    <div
+                      className="absolute top-3 left-3 z-20 flex items-center gap-3 rounded-full bg-indigo-100 border border-indigo-300 px-4 py-1.5 shadow-lg"
+                      data-testid="selection-count-banner"
+                    >
+                      <span className="text-xs font-medium text-indigo-900">
+                        {multiSelectedKeys.size} selected
+                      </span>
+                      <button
+                        onClick={() => setMultiSelectedKeys(new Set())}
+                        className="text-xs font-semibold text-indigo-900 underline hover:no-underline"
+                        data-testid="clear-selection"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+
                   {/* FR-7.8.17 — the undo. Persistent while anything is hidden,
                       because a hide with no visible way back is a dead end. */}
                   {hiddenNodeKeys.size > 0 && (

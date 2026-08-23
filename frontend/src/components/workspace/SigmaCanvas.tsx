@@ -945,8 +945,13 @@ export default function SigmaCanvas({
       // the projection is not affine under Sigma's camera ratio handling.
       const picked: string[] = [];
       graph.forEachNode((node) => {
-        const p = renderer.getNodeDisplayData(node);
-        if (!p) return;
+        const d = renderer.getNodeDisplayData(node);
+        if (!d) return;
+        // getNodeDisplayData returns FRAMED-GRAPH coordinates, not screen
+        // pixels — Sigma converts them itself before drawing. Comparing them
+        // directly against a pixel rectangle meant nothing was ever inside the
+        // box, so the lasso drew and selected nothing.
+        const p = renderer.framedGraphToViewport(d);
         if (p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h) {
           picked.push(node);
         }
@@ -1300,7 +1305,7 @@ export default function SigmaCanvas({
       {lassoRect && (
         <div
           data-testid="lasso-rect"
-          className="absolute z-30 pointer-events-none border border-indigo-400 bg-indigo-400/10"
+          className="absolute z-30 pointer-events-none border-2 border-dashed border-indigo-300 bg-indigo-400/20"
           style={{
             left: lassoRect.x,
             top: lassoRect.y,

@@ -62,16 +62,22 @@ jest.mock("sigma", () => ({
       };
     }
     getNodeDisplayData(node: string) {
-      // Two nodes at known viewport positions so a lasso box can include one.
+      // FRAMED-GRAPH coordinates, as Sigma really returns — deliberately on a
+      // different scale from the viewport so a test cannot pass by treating
+      // them as pixels. That is exactly how the original bug slipped through.
       return node === "A"
-        ? { x: 100, y: 100, size: 10, color: "#000", label: "A" }
-        : { x: 600, y: 500, size: 10, color: "#000", label: "B" };
+        ? { x: 0.1, y: 0.1, size: 10, color: "#000", label: "A" }
+        : { x: 0.9, y: 0.9, size: 10, color: "#000", label: "B" };
+    }
+    /** Framed-graph -> viewport, mirroring Sigma: scale by the 800x600 canvas. */
+    framedGraphToViewport(c: { x: number; y: number }) {
+      return { x: c.x * 800, y: c.y * 600 };
     }
     viewportToGraph() {
       return { x: 0, y: 0 };
     }
-    graphToViewport() {
-      return { x: 0, y: 0 };
+    graphToViewport(c: { x: number; y: number }) {
+      return { x: c.x * 800, y: c.y * 600 };
     }
   },
 }));
@@ -233,7 +239,9 @@ describe("SigmaCanvas selection wiring", () => {
     const canvasEl = wrapper.lastElementChild as HTMLElement;
     expect(canvasEl).toBeTruthy();
 
-    // Node A sits at viewport (100,100); B at (600,500). The box covers A only.
+    // A is framed-graph (0.1,0.1) -> viewport (80,60); B -> (720,540).
+    // The 50..300 box therefore covers A only, and ONLY if the component
+    // performs the framed-graph -> viewport conversion.
     canvasEl.dispatchEvent(
       new MouseEvent("mousedown", { bubbles: true, shiftKey: true, button: 0, clientX: 50, clientY: 50 }),
     );

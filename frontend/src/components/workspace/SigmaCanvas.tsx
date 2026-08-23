@@ -333,6 +333,12 @@ export interface SigmaCanvasProps {
    * release. Held modifier + drag, so ordinary panning is unaffected.
    */
   onLassoSelect?: (nodeKeys: string[]) => void;
+  /**
+   * How many nodes the current focus radius leaves visible, out of the total.
+   * Surfaced so the UI can explain why little appears dimmed on a dense graph —
+   * 2 hops from a 20-node selection reaches 147 of 160 nodes here.
+   */
+  onFocusCoverage?: (coverage: { shown: number; total: number } | null) => void;
 }
 
 /**
@@ -347,14 +353,20 @@ export interface SigmaCanvasProps {
  */
 export function computeFocusSet(
   graph: Graph,
-  origin: string,
+  origins: string | readonly string[],
   hops: number | null,
 ): Set<string> | null {
   if (hops === null) return null;
-  if (!graph.hasNode(origin)) return new Set();
+  // Multi-origin: a lasso selects many nodes at once, and focus must follow the
+  // whole selection. Driving it from a single key meant a lasso turned dimming
+  // OFF entirely, because the lasso clears the primary selection.
+  const starts = (typeof origins === "string" ? [origins] : origins).filter((o) =>
+    graph.hasNode(o),
+  );
+  if (starts.length === 0) return new Set();
 
-  const seen = new Set<string>([origin]);
-  let frontier = [origin];
+  const seen = new Set<string>(starts);
+  let frontier = [...starts];
 
   for (let depth = 0; depth < hops; depth++) {
     const next: string[] = [];
@@ -679,6 +691,7 @@ export default function SigmaCanvas({
   onNodeShiftSelect,
   onStageClick,
   onLassoSelect,
+  onFocusCoverage,
 }: SigmaCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -743,6 +756,8 @@ export default function SigmaCanvas({
   onStageClickRef.current = onStageClick;
   const onLassoSelectRef = useRef(onLassoSelect);
   onLassoSelectRef.current = onLassoSelect;
+  const onFocusCoverageRef = useRef(onFocusCoverage);
+  onFocusCoverageRef.current = onFocusCoverage;
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
 
@@ -1084,11 +1099,21 @@ export default function SigmaCanvas({
 
     // FR-7.8.15 — focus set. Computed once per render, not per node.
     const g = graphRef.current;
+    const focusOrigins = [
+      ...(focusNodeKey ? [focusNodeKey] : []),
+      ...(multiSelectedKeys ?? []),
+    ];
     const focusSet =
-      focusNodeKey && g ? computeFocusSet(g, focusNodeKey, focusHops ?? null) : null;
+      focusOrigins.length > 0 && g
+        ? computeFocusSet(g, focusOrigins, focusHops ?? null)
+        : null;
     // An edge is in focus iff BOTH endpoints are, so a dimmed node never keeps a
     // bright edge dangling off it.
     const inFocus = (key: string) => !focusSet || focusSet.has(key);
+
+    onFocusCoverageRef.current?.(
+      focusSet && g ? { shown: focusSet.size, total: g.order } : null,
+    );
 
     const needsReducer =
       hasVisFilter || hasEdgeVisFilter || hasNodeSel || hasEdgeSel || !!focusSet || !!multiSelectedKeys?.size;
@@ -1288,9 +1313,13 @@ export default function SigmaCanvas({
 
   const getFocusSet = useCallback((): Set<string> | null => {
     const g = graphRef.current;
-    if (!g || !focusNodeKey) return null;
-    return computeFocusSet(g, focusNodeKey, focusHops ?? null);
-  }, [focusNodeKey, focusHops]);
+    const origins = [
+      ...(focusNodeKey ? [focusNodeKey] : []),
+      ...(multiSelectedKeys ?? []),
+    ];
+    if (!g || origins.length === 0) return null;
+    return computeFocusSet(g, origins, focusHops ?? null);
+  }, [focusNodeKey, focusHops, multiSelectedKeys]);
 
   const getAllNodeKeys = useCallback((): string[] => {
     const g = graphRef.current;

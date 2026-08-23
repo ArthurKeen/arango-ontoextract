@@ -128,3 +128,53 @@ describe("selection vs dimming precedence", () => {
     expect(shouldDim(true, true)).toBe(false);
   });
 });
+
+/**
+ * Multi-origin focus (FR-7.8.18 + FR-7.8.15).
+ *
+ * A lasso selects many nodes and clears the primary selection, so focus driven
+ * from a single key switched dimming OFF after every lasso — the graph stayed
+ * fully bright and the selection was invisible in a hairball.
+ */
+describe("computeFocusSet with multiple origins", () => {
+  function twoIslands(): Graph {
+    const g = new Graph({ multi: true, type: "directed" });
+    ["a", "b", "c", "x", "y", "z", "lonely"].forEach((n) => g.addNode(n));
+    g.addEdge("a", "b");
+    g.addEdge("b", "c");
+    g.addEdge("x", "y");
+    g.addEdge("y", "z");
+    return g;
+  }
+
+  it("unions the neighbourhoods of every origin", () => {
+    expect(computeFocusSet(twoIslands(), ["a", "x"], 1)).toEqual(
+      new Set(["a", "b", "x", "y"]),
+    );
+  });
+
+  it("still accepts a single key for the plain-selection path", () => {
+    expect(computeFocusSet(twoIslands(), "a", 1)).toEqual(new Set(["a", "b"]));
+  });
+
+  it("ignores origins that are not in the graph rather than failing", () => {
+    // A stale selection after a graph reload must not blank the canvas.
+    expect(computeFocusSet(twoIslands(), ["a", "ghost"], 1)).toEqual(new Set(["a", "b"]));
+  });
+
+  it("returns an empty set when every origin is unknown", () => {
+    expect(computeFocusSet(twoIslands(), ["ghost1", "ghost2"], 2)).toEqual(new Set());
+  });
+
+  it("an isolated origin contributes only itself", () => {
+    expect(computeFocusSet(twoIslands(), ["a", "lonely"], 1)).toEqual(
+      new Set(["a", "b", "lonely"]),
+    );
+  });
+
+  it("honours the radius from each origin independently", () => {
+    expect(computeFocusSet(twoIslands(), ["a", "x"], 2)).toEqual(
+      new Set(["a", "b", "c", "x", "y", "z"]),
+    );
+  });
+});

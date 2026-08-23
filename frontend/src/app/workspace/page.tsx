@@ -164,6 +164,9 @@ function WorkspacePageInner() {
   // Multi-selection (FR-7.8.18). Shift-click adds; shift-clicking a selected
   // node removes it, so a selection can be unpicked without starting over.
   const [multiSelectedKeys, setMultiSelectedKeys] = useState<Set<string>>(new Set());
+  const [focusCoverage, setFocusCoverage] = useState<{ shown: number; total: number } | null>(
+    null,
+  );
 
   const handleNodeShiftSelect = useCallback((nodeKey: string) => {
     setMultiSelectedKeys((prev) => {
@@ -1557,6 +1560,7 @@ function WorkspacePageInner() {
                       onNodeShiftSelect={handleNodeShiftSelect}
                       onStageClick={handleStageClick}
                       onLassoSelect={handleLassoSelect}
+                      onFocusCoverage={setFocusCoverage}
                     />
                   )}
                   {/* Selection count (FR-7.8.18). A multi-selection is otherwise
@@ -1569,6 +1573,16 @@ function WorkspacePageInner() {
                     >
                       <span className="text-xs font-medium text-indigo-900">
                         {multiSelectedKeys.size} selected
+                        {/* Coverage makes the dimming self-explanatory: on a
+                            dense graph a wide radius reaches nearly everything,
+                            so "nothing greyed out" is the honest answer rather
+                            than a mystery. */}
+                        {focusCoverage !== null && (
+                          <span className="font-normal text-indigo-700">
+                            {" "}
+                            · {focusCoverage.shown}/{focusCoverage.total} shown
+                          </span>
+                        )}
                       </span>
                       <button
                         onClick={() => setMultiSelectedKeys(new Set())}

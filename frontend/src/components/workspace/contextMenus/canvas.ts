@@ -90,6 +90,10 @@ export function buildCanvasContextMenu(
           label: "Focus",
           icon: "🎯",
           submenu: [
+            // 0 hops matters most for a lasso: at this graph's density, 2 hops
+            // from a 20-node selection reaches 147 of 160 nodes, so almost
+            // nothing dims and the selection is invisible.
+            { hops: 0 as number | null, label: "Selection only" },
             { hops: 1 as number | null, label: "1 hop" },
             { hops: 2 as number | null, label: "2 hops" },
             { hops: 3 as number | null, label: "3 hops" },

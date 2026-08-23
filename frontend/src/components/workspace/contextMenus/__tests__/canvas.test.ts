@@ -126,7 +126,7 @@ describe("buildCanvasContextMenu", () => {
     expect(boxLabels).not.toContain("Focus");
   });
 
-  it("Focus submenu offers 1/2/3 hops plus off, and checks the active radius", () => {
+  it("Focus submenu offers selection-only through 3 hops plus off, and checks the active radius", () => {
     const setFocusHops = jest.fn();
     const items = buildCanvasContextMenu(
       {},
@@ -134,6 +134,9 @@ describe("buildCanvasContextMenu", () => {
     );
     const focus = items.find((it) => it.label === "Focus");
     expect(focus?.submenu?.map((s) => s.label)).toEqual([
+      // "Selection only" (0 hops) is the one that matters on a dense graph:
+      // 2 hops from a 20-node lasso reaches 147 of 160 nodes, so nothing dims.
+      "Selection only",
       "1 hop",
       "2 hops",
       "3 hops",
@@ -143,6 +146,9 @@ describe("buildCanvasContextMenu", () => {
 
     focus?.submenu?.find((s) => s.label === "Show all (off)")?.onClick?.();
     expect(setFocusHops).toHaveBeenCalledWith(null);
+
+    focus?.submenu?.find((s) => s.label === "Selection only")?.onClick?.();
+    expect(setFocusHops).toHaveBeenCalledWith(0);
   });
 
   it("hides Layout and Edge Style in box-arrow mode", () => {

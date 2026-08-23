@@ -35,6 +35,7 @@ from app.db.constraints_repo import list_constraints_for_ontology
 from app.db.ontology_repo import list_classes, list_properties
 from app.db.registry_repo import get_registry_entry
 from app.services import label_overlay
+from app.services.ontology_uri import normalize_uri
 from app.services.temporal import NEVER_EXPIRES
 
 SH = Namespace("http://www.w3.org/ns/shacl#")
@@ -63,6 +64,24 @@ _XSD_MAP: dict[str, URIRef] = {
     "anyuri": XSD.anyURI,
     "xsd:anyURI": XSD.anyURI,
 }
+
+
+def _uri(raw: object, *, ontology_id: str, label: str = "") -> URIRef:
+    """A URIRef that is always serialisable (FR-2.19).
+
+    Export used to pass stored URIs straight to ``URIRef``. Most of this corpus
+    carries the ``namespace#Thing`` placeholder the old extraction prompt taught
+    the model to emit, and ONE of them —
+    ``namespace#qualifiedPersonnel Recommended`` — contains a space. rdflib
+    refuses to serialise a relative IRI with a space, so a single malformed
+    value out of 6,322 entities made the whole Turtle export return a 500.
+
+    Normalising here rather than only at extraction means legacy ontologies
+    export correctly without first being migrated, and export can never again
+    be taken down by one bad identifier. Well-formed absolute IRIs pass through
+    untouched.
+    """
+    return URIRef(normalize_uri(str(raw or ""), ontology_id=ontology_id, label=label))
 
 
 def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> Graph:
@@ -111,7 +130,7 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
         list_classes(db, ontology_id=ontology_id, include_expired=False), _lexicon
     )
     for cls in classes:
-        cls_uri = URIRef(cls["uri"])
+        cls_uri = _uri(cls["uri"], ontology_id=ontology_id, label=str(cls.get("label") or ""))
         g.add((cls_uri, RDF.type, OWL.Class))
         if cls.get("label"):
             g.add((cls_uri, RDFS.label, Literal(cls["label"])))
@@ -120,7 +139,7 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
 
     properties = label_overlay.apply_to_rows(list_properties(db, ontology_id=ontology_id), _lexicon)
     for prop in properties:
-        prop_uri = URIRef(prop["uri"])
+        prop_uri = _uri(prop["uri"], ontology_id=ontology_id, label=str(prop.get("label") or ""))
         ptype = prop.get("property_type", "datatype")
         if ptype == "object":
             g.add((prop_uri, RDF.type, OWL.ObjectProperty))
@@ -132,7 +151,7 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
         if prop.get("description"):
             g.add((prop_uri, RDFS.comment, Literal(prop["description"])))
         if prop.get("domain_class"):
-            g.add((prop_uri, RDFS.domain, URIRef(prop["domain_class"])))
+            g.add((prop_uri, RDFS.domain, _uri(prop["domain_class"], ontology_id=ontology_id)))
         if prop.get("range"):
             g.add((prop_uri, RDFS.range, _resolve_range(prop["range"])))
 
@@ -149,10 +168,14 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
     # restriction lookup (constraints without a target class were
     # already a no-op before this PR).
     class_id_to_uri = {
-        cls["_id"]: URIRef(cls["uri"]) for cls in classes if cls.get("uri") and cls.get("_id")
+        cls["_id"]: _uri(cls["uri"], ontology_id=ontology_id, label=str(cls.get("label") or ""))
+        for cls in classes
+        if cls.get("uri") and cls.get("_id")
     }
     property_id_to_uri = {
-        p["_id"]: URIRef(p["uri"]) for p in properties if p.get("uri") and p.get("_id")
+        p["_id"]: _uri(p["uri"], ontology_id=ontology_id, label=str(p.get("label") or ""))
+        for p in properties
+        if p.get("uri") and p.get("_id")
     }
     restrictions_emitted = _add_owl_restrictions_to_graph(
         db,
@@ -175,7 +198,10 @@ def _build_rdf_graph(ontology_id: str, *, include_individuals: bool = True) -> G
                 continue
             for candidate in (p.get("label"), p.get("extracted_label")):
                 if candidate:
-                    prop_label_to_uri.setdefault(str(candidate).lower(), URIRef(p["uri"]))
+                    prop_label_to_uri.setdefault(
+                        str(candidate).lower(),
+                        _uri(p["uri"], ontology_id=ontology_id, label=str(p.get("label") or "")),
+                    )
         individuals_emitted = _add_individuals_to_graph(
             db,
             g,
@@ -241,7 +267,11 @@ FOR i IN ontology_individuals
 
     id_to_uri: dict[str, URIRef] = {}
     for r in rows:
-        ind_uri = URIRef(r["uri"]) if r.get("uri") else ns[f"individual_{_slug(str(r['key']))}"]
+        ind_uri = (
+            _uri(r["uri"], ontology_id=ontology_id, label=str(r.get("label") or ""))
+            if r.get("uri")
+            else ns[f"individual_{_slug(str(r['key']))}"]
+        )
         id_to_uri[str(r["id"])] = ind_uri
         g.add((ind_uri, RDF.type, OWL.NamedIndividual))
         if r.get("label"):
@@ -367,7 +397,13 @@ FOR e IN @@col
         )
         for edge in results:
             if edge.get("from_uri") and edge.get("to_uri"):
-                g.add((URIRef(edge["from_uri"]), predicate, URIRef(edge["to_uri"])))
+                g.add(
+                    (
+                        _uri(edge["from_uri"], ontology_id=ontology_id),
+                        predicate,
+                        _uri(edge["to_uri"], ontology_id=ontology_id),
+                    )
+                )
 
 
 def _resolve_range(range_str: str) -> URIRef:

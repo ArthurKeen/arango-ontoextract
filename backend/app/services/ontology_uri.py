@@ -21,10 +21,12 @@ from __future__ import annotations
 import re
 from urllib.parse import quote
 
-#: Hosts that indicate a placeholder rather than a real namespace. ``example.org``
-#: is reserved for documentation (RFC 2606), so it is a placeholder too — just a
-#: better-behaved one than the literal word "namespace".
-PLACEHOLDER_HOSTS = frozenset({"namespace", "example.org", "www.example.org", "example.com"})
+#: Hosts reserved for documentation (RFC 2606). These are FLAGGED as weak
+#: identities but NOT rewritten: they are valid, serialisable absolute IRIs, and
+#: silently changing an identifier a user deliberately chose is worse than
+#: leaving a documentation host in place. Rewriting is reserved for URIs that
+#: genuinely cannot be used — see ``is_placeholder_uri``.
+DOCUMENTATION_HOSTS = frozenset({"example.org", "www.example.org", "example.com", "namespace"})
 
 _ABSOLUTE = re.compile(r"^https?://", re.IGNORECASE)
 
@@ -42,16 +44,45 @@ def _local_name(uri: str, fallback: str) -> str:
     return quote(tail.replace(" ", ""), safe="") or "Unnamed"
 
 
+#: Characters that make an IRI unserialisable by rdflib.
+_ILLEGAL = re.compile(r"[\s<>\"{}|\\^`]")
+
+
 def is_placeholder_uri(uri: str | None) -> bool:
-    """True when the URI is unusable as an identity: relative, or a placeholder host."""
+    """True when the URI cannot serve as an identity and MUST be rewritten.
+
+    Deliberately narrow. Two cases only:
+
+    * **Relative** — ``namespace#Vehicle``, ``#Vehicle``, ``Vehicle``, empty.
+      rdflib cannot serialise these, and identical relative references in two
+      ontologies denote the same thing when they should not.
+    * **Illegal characters** — a space or similar. The reported export failure
+      was one value, ``namespace#qualifiedPersonnel Recommended``, taking down
+      the whole file.
+
+    A valid absolute IRI is LEFT ALONE even on a documentation host: it
+    serialises correctly, and rewriting an identifier the user chose would
+    silently break every reference to it. Use ``is_weak_identity`` to flag
+    those for review instead.
+    """
     if not uri or not uri.strip():
         return True
     u = uri.strip()
     if not _ABSOLUTE.match(u):
-        # Anything not absolute — "namespace#Vehicle", "#Vehicle", "Vehicle".
         return True
-    host = u.split("://", 1)[1].split("/", 1)[0].split("#", 1)[0].lower()
-    return host in PLACEHOLDER_HOSTS
+    return bool(_ILLEGAL.search(u))
+
+
+def is_weak_identity(uri: str | None) -> bool:
+    """True for a serialisable URI that is nonetheless a poor identity.
+
+    Reportable (FR-2.19), not rewritten — an ontology on ``example.org`` still
+    exports and round-trips; it just should not ship that way.
+    """
+    if is_placeholder_uri(uri):
+        return True
+    host = str(uri).strip().split("://", 1)[1].split("/", 1)[0].split("#", 1)[0].lower()
+    return host in DOCUMENTATION_HOSTS
 
 
 def normalize_uri(uri: str | None, *, ontology_id: str, label: str) -> str:

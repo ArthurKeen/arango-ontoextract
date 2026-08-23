@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.ontology_uri import base_namespace, is_placeholder_uri, normalize_uri
+from app.services.ontology_uri import (
+    base_namespace,
+    is_placeholder_uri,
+    is_weak_identity,
+    normalize_uri,
+)
 
 
 @pytest.mark.parametrize(
@@ -21,13 +26,29 @@ from app.services.ontology_uri import base_namespace, is_placeholder_uri, normal
         "Vehicle",
         "",
         None,
-        "http://namespace/ontology#Vehicle",
-        "http://example.org/ontology#Vehicle",
-        "https://www.example.org/x#Y",
+        "namespace#qualifiedPersonnel Recommended",  # the value that broke export
+        "http://example.org/Two Words",  # absolute but unserialisable
     ],
 )
 def test_detects_unusable_identities(uri: str | None) -> None:
     assert is_placeholder_uri(uri)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        # Valid absolute IRIs on documentation hosts. Weak identities, but they
+        # serialise and round-trip — rewriting one would silently break every
+        # reference to it, which is worse than the weakness.
+        "http://example.org/ontology#Vehicle",
+        "https://www.example.org/x#Y",
+        "http://namespace/ontology#Vehicle",
+    ],
+)
+def test_valid_iris_are_flagged_but_not_rewritten(uri: str) -> None:
+    assert not is_placeholder_uri(uri)
+    assert is_weak_identity(uri)
+    assert normalize_uri(uri, ontology_id="o", label="x") == uri
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,7 @@ from app.api.errors import ConflictError, NotFoundError, ValidationError
 from app.api.ontology import _shared
 from app.db.temporal_constants import NEVER_EXPIRES
 from app.models.ontology import (
+    BulkReparentRequest,
     CreateClassRequest,
     CreateEdgeRequest,
     CreatePropertyRequest,
@@ -319,6 +320,23 @@ async def update_class_endpoint(
     return updated
 
 
+def _reparent_one(
+    db: Any,
+    *,
+    ontology_id: str,
+    class_key: str,
+    new_parent_key: str | None,
+) -> dict[str, Any]:
+    """Move one class to a new parent. Shared by the single and bulk endpoints.
+
+    Extracted rather than duplicated so the bulk path cannot drift from the
+    cycle guard and the expire-old-parents semantics that make the single path
+    safe (FR-4.12, FR-7.8.20).
+    """
+    body = ReparentClassRequest(new_parent_key=new_parent_key)
+    return _reparent_impl(db, ontology_id=ontology_id, class_key=class_key, body=body)
+
+
 @router.post("/{ontology_id}/classes/{class_key}/reparent")
 async def reparent_class_endpoint(
     ontology_id: str,
@@ -334,8 +352,16 @@ async def reparent_class_endpoint(
     old ``child→A`` edge live — silent multiple inheritance. This endpoint
     removes the old parent link and rejects cycles.
     """
-    db = _shared.get_db()
+    return _reparent_impl(_shared.get_db(), ontology_id=ontology_id, class_key=class_key, body=body)
 
+
+def _reparent_impl(
+    db: Any,
+    *,
+    ontology_id: str,
+    class_key: str,
+    body: ReparentClassRequest,
+) -> dict[str, Any]:
     child = _shared.ontology_repo.get_class(db, key=class_key)
     if child is None:
         raise NotFoundError(f"Class '{class_key}' not found")
@@ -544,3 +570,70 @@ async def export_ontology_endpoint(
     except Exception as exc:
         log.exception("Export failed for ontology %s", ontology_id)
         raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+@router.post("/{ontology_id}/classes/bulk-reparent")
+async def bulk_reparent_classes(ontology_id: str, body: BulkReparentRequest) -> dict[str, Any]:
+    """Give a whole selection the same parent, optionally creating it (FR-7.8.20).
+
+    Two shapes in one endpoint because they are the same operation:
+
+    * ``new_parent_key``   — set parent to an existing class.
+    * ``new_parent_label`` — introduce a superclass: create it, then parent
+      everything to it.
+
+    Per-class outcomes are REPORTED rather than aborting the batch. A cycle or a
+    missing class should not silently strand the other nineteen half-moved; the
+    caller gets a list it can show and retry. Each move reuses the single-class
+    path, so the cycle guard and the expire-old-parents semantics are identical.
+    """
+    if not body.new_parent_key and not body.new_parent_label:
+        raise ValidationError("Provide either new_parent_key or new_parent_label")
+    if body.new_parent_key and body.new_parent_label:
+        raise ValidationError("Provide new_parent_key OR new_parent_label, not both")
+
+    db = _shared.get_db()
+    parent_key = body.new_parent_key
+    created_parent: dict[str, Any] | None = None
+
+    if body.new_parent_label:
+        created_parent = await create_class(
+            ontology_id,
+            CreateClassRequest(
+                label=body.new_parent_label,
+                description=body.new_parent_description,
+                uri=None,
+                parent_class_key=None,
+            ),
+        )
+        parent_key = str(created_parent.get("_key"))
+
+    # A class cannot become its own superclass; drop it rather than 400 the batch.
+    targets = [k for k in body.class_keys if k != parent_key]
+
+    moved: list[str] = []
+    failed: list[dict[str, str]] = []
+    for key in targets:
+        try:
+            _reparent_one(db, ontology_id=ontology_id, class_key=key, new_parent_key=parent_key)
+            moved.append(key)
+        except (ValidationError, NotFoundError) as exc:
+            failed.append({"class_key": key, "reason": str(exc)})
+
+    log.info(
+        "bulk reparent",
+        extra={
+            "ontology_id": ontology_id,
+            "parent_key": parent_key,
+            "moved": len(moved),
+            "failed": len(failed),
+        },
+    )
+    return {
+        "parent_key": parent_key,
+        "created_parent": created_parent,
+        "moved": moved,
+        "failed": failed,
+        "moved_count": len(moved),
+        "failed_count": len(failed),
+    }

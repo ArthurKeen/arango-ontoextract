@@ -474,3 +474,87 @@ describe("buildClassContextMenu hide actions (FR-7.8.17)", () => {
     expect(items.map((i) => i.label)).toContain("Hide other nodes");
   });
 });
+
+/**
+ * Set actions on a multi-selection (FR-7.8.20).
+ *
+ * The safety property is the second branch: right-clicking a node OUTSIDE the
+ * selection must NOT open a set menu, or an action would silently apply to N
+ * nodes the user cannot see. (The workspace collapses the selection first; the
+ * builder's job is simply not to offer set actions for an outside node.)
+ */
+describe("buildClassContextMenu set actions (FR-7.8.20)", () => {
+  const SEL = ["C1", "C2", "C3"];
+
+  function setMenu(overrides: Record<string, unknown> = {}) {
+    return buildClassContextMenu(
+      { _key: "C1", label: "Vehicle Security" },
+      makeActions({ selectedKeys: SEL, ...overrides }),
+    );
+  }
+
+  it("offers set actions when the clicked node is inside the selection", () => {
+    const labels = setMenu().map((i) => i.label);
+    expect(labels).toContain("Introduce superclass over these 3…");
+    expect(labels).toContain("Set parent for these 3…");
+    expect(labels).toContain("Approve these 3");
+    expect(labels).toContain("Reject these 3");
+    expect(labels).toContain("Hide these 3");
+    expect(labels).toContain("Clear selection");
+  });
+
+  it("states the size in destructive labels so the blast radius is visible", () => {
+    const reject = setMenu().find((i) => i.label === "Reject these 3");
+    expect(reject?.danger).toBe(true);
+  });
+
+  it("keeps View Details, scoped and named to the clicked node", () => {
+    // A large selection must not cost the ability to inspect the node under
+    // the cursor — but it must be unambiguous which node that is.
+    const labels = setMenu().map((i) => i.label);
+    expect(labels).toContain("View Details (Vehicle Security)");
+  });
+
+  it("does NOT offer set actions for a node outside the selection", () => {
+    const items = buildClassContextMenu(
+      { _key: "OTHER", label: "Unrelated" },
+      makeActions({ selectedKeys: SEL }),
+    );
+    const labels = items.map((i) => i.label);
+    expect(labels).not.toContain("Approve these 3");
+    expect(labels).toContain("Approve"); // the ordinary single-node menu
+  });
+
+  it("does not switch to the set menu for a selection of one", () => {
+    const items = buildClassContextMenu(
+      { _key: "C1", label: "Vehicle Security" },
+      makeActions({ selectedKeys: ["C1"] }),
+    );
+    expect(items.map((i) => i.label)).toContain("Approve");
+  });
+
+  it("dispatches each set action", () => {
+    const introduceSuperclass = jest.fn();
+    const setParentForSelection = jest.fn();
+    const approveSelection = jest.fn();
+    const rejectSelection = jest.fn();
+    const clearSelection = jest.fn();
+    const items = setMenu({
+      introduceSuperclass,
+      setParentForSelection,
+      approveSelection,
+      rejectSelection,
+      clearSelection,
+    });
+    items.find((i) => i.label === "Introduce superclass over these 3…")?.onClick?.();
+    items.find((i) => i.label === "Set parent for these 3…")?.onClick?.();
+    items.find((i) => i.label === "Approve these 3")?.onClick?.();
+    items.find((i) => i.label === "Reject these 3")?.onClick?.();
+    items.find((i) => i.label === "Clear selection")?.onClick?.();
+    expect(introduceSuperclass).toHaveBeenCalled();
+    expect(setParentForSelection).toHaveBeenCalled();
+    expect(approveSelection).toHaveBeenCalled();
+    expect(rejectSelection).toHaveBeenCalled();
+    expect(clearSelection).toHaveBeenCalled();
+  });
+});

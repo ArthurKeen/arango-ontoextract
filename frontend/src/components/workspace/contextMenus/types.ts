@@ -311,6 +311,15 @@ export interface WorkspaceContextMenuActions {
   hideSelectedNode: () => void;
   showAllHidden: () => void;
   hiddenCount: number;
+  /** Current multi-selection (FR-7.8.20). Drives the set menu. */
+  selectedKeys: string[];
+  /** Bulk curation over the selection. */
+  approveSelection: () => void;
+  rejectSelection: () => void;
+  /** Introduce a superclass over the selection, or reparent it to an existing class. */
+  introduceSuperclass: () => void;
+  setParentForSelection: () => void;
+  clearSelection: () => void;
   setActiveLens: (lens: LensType) => void;
   graphViewMode: GraphViewMode;
   setGraphViewMode: (mode: GraphViewMode) => void;

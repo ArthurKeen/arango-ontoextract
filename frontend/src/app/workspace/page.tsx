@@ -17,6 +17,7 @@ import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import OntologyDeleteDialog from "@/components/workspace/OntologyDeleteDialog";
 import ManageImportsOverlay from "@/components/workspace/ManageImportsOverlay";
 import RevisionsInboxOverlay from "@/components/workspace/RevisionsInboxOverlay";
+import BulkParentDialog from "@/components/workspace/BulkParentDialog";
 import MergeCandidatesOverlay from "@/components/workspace/MergeCandidatesOverlay";
 import AlignmentReviewOverlay from "@/components/workspace/AlignmentReviewOverlay";
 import RequirementsOverlay from "@/components/workspace/RequirementsOverlay";
@@ -167,6 +168,9 @@ function WorkspacePageInner() {
   const [focusCoverage, setFocusCoverage] = useState<{ shown: number; total: number } | null>(
     null,
   );
+  const [bulkParentDialog, setBulkParentDialog] = useState<
+    { mode: "create" | "existing"; keys: string[] } | null
+  >(null);
 
   const handleNodeShiftSelect = useCallback((nodeKey: string) => {
     setMultiSelectedKeys((prev) => {
@@ -212,10 +216,21 @@ function WorkspacePageInner() {
 
   /** Hide just the selected node (FR-7.8.17). */
   const hideSelectedNode = useCallback(() => {
-    if (!selectedNodeKey) return;
-    setHiddenNodeKeys((prev) => new Set(prev).add(selectedNodeKey));
+    // Hides the whole selection when there is one; otherwise the single node.
+    const keys = multiSelectedKeys.size > 0
+      ? [...multiSelectedKeys]
+      : selectedNodeKey
+        ? [selectedNodeKey]
+        : [];
+    if (keys.length === 0) return;
+    setHiddenNodeKeys((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) next.add(k);
+      return next;
+    });
     setSelectedNodeKey(null);
-  }, [selectedNodeKey]);
+    setMultiSelectedKeys(new Set());
+  }, [selectedNodeKey, multiSelectedKeys]);
 
   /** The undo. Always one click away while anything is hidden. */
   const showAllHidden = useCallback(() => setHiddenNodeKeys(new Set()), []);
@@ -874,9 +889,20 @@ function WorkspacePageInner() {
   const handleSigmaContextMenu = useCallback(
     (e: MouseEvent, type: "node" | "edge" | "canvas", data?: Record<string, unknown>) => {
       const cmType = type === "node" ? "class" : type;
+      // FR-7.8.20 safety rule: right-clicking a node OUTSIDE the current
+      // multi-selection collapses the selection to that node first. Without
+      // this, a right-click on an unrelated node would open a set menu acting
+      // on N nodes the user cannot see — the dangerous case.
+      if (type === "node") {
+        const key = String((data as { _key?: string } | undefined)?._key ?? "");
+        if (key && multiSelectedKeys.size > 0 && !multiSelectedKeys.has(key)) {
+          setMultiSelectedKeys(new Set());
+          setSelectedNodeKey(key);
+        }
+      }
       setContextMenu({ x: e.clientX, y: e.clientY, type: cmType, data: data ?? {} });
     },
-    [],
+    [multiSelectedKeys],
   );
 
   const handleDagContextMenu = useCallback(
@@ -1089,6 +1115,57 @@ function WorkspacePageInner() {
     },
     [addImportEdge],
   );
+
+  // ── Set actions on a multi-selection (FR-7.8.20) ────────────────────
+  //
+  // Bulk curation reuses the per-class endpoints so each member still gets an
+  // attributed, temporal decision — the audit trail must not get thinner just
+  // because the user acted on twenty at once.
+  const curateSelection = useCallback(
+    async (status: "approved" | "rejected") => {
+      if (!selectedOntologyId || multiSelectedKeys.size === 0) return;
+      const keys = [...multiSelectedKeys];
+      setClasses((prev) =>
+        prev.map((c) => (multiSelectedKeys.has(c._key) ? { ...c, status } : c)),
+      );
+      const failures: string[] = [];
+      for (const key of keys) {
+        try {
+          await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status });
+        } catch {
+          failures.push(key);
+        }
+      }
+      invalidateOntology(selectedOntologyId);
+      setMultiSelectedKeys(new Set());
+      pushToast({
+        message:
+          failures.length === 0
+            ? `${keys.length} classes ${status}.`
+            : `${keys.length - failures.length} ${status}, ${failures.length} failed.`,
+        kind: failures.length === 0 ? "success" : "warning",
+        durationMs: 4000,
+      });
+    },
+    [selectedOntologyId, multiSelectedKeys],
+  );
+
+  const approveSelection = useCallback(() => curateSelection("approved"), [curateSelection]);
+  const rejectSelection = useCallback(() => curateSelection("rejected"), [curateSelection]);
+
+  /** Create one class and make the whole selection its subclasses. */
+  const introduceSuperclass = useCallback(() => {
+    if (multiSelectedKeys.size === 0) return;
+    setBulkParentDialog({ mode: "create", keys: [...multiSelectedKeys] });
+  }, [multiSelectedKeys]);
+
+  /** Make the whole selection subclasses of an existing class. */
+  const setParentForSelection = useCallback(() => {
+    if (multiSelectedKeys.size === 0) return;
+    setBulkParentDialog({ mode: "existing", keys: [...multiSelectedKeys] });
+  }, [multiSelectedKeys]);
+
+  const clearSelection = useCallback(() => setMultiSelectedKeys(new Set()), []);
 
   const approveClass = useCallback(async (key: string) => {
     if (!selectedOntologyId) return;
@@ -1366,6 +1443,12 @@ function WorkspacePageInner() {
     hideSelectedNode,
     showAllHidden,
     hiddenCount: hiddenNodeKeys.size,
+    selectedKeys: [...multiSelectedKeys],
+    approveSelection,
+    rejectSelection,
+    introduceSuperclass,
+    setParentForSelection,
+    clearSelection,
     setMergeCandidates,
     setAlignmentReview,
     setRequirementsOverlay,
@@ -1882,6 +1965,22 @@ function WorkspacePageInner() {
             // edges become visible without a full page reload.
             refreshGraph();
             setExplorerLibraryNonce((n) => n + 1);
+          }}
+        />
+      )}
+
+      {bulkParentDialog && selectedOntologyId && (
+        <BulkParentDialog
+          ontologyId={selectedOntologyId}
+          mode={bulkParentDialog.mode}
+          classKeys={bulkParentDialog.keys}
+          classes={classes}
+          onClose={() => setBulkParentDialog(null)}
+          onDone={() => {
+            setBulkParentDialog(null);
+            setMultiSelectedKeys(new Set());
+            invalidateOntology(selectedOntologyId);
+            fetchGraphData(selectedOntologyId);
           }}
         />
       )}

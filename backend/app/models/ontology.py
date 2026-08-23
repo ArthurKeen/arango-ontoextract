@@ -93,6 +93,24 @@ class UpdateClassRequest(BaseModel):
     status: str | None = None
 
 
+class BulkReparentRequest(BaseModel):
+    """Reparent many classes at once (FR-7.8.20).
+
+    Either point them at an existing class (``new_parent_key``) or create one
+    and use it (``new_parent_label``) — the "introduce a superclass" move, which
+    is the core taxonomy-building act on a flat extraction.
+    """
+
+    class_keys: list[str] = Field(..., min_length=1, description="Classes to move.")
+    new_parent_key: str | None = Field(
+        default=None, description="Existing class to become the parent."
+    )
+    new_parent_label: str | None = Field(
+        default=None, description="Create a class with this label and use it as the parent."
+    )
+    new_parent_description: str = Field(default="", description="Description for a created parent.")
+
+
 class ReparentClassRequest(BaseModel):
     """Atomically move a class to a new parent in the ``subclass_of`` hierarchy.
 

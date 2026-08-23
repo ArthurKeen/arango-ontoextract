@@ -166,6 +166,38 @@ export function buildClassContextMenu(
     ];
   }
 
+  // ── Set menu (FR-7.8.20) ────────────────────────────────────────────
+  // Right-clicking a node INSIDE the selection acts on the whole selection.
+  // Right-clicking one OUTSIDE it falls through to the single-node menu below,
+  // and the caller collapses the selection to the clicked node first — without
+  // that, a right-click on an unrelated node would silently apply to N others.
+  const selected = actions.selectedKeys ?? [];
+  const n = selected.length;
+  if (n > 1 && selected.includes(classKey)) {
+    return [
+      // Singular actions survive, scoped to the clicked node and named so there
+      // is no ambiguity about what they apply to. A big selection must not cost
+      // the user the ability to inspect the node under the cursor.
+      { label: `View Details (${classLabel})`, icon: "🔍", onClick: () => {
+          actions.handleNodeSelect(classKey);
+          actions.setDetailPanelOpen(true);
+        } },
+      { label: "separatorSet0", separator: true },
+      { label: `Introduce superclass over these ${n}…`, icon: "➕",
+        onClick: () => actions.introduceSuperclass() },
+      { label: `Set parent for these ${n}…`, icon: "🔗",
+        onClick: () => actions.setParentForSelection() },
+      { label: "separatorSet1", separator: true },
+      { label: `Approve these ${n}`, icon: "✅", onClick: () => actions.approveSelection() },
+      { label: `Reject these ${n}`, icon: "❌", danger: true,
+        onClick: () => actions.rejectSelection() },
+      { label: "separatorSet2", separator: true },
+      { label: `Hide these ${n}`, icon: "🚫", onClick: () => actions.hideSelectedNode() },
+      { label: "Hide everything else", icon: "🎯", onClick: () => actions.hideOtherNodes() },
+      { label: "Clear selection", icon: "✖", onClick: () => actions.clearSelection() },
+    ];
+  }
+
   return [
     viewDetails,
     { label: "separator0", separator: true },

@@ -181,6 +181,19 @@ function WorkspacePageInner() {
     });
   }, []);
 
+  /** Shift-click in the tree toggles set membership (FR-4.16b). */
+  const handleShiftSelectClassFromSidebar = useCallback(
+    (classKey: string, ontologyId: string) => {
+      if (ontologyId && ontologyId !== selectedOntologyId) {
+        setOntologyName(null);
+        setOntologyTier(null);
+        setSelectedOntologyId(ontologyId);
+      }
+      handleNodeShiftSelect(classKey);
+    },
+    [selectedOntologyId, handleNodeShiftSelect],
+  );
+
   /** Lasso result: replaces the multi-selection with everything in the box. */
   const handleLassoSelect = useCallback((nodeKeys: string[]) => {
     setMultiSelectedKeys(new Set(nodeKeys));
@@ -1524,6 +1537,8 @@ function WorkspacePageInner() {
             selectedEdgeKey={selectedEdgeKey}
             onSelectEdge={handleSelectEdgeFromSidebar}
             onOpenCatalogBrowser={() => setShowCatalogBrowser(true)}
+            multiSelectedKeys={multiSelectedKeys}
+            onShiftSelectClass={handleShiftSelectClassFromSidebar}
           />
         </aside>
 

@@ -54,6 +54,10 @@ interface AssetExplorerProps {
   selectedEdgeKey?: string | null;
   /** Fired when an edge/relation row is clicked in the sidebar. */
   onSelectEdge?: (edgeKey: string, ontologyId: string) => void;
+  /** Canvas multi-selection, mirrored into the tree (FR-4.16b). */
+  multiSelectedKeys?: Set<string> | null;
+  /** Shift-click a class row to toggle its membership of that selection. */
+  onShiftSelectClass?: (classKey: string, ontologyId: string) => void;
   /** Opens the H.6 standard-ontology catalog browser. Surfaced as a
    *  discoverability hint in the "Ontologies" section empty state and
    *  as a header "+" action so users can find one-click imports without
@@ -122,6 +126,8 @@ export default function AssetExplorer({
   selectedEdgeKey,
   onSelectEdge,
   onOpenCatalogBrowser,
+  multiSelectedKeys,
+  onShiftSelectClass,
 }: AssetExplorerProps) {
   const [search, setSearch] = useState("");
 
@@ -140,6 +146,9 @@ export default function AssetExplorer({
   // Fetched for the OPEN ontology only: badging every row would be one request
   // per ontology on every explorer render, for a number nobody is reading yet.
   const [pendingCount, setPendingCount] = useState(0);
+  // FR-4.16b — reduce the tree to the selection. Off whenever the selection
+  // is empty, so the control can never strand the user on a blank tree.
+  const [selectedOnly, setSelectedOnly] = useState(false);
   const [expanded, setExpanded] = useState<Record<SectionId, boolean>>({
     documents: true,
     ontologies: true,
@@ -273,6 +282,10 @@ export default function AssetExplorer({
       fetchRuns();
     }
   }, [expanded.runs, runs.length, runsLoading, fetchRuns]);
+
+  useEffect(() => {
+    if ((multiSelectedKeys?.size ?? 0) === 0) setSelectedOnly(false);
+  }, [multiSelectedKeys]);
 
   useEffect(() => {
     if (!selectedOntologyId) {
@@ -426,6 +439,26 @@ export default function AssetExplorer({
           ))}
         </Section>
 
+        {/* FR-4.16b — the control that makes a large selection readable. Only
+            offered while something is selected, and force-cleared when the
+            selection empties so it cannot leave a blank tree behind. */}
+        {(multiSelectedKeys?.size ?? 0) > 0 && (
+          <div className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-100">
+            <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedOnly}
+                onChange={(e) => setSelectedOnly(e.target.checked)}
+                data-testid="selected-only-toggle"
+              />
+              Selected only
+            </label>
+            <span className="text-[11px] text-indigo-700 font-medium ml-auto">
+              {multiSelectedKeys?.size} selected
+            </span>
+          </div>
+        )}
+
         {/* Concepts (FR-7.8.13) — classes and properties matching the query,
             from the backend search view. Only rendered while searching, so it
             costs nothing in the normal browsing case. */}
@@ -530,6 +563,9 @@ export default function AssetExplorer({
               displayName={ontologyDisplayName(ont)}
               isSelected={selectedOntologyId === ont._key}
               pendingCount={selectedOntologyId === ont._key ? pendingCount : 0}
+              multiSelectedKeys={multiSelectedKeys}
+              selectedOnly={selectedOnly}
+              onShiftSelectClass={onShiftSelectClass}
               onSelect={() => onSelectOntology(ont._key, ontologyDisplayName(ont))}
               onContextMenu={onContextMenu}
               selectedClassKey={selectedOntologyId === ont._key ? selectedClassKey ?? null : null}
@@ -708,6 +744,9 @@ function OntologyItem({
   ont,
   displayName,
   pendingCount = 0,
+  multiSelectedKeys,
+  selectedOnly = false,
+  onShiftSelectClass,
   isSelected,
   onSelect,
   onContextMenu,
@@ -720,6 +759,11 @@ function OntologyItem({
   displayName: string;
   /** Unreviewed revisions awaiting this ontology (FR-7.8.14). 0 hides the badge. */
   pendingCount?: number;
+  /** Multi-selection membership, mirrored from the canvas (FR-4.16b). */
+  multiSelectedKeys?: Set<string> | null;
+  /** Show only selected classes — the filter that makes a large set readable. */
+  selectedOnly?: boolean;
+  onShiftSelectClass?: (classKey: string, ontologyId: string) => void;
   isSelected: boolean;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent, type: string, data: unknown) => void;
@@ -927,16 +971,32 @@ function OntologyItem({
               {!classesLoading && classes.length === 0 && (
                 <p className="pl-16 pr-3 py-1 text-[10px] text-gray-400 italic">No classes</p>
               )}
-              {classes.map((cls) => (
+              {/* FR-4.16b — marking alone is useless at 1688 classes; the
+                  filter is what makes a 96-node selection readable. */}
+              {(selectedOnly
+                ? classes.filter((c) => multiSelectedKeys?.has(c._key))
+                : classes
+              ).map((cls) => (
                 <ClassItem
                   key={cls._key}
                   cls={cls}
                   ontologyId={ont._key}
                   onContextMenu={onContextMenu}
                   isSelected={selectedClassKey === cls._key}
+                  inSelection={multiSelectedKeys?.has(cls._key) ?? false}
                   onSelectClass={onSelectClass}
+                  onShiftSelectClass={onShiftSelectClass}
                 />
               ))}
+              {selectedOnly &&
+                classes.every((c) => !multiSelectedKeys?.has(c._key)) && (
+                  <p
+                    className="pl-16 pr-3 py-1 text-[10px] text-gray-400 italic"
+                    data-testid="no-selected-classes"
+                  >
+                    Nothing selected in this ontology
+                  </p>
+                )}
             </div>
           )}
 
@@ -1004,13 +1064,19 @@ function ClassItem({
   ontologyId,
   onContextMenu,
   isSelected,
+  inSelection = false,
   onSelectClass,
+  onShiftSelectClass,
 }: {
   cls: OntologyClassEntry;
   ontologyId: string;
   onContextMenu: (e: React.MouseEvent, type: string, data: unknown) => void;
   isSelected: boolean;
+  /** Member of the multi-selection (FR-4.16b) — distinct from the primary selection. */
+  inSelection?: boolean;
   onSelectClass?: (classKey: string, ontologyId: string) => void;
+  /** Shift-click toggles set membership, so the tree is an input, not just a mirror. */
+  onShiftSelectClass?: (classKey: string, ontologyId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [properties, setProperties] = useState<ClassPropertyEntry[]>([]);
@@ -1058,7 +1124,14 @@ function ClassItem({
         // kinds (properties, documents, etc.) can opt in by adding
         // their own `kind:<oid>:<key>` value.
         data-sidebar-row={`class:${ontologyId}:${cls._key}`}
-        onClick={() => {
+        onClick={(e) => {
+          // Shift toggles membership of the multi-selection and does NOT
+          // expand — expanding on every shift-click would scroll the list out
+          // from under someone building a set.
+          if (e.shiftKey && onShiftSelectClass) {
+            onShiftSelectClass(cls._key, ontologyId);
+            return;
+          }
           if (onSelectClass) {
             onSelectClass(cls._key, ontologyId);
           }
@@ -1069,12 +1142,27 @@ function ClassItem({
           onContextMenu(e, "class", { ...cls, ontology_id: ontologyId });
         }}
         className={`w-full text-left pl-14 pr-3 py-1 text-[10px] flex items-center gap-1.5 hover:bg-gray-50 transition-colors group ${
-          isSelected ? "bg-indigo-50 ring-1 ring-indigo-300" : ""
+          isSelected
+            ? "bg-indigo-50 ring-1 ring-indigo-300"
+            : inSelection
+              // Set members read as "in the set" without competing with the
+              // primary selection's ring — one is where you are, the other is
+              // what the next action will touch.
+              ? "bg-indigo-50/60 border-l-2 border-indigo-400"
+              : ""
         }`}
+        data-in-selection={inSelection || undefined}
       >
         <span className="text-[9px] text-gray-400 w-3 text-center flex-shrink-0">
           {expanded ? "▼" : "▶"}
         </span>
+        {/* An explicit tick, because colour alone is not an accessible signal
+            and is easy to miss when scanning hundreds of rows. */}
+        {inSelection && (
+          <span className="text-[9px] text-indigo-600 flex-shrink-0" aria-label="in selection">
+            ✓
+          </span>
+        )}
         {cls.status && statusDot[cls.status] && (
           <span
             className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot[cls.status]}`}

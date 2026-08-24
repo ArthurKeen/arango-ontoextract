@@ -390,6 +390,24 @@ export function computeFocusSet(
   return seen;
 }
 
+export type FocusCoverage = { shown: number; total: number } | null;
+
+/**
+ * Has focus coverage changed in a way worth telling the parent about?
+ *
+ * Exported for testing: it is the guard that keeps the reducer effect from
+ * being its own trigger, and it needs no WebGL to check. See
+ * ``reportFocusCoverage`` for why an equal-but-new object is not "changed".
+ */
+export function focusCoverageChanged(
+  prev: FocusCoverage,
+  next: FocusCoverage,
+): boolean {
+  if (prev === next) return false;
+  if (!prev || !next) return true;
+  return prev.shown !== next.shown || prev.total !== next.total;
+}
+
 /* ── Topology graph (lens-independent positions & structure) ── */
 
 /**
@@ -811,6 +829,11 @@ export default function SigmaCanvas({
   onLassoSelectRef.current = onLassoSelect;
   const onFocusCoverageRef = useRef(onFocusCoverage);
   onFocusCoverageRef.current = onFocusCoverage;
+  // Last coverage reported upward. The reducer effect below runs whenever any
+  // of seven props changes identity, and the parent turns each report into
+  // state -- so reporting an equal-but-new object every run makes the effect
+  // its own trigger. See ``reportFocusCoverage``.
+  const lastFocusCoverageRef = useRef<FocusCoverage>(null);
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
 
@@ -1149,6 +1172,25 @@ export default function SigmaCanvas({
     };
   }, [graph]);
 
+  /**
+   * Report focus coverage upward, but ONLY when it actually changed.
+   *
+   * The parent stores this in state, so every call re-renders it. Sending an
+   * equal-but-freshly-allocated ``{shown, total}`` on each run therefore
+   * guarantees a render, and any parent state that gets recomputed during that
+   * render feeds straight back into this effect's dependencies -- an unbounded
+   * loop, which React reports as "Maximum update depth exceeded".
+   *
+   * The ``null`` case never had this problem, because ``Object.is(null, null)``
+   * lets React bail out of the update. This restores the same property for the
+   * populated case: running the effect N times produces at most one setState.
+   */
+  const reportFocusCoverage = useCallback((next: FocusCoverage) => {
+    if (!focusCoverageChanged(lastFocusCoverageRef.current, next)) return;
+    lastFocusCoverageRef.current = next;
+    onFocusCoverageRef.current?.(next);
+  }, []);
+
   useEffect(() => {
     const s = sigmaRef.current;
     if (!s) return;
@@ -1171,7 +1213,7 @@ export default function SigmaCanvas({
     // bright edge dangling off it.
     const inFocus = (key: string) => !focusSet || focusSet.has(key);
 
-    onFocusCoverageRef.current?.(
+    reportFocusCoverage(
       focusSet && g ? { shown: focusSet.size, total: g.order } : null,
     );
 
@@ -1273,6 +1315,7 @@ export default function SigmaCanvas({
     focusNodeKey,
     focusHops,
     multiSelectedKeys,
+    reportFocusCoverage,
   ]);
 
   const handleRelayout = useCallback((layout: LayoutType = "force") => {

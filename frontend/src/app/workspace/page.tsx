@@ -53,6 +53,7 @@ import {
 } from "@/lib/ontologyDataCache";
 import { withBasePath } from "@/lib/base-path";
 import { documentKey } from "@/lib/arangoId";
+import { owningOntologyId } from "@/lib/owningOntology";
 import {
   buildQualityReportMetrics,
   formatOntologyHealthSummary,
@@ -445,6 +446,34 @@ function WorkspacePageInner() {
     }
     return visible;
   }, [timelineVisibleKeys, confidenceVisibleClasses, hiddenNodeKeys, classes]);
+
+  /**
+   * The ontology that OWNS the selected entity, which is not always the one
+   * that is open.
+   *
+   * When an ontology imports another (Stream 1 H.12) the canvas renders the
+   * imported classes and edges too, but each single-entity endpoint is scoped
+   * to the ontology in its path. Asking the importing ontology for a class it
+   * merely imports is a 404 -- opening a "Vehicle Ontology" that imports VSSo
+   * and clicking any node produced exactly that. The effective-graph payload
+   * already carries ``source_ontology_id`` on every imported row; falling back
+   * to the open ontology covers owned entities, which do not carry it.
+   */
+  const selectedNodeOntologyId = useMemo(() => {
+    if (!selectedNodeKey) return selectedOntologyId;
+    return owningOntologyId(
+      classes.find((c) => c._key === selectedNodeKey),
+      selectedOntologyId,
+    );
+  }, [classes, selectedNodeKey, selectedOntologyId]);
+
+  const selectedEdgeOntologyId = useMemo(() => {
+    if (!selectedEdgeKey) return selectedOntologyId;
+    return owningOntologyId(
+      edges.find((e) => e._key === selectedEdgeKey),
+      selectedOntologyId,
+    );
+  }, [edges, selectedEdgeKey, selectedOntologyId]);
 
   const [pipelineRunId, setPipelineRunId] = useState<string | null>(null);
   const [pipelineSteps, setPipelineSteps] = useState<Map<string, StepStatus>>(
@@ -1925,23 +1954,23 @@ function WorkspacePageInner() {
             )}
 
             {/* Floating detail panel */}
-            {detailPanelOpen && selectedNodeKey && selectedOntologyId && (
+            {detailPanelOpen && selectedNodeKey && selectedNodeOntologyId && (
               <FloatingDetailPanel
                 entityType="class"
                 entityKey={selectedNodeKey}
-                ontologyId={selectedOntologyId}
+                ontologyId={selectedNodeOntologyId}
                 onClose={() => setDetailPanelOpen(false)}
               />
             )}
 
             {detailPanelOpen &&
               selectedEdgeKey &&
-              selectedOntologyId &&
+              selectedEdgeOntologyId &&
               !selectedNodeKey && (
                 <FloatingDetailPanel
                   entityType="edge"
                   entityKey={selectedEdgeKey}
-                  ontologyId={selectedOntologyId}
+                  ontologyId={selectedEdgeOntologyId}
                   onClose={() => setDetailPanelOpen(false)}
                 />
               )}

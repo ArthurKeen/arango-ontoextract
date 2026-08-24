@@ -26,6 +26,43 @@ from app.services.temporal import NEVER_EXPIRES
 
 log = logging.getLogger(__name__)
 
+#: schema.org's soft typing predicates, in both the http and https forms the
+#: wild uses interchangeably.
+#:
+#: These are NOT ``rdfs:domain``/``rdfs:range`` and must not be treated as
+#: though they were. ``rdfs:domain`` ENTAILS -- "X P Y" makes X a member of the
+#: domain class. ``schema:domainIncludes`` deliberately entails nothing; it
+#: says only "this property is expected to be used with these types", which is
+#: why SOSA/SSN chose it: the vocabulary is meant to be reused without imposing
+#: inferences on the reuser. Multiple values are a UNION here, where multiple
+#: ``rdfs:domain`` values would be an intersection.
+#:
+#: We read them because a property with no class attachment is invisible on the
+#: canvas -- SOSA declares zero ``rdfs:domain`` and one ``rdfs:range``, so all
+#: 36 of its object properties imported as unconnected vertices and the
+#: Sensor/Observation/FeatureOfInterest pattern could not be seen at all. Each
+#: edge records which predicate it came from so nothing downstream can quietly
+#: promote a suggestion into an entailment.
+_SCHEMA_DOMAIN_INCLUDES = (
+    URIRef("http://schema.org/domainIncludes"),
+    URIRef("https://schema.org/domainIncludes"),
+)
+_SCHEMA_RANGE_INCLUDES = (
+    URIRef("http://schema.org/rangeIncludes"),
+    URIRef("https://schema.org/rangeIncludes"),
+)
+
+
+def _soft_typed(rdf_graph: RDFGraph, subject: URIRef, predicates: tuple[URIRef, ...]) -> list[str]:
+    """Named classes named by schema.org soft typing, de-duplicated, ordered."""
+    seen: list[str] = []
+    for pred in predicates:
+        for obj in rdf_graph.objects(subject, pred):
+            if isinstance(obj, URIRef) and str(obj) not in seen:
+                seen.append(str(obj))
+    return seen
+
+
 _URI_MAP_COLLECTION = "aoe_uri_map"
 
 # ---------------------------------------------------------------------------
@@ -798,8 +835,23 @@ def _import_with_rdflib_fallback(
         for prop_uri in sorted(
             {str(s) for s in rdf_graph.subjects(RDF.type, rdf_type) if isinstance(s, URIRef)}
         ):
-            domain = rdf_graph.value(URIRef(prop_uri), RDFS.domain)
-            range_value = rdf_graph.value(URIRef(prop_uri), RDFS.range)
+            subject = URIRef(prop_uri)
+            domain = rdf_graph.value(subject, RDFS.domain)
+            range_value = rdf_graph.value(subject, RDFS.range)
+
+            # rdfs:* wins when present; schema.org soft typing is the fallback,
+            # never a supplement -- an ontology that states both means the
+            # rdfs:* one, and mixing them would blur the two semantics.
+            if domain is not None:
+                domains, domain_assertion = [str(domain)], "rdfs:domain"
+            else:
+                domains = _soft_typed(rdf_graph, subject, _SCHEMA_DOMAIN_INCLUDES)
+                domain_assertion = "schema:domainIncludes"
+            if range_value is not None:
+                ranges, range_assertion = [str(range_value)], "rdfs:range"
+            else:
+                ranges = _soft_typed(rdf_graph, subject, _SCHEMA_RANGE_INCLUDES)
+                range_assertion = "schema:rangeIncludes"
 
             prop_data: dict[str, Any] = {
                 "uri": prop_uri,
@@ -811,6 +863,10 @@ def _import_with_rdflib_fallback(
             }
             if property_kind == "datatype" and range_value:
                 prop_data["range_datatype"] = str(range_value)
+            # Only the HARD rdfs:range lands on the property document. Export
+            # turns this field into an ``rdfs:range`` triple, so letting a
+            # schema:rangeIncludes value through here would put an entailment
+            # into the exported ontology that the source never asserted.
             if range_value:
                 prop_data["range"] = str(range_value)
 
@@ -826,8 +882,10 @@ def _import_with_rdflib_fallback(
                 {
                     "uri": prop_uri,
                     "kind": property_kind,
-                    "domain": str(domain) if domain else None,
-                    "range": str(range_value) if range_value else None,
+                    "domains": domains,
+                    "ranges": ranges,
+                    "domain_assertion": domain_assertion,
+                    "range_assertion": range_assertion,
                 }
             )
 
@@ -845,25 +903,39 @@ def _import_with_rdflib_fallback(
 
     for meta in property_meta:
         prop_id = property_ids.get(meta["uri"])
-        domain_id = class_ids.get(meta["domain"] or "")
-        if prop_id and domain_id:
-            create_edge(
-                db,
-                edge_collection="rdfs_domain",
-                from_id=prop_id,
-                to_id=domain_id,
-                data={"ontology_id": ontology_id},
-            )
-        if meta["kind"] == "object" and prop_id:
-            range_id = class_ids.get(meta["range"] or "")
-            if range_id:
+        if not prop_id:
+            continue
+        # ``assertion`` records which predicate produced the edge. Readers that
+        # care about entailment (export, reasoning) must check it; readers that
+        # only care about which classes a property touches (the canvas) can
+        # ignore it and treat every edge alike.
+        for domain_uri in meta["domains"]:
+            domain_id = class_ids.get(domain_uri)
+            if domain_id:
                 create_edge(
                     db,
-                    edge_collection="rdfs_range_class",
+                    edge_collection="rdfs_domain",
                     from_id=prop_id,
-                    to_id=range_id,
-                    data={"ontology_id": ontology_id},
+                    to_id=domain_id,
+                    data={
+                        "ontology_id": ontology_id,
+                        "assertion": meta["domain_assertion"],
+                    },
                 )
+        if meta["kind"] == "object":
+            for range_uri in meta["ranges"]:
+                range_id = class_ids.get(range_uri)
+                if range_id:
+                    create_edge(
+                        db,
+                        edge_collection="rdfs_range_class",
+                        from_id=prop_id,
+                        to_id=range_id,
+                        data={
+                            "ontology_id": ontology_id,
+                            "assertion": meta["range_assertion"],
+                        },
+                    )
 
 
 def _tag_documents_with_ontology_id(

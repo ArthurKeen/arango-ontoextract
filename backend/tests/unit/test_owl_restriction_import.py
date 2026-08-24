@@ -608,3 +608,157 @@ class TestAnonymousClassExpressionsAreSkipped:
         )
         labels = sorted(c["label"] for c in self._run(ttl))
         assert labels == ["Tyre", "WinterTyre"], f"anonymous nodes leaked in: {labels}"
+
+
+# ---------------------------------------------------------------------------
+# schema.org soft typing (domainIncludes / rangeIncludes)
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaOrgSoftTyping:
+    """Some ontologies type properties without rdfs:domain/range.
+
+    SOSA/SSN declares ZERO ``rdfs:domain`` and one ``rdfs:range``; it uses
+    ``schema:domainIncludes`` / ``rangeIncludes`` instead, deliberately, so the
+    vocabulary can be reused without imposing entailments. Reading only the
+    rdfs:* forms left all 36 of its object properties as unconnected vertices
+    and made the Sensor/Observation/FeatureOfInterest pattern invisible.
+
+    The two predicates are NOT interchangeable, so every edge records which one
+    produced it.
+    """
+
+    def _edges(self, ttl: str):
+        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+        created: list[dict] = []
+        counter = {"n": 0}
+
+        def _create_class(_db, *, ontology_id, data, created_by):
+            counter["n"] += 1
+            return {"_id": f"ontology_classes/{data['uri']}", "_key": str(counter["n"])}
+
+        def _create_property(_db, *, ontology_id, data, created_by, collection):
+            return {"_id": f"{collection}/{data['uri']}", "_key": data["uri"]}
+
+        def _create_edge(_db, *, edge_collection, from_id, to_id, data):
+            created.append(
+                {
+                    "col": edge_collection,
+                    "from": from_id,
+                    "to": to_id,
+                    "assertion": data.get("assertion"),
+                }
+            )
+            return {"_id": "e/1"}
+
+        with (
+            patch("app.services.arangordf_bridge.create_class", side_effect=_create_class),
+            patch("app.services.arangordf_bridge.create_property", side_effect=_create_property),
+            patch("app.services.arangordf_bridge.create_edge", side_effect=_create_edge),
+            patch("app.services.arangordf_bridge._ensure_import_collections"),
+        ):
+            _import_with_rdflib_fallback(db, rdf_graph=_parse(ttl), ontology_id="o1")
+        return created
+
+    SOSA = (
+        _PREFIXES
+        + """
+    @prefix schema: <http://schema.org/> .
+    :Observation a owl:Class .
+    :Actuation a owl:Class .
+    :FeatureOfInterest a owl:Class .
+    :Sample a owl:Class .
+    :hasFeatureOfInterest a owl:ObjectProperty ;
+        schema:domainIncludes :Observation, :Actuation ;
+        schema:rangeIncludes :FeatureOfInterest, :Sample .
+    """
+    )
+
+    def test_soft_typing_produces_domain_and_range_edges(self):
+        edges = self._edges(self.SOSA)
+        domains = [e for e in edges if e["col"] == "rdfs_domain"]
+        ranges = [e for e in edges if e["col"] == "rdfs_range_class"]
+
+        assert len(domains) == 2, "both domainIncludes values must be edges"
+        assert len(ranges) == 2, "both rangeIncludes values must be edges"
+
+    def test_every_edge_records_which_predicate_produced_it(self):
+        """rdfs:domain entails; schema:domainIncludes explicitly does not.
+        Conflating them would let an export assert something SOSA never said."""
+        edges = self._edges(self.SOSA)
+
+        assert {e["assertion"] for e in edges if e["col"] == "rdfs_domain"} == {
+            "schema:domainIncludes"
+        }
+        assert {e["assertion"] for e in edges if e["col"] == "rdfs_range_class"} == {
+            "schema:rangeIncludes"
+        }
+
+    def test_rdfs_domain_still_wins_and_is_labelled_as_itself(self):
+        ttl = (
+            _PREFIXES
+            + """
+        @prefix schema: <http://schema.org/> .
+        :Sensor a owl:Class .
+        :Observation a owl:Class .
+        :Decoy a owl:Class .
+        :madeObservation a owl:ObjectProperty ;
+            rdfs:domain :Sensor ;
+            rdfs:range :Observation ;
+            schema:domainIncludes :Decoy .
+        """
+        )
+        edges = self._edges(ttl)
+        domains = [e for e in edges if e["col"] == "rdfs_domain"]
+
+        # The hard assertion wins outright; the soft one is a FALLBACK, never a
+        # supplement, or the two semantics would be blurred together.
+        assert len(domains) == 1
+        assert domains[0]["assertion"] == "rdfs:domain"
+        assert domains[0]["to"].endswith("Sensor")
+
+    def test_https_schema_namespace_is_read_too(self):
+        ttl = (
+            _PREFIXES
+            + """
+        @prefix schema: <https://schema.org/> .
+        :A a owl:Class .
+        :B a owl:Class .
+        :p a owl:ObjectProperty ;
+            schema:domainIncludes :A ;
+            schema:rangeIncludes :B .
+        """
+        )
+        edges = self._edges(ttl)
+
+        assert len([e for e in edges if e["col"] == "rdfs_domain"]) == 1
+        assert len([e for e in edges if e["col"] == "rdfs_range_class"]) == 1
+
+    def test_soft_range_never_reaches_the_property_document(self):
+        """Export turns the property's ``range`` field into an rdfs:range
+        triple, so a soft value must not be written there."""
+        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+        props: list[dict] = []
+
+        with (
+            patch("app.services.arangordf_bridge.create_class", return_value={"_id": "c/1"}),
+            patch(
+                "app.services.arangordf_bridge.create_property",
+                side_effect=lambda _db, **kw: (
+                    props.append(kw["data"]),
+                    {"_id": "p/1"},
+                )[1],
+            ),
+            patch("app.services.arangordf_bridge.create_edge", return_value={"_id": "e/1"}),
+            patch("app.services.arangordf_bridge._ensure_import_collections"),
+        ):
+            _import_with_rdflib_fallback(db, rdf_graph=_parse(self.SOSA), ontology_id="o1")
+
+        prop = next(p for p in props if p["uri"].endswith("hasFeatureOfInterest"))
+        assert "range" not in prop

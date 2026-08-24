@@ -95,6 +95,134 @@ describe("graphCanvasEdges", () => {
     });
   });
 
+  describe("buildSyntheticRdfsRangeClassEdges — soft-typed ontologies", () => {
+    // SOSA/SSN declares no rdfs:domain at all; it types properties with
+    // schema:domainIncludes / rangeIncludes, whose multiple values mean a
+    // union. `hasFeatureOfInterest` may be used FROM an Actuation, an
+    // Observation or a Sampling, and may point AT a FeatureOfInterest or a
+    // Sample — six distinct legitimate uses, all of which belong on the canvas.
+    const sosaKeys = new Set([
+      "Actuation",
+      "Observation",
+      "Sampling",
+      "FeatureOfInterest",
+      "Sample",
+    ]);
+
+    const hasFeatureOfInterest: OntologyEdge[] = [
+      ...["Actuation", "Observation", "Sampling"].map((cls, i) => ({
+        _key: `d${i}`,
+        _from: "ontology_object_properties/hasFeatureOfInterest",
+        _to: `ontology_classes/${cls}`,
+        type: "rdfs_domain",
+        label: "",
+      })),
+      ...["FeatureOfInterest", "Sample"].map((cls, i) => ({
+        _key: `r${i}`,
+        _from: "ontology_object_properties/hasFeatureOfInterest",
+        _to: `ontology_classes/${cls}`,
+        type: "rdfs_range_class",
+        label: "has feature of interest",
+      })),
+    ] as OntologyEdge[];
+
+    it("draws every domain, not just the last one seen", () => {
+      const syn = buildSyntheticRdfsRangeClassEdges(
+        hasFeatureOfInterest,
+        sosaKeys,
+      );
+
+      expect(syn).toHaveLength(6);
+      expect(new Set(syn.map((e) => e.sourceClassKey))).toEqual(
+        new Set(["Actuation", "Observation", "Sampling"]),
+      );
+      expect(new Set(syn.map((e) => e.targetClassKey))).toEqual(
+        new Set(["FeatureOfInterest", "Sample"]),
+      );
+      expect(syn.every((e) => e.label === "has feature of interest")).toBe(
+        true,
+      );
+    });
+
+    it("gives each pair a distinct key so siblings cannot collide", () => {
+      const syn = buildSyntheticRdfsRangeClassEdges(
+        hasFeatureOfInterest,
+        sosaKeys,
+      );
+
+      expect(new Set(syn.map((e) => e.edgeKey)).size).toBe(syn.length);
+    });
+
+    it("leaves the single-domain key untouched", () => {
+      // The common case must keep the exact key it had before multi-domain
+      // support, so nothing keyed on it downstream shifts.
+      const edges: OntologyEdge[] = [
+        {
+          _key: "d1",
+          _from: "ontology_object_properties/observes",
+          _to: "ontology_classes/Sensor",
+          type: "rdfs_domain",
+          label: "",
+        },
+        {
+          _key: "r1",
+          _from: "ontology_object_properties/observes",
+          _to: "ontology_classes/ObservableProperty",
+          type: "rdfs_range_class",
+          label: "observes",
+        },
+      ];
+      const syn = buildSyntheticRdfsRangeClassEdges(
+        edges,
+        new Set(["Sensor", "ObservableProperty"]),
+      );
+
+      expect(syn).toHaveLength(1);
+      expect(syn[0].edgeKey).toBe("r1");
+    });
+
+    it("ignores a duplicate domain rather than drawing the edge twice", () => {
+      const edges: OntologyEdge[] = [
+        {
+          _key: "d1",
+          _from: "ontology_object_properties/p",
+          _to: "ontology_classes/Observation",
+          type: "rdfs_domain",
+          label: "",
+        },
+        {
+          _key: "d2",
+          _from: "ontology_object_properties/p",
+          _to: "ontology_classes/Observation",
+          type: "rdfs_domain",
+          label: "",
+        },
+        {
+          _key: "r1",
+          _from: "ontology_object_properties/p",
+          _to: "ontology_classes/Sample",
+          type: "rdfs_range_class",
+          label: "p",
+        },
+      ];
+      const syn = buildSyntheticRdfsRangeClassEdges(edges, sosaKeys);
+
+      expect(syn).toHaveLength(1);
+    });
+
+    it("skips a domain whose class is filtered out of the canvas", () => {
+      const syn = buildSyntheticRdfsRangeClassEdges(
+        hasFeatureOfInterest,
+        new Set(["Observation", "FeatureOfInterest", "Sample"]),
+      );
+
+      expect(new Set(syn.map((e) => e.sourceClassKey))).toEqual(
+        new Set(["Observation"]),
+      );
+      expect(syn).toHaveLength(2);
+    });
+  });
+
   describe("individual node ids (FR-18.13)", () => {
     it("namespaces an individual key", () => {
       expect(individualNodeId("i1")).toBe("ind:i1");
@@ -111,7 +239,9 @@ describe("graphCanvasEdges", () => {
     });
 
     it("preserves a key that itself contains the delimiter", () => {
-      expect(individualKeyFromNodeId(individualNodeId("ind:odd"))).toBe("ind:odd");
+      expect(individualKeyFromNodeId(individualNodeId("ind:odd"))).toBe(
+        "ind:odd",
+      );
     });
   });
 });

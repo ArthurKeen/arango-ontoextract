@@ -4,7 +4,10 @@ import type { OntologyEdge } from "@/types/curation";
 export { documentKey };
 
 /** Property→class edges: not drawn as class↔class links (PGT / legacy). */
-export const FILTERED_FROM_CLASS_GRAPH = new Set(["rdfs_domain", "has_property"]);
+export const FILTERED_FROM_CLASS_GRAPH = new Set([
+  "rdfs_domain",
+  "has_property",
+]);
 
 /** Shown on synthetic domain→range edges when the API omits `edge.label`. */
 export const RDFS_RANGE_CLASS_LABEL_FALLBACK = "owl:ObjectProperty";
@@ -28,7 +31,8 @@ export function individualKeyFromNodeId(nodeId: string): string | null {
 }
 
 export function getEdgeType(edge: OntologyEdge): string {
-  return ((edge as unknown as Record<string, unknown>).edge_type ?? edge.type) as string;
+  return ((edge as unknown as Record<string, unknown>).edge_type ??
+    edge.type) as string;
 }
 
 export function isRelationshipEdgeStyle(edgeType: string): boolean {
@@ -43,33 +47,62 @@ export interface SyntheticRdfsRangeEdge {
 }
 
 /**
- * For each `rdfs_range_class` edge, resolve domain class via matching `rdfs_domain` on the same property `_from`.
+ * Draw each object property as a class→class edge, by pairing its
+ * `rdfs_domain` edges with its `rdfs_range_class` edges on the same property.
+ *
+ * A property can have SEVERAL domains and several ranges. That is the norm for
+ * ontologies typed with schema.org's `domainIncludes`/`rangeIncludes`, whose
+ * multiple values mean a union: SOSA's `hasFeatureOfInterest` may be used from
+ * an Actuation, an Observation OR a Sampling, and may point at a
+ * FeatureOfInterest OR a Sample. So every (domain, range) pair is a real,
+ * distinct way the property can be used, and all of them are drawn.
+ *
+ * An earlier version kept one domain per property in a plain Map, which was
+ * harmless while every property had exactly one — and silently dropped all but
+ * the last as soon as a soft-typed ontology was imported.
+ *
+ * Edge keys are suffixed with the domain key so the cross product cannot
+ * collide on a single graph edge id and lose siblings.
  */
 export function buildSyntheticRdfsRangeClassEdges(
   edges: OntologyEdge[],
   classKeySet: Set<string>,
 ): SyntheticRdfsRangeEdge[] {
-  const propertyIdToDomainClassKey = new Map<string, string>();
+  const propertyIdToDomainClassKeys = new Map<string, string[]>();
   for (const edge of edges) {
     if (getEdgeType(edge) !== "rdfs_domain") continue;
-    propertyIdToDomainClassKey.set(edge._from, documentKey(edge._to));
+    const key = documentKey(edge._to);
+    const existing = propertyIdToDomainClassKeys.get(edge._from);
+    if (existing) {
+      if (!existing.includes(key)) existing.push(key);
+    } else {
+      propertyIdToDomainClassKeys.set(edge._from, [key]);
+    }
   }
 
   const out: SyntheticRdfsRangeEdge[] = [];
   for (const edge of edges) {
     if (getEdgeType(edge) !== "rdfs_range_class") continue;
-    const domainClassKey = propertyIdToDomainClassKey.get(edge._from);
-    if (!domainClassKey) continue;
+    const domainClassKeys = propertyIdToDomainClassKeys.get(edge._from);
+    if (!domainClassKeys) continue;
     const rangeClassKey = documentKey(edge._to);
-    if (!classKeySet.has(domainClassKey) || !classKeySet.has(rangeClassKey)) continue;
+    if (!classKeySet.has(rangeClassKey)) continue;
     const label =
       (edge.label && edge.label.trim()) || RDFS_RANGE_CLASS_LABEL_FALLBACK;
-    out.push({
-      edgeKey: edge._key,
-      sourceClassKey: domainClassKey,
-      targetClassKey: rangeClassKey,
-      label,
-    });
+    for (const domainClassKey of domainClassKeys) {
+      if (!classKeySet.has(domainClassKey)) continue;
+      // A self-loop (domain and range the same class) is legitimate -- SOSA's
+      // `hosts` goes Platform→Platform -- and the canvas drops it later.
+      out.push({
+        edgeKey:
+          domainClassKeys.length > 1
+            ? `${edge._key}:${domainClassKey}`
+            : edge._key,
+        sourceClassKey: domainClassKey,
+        targetClassKey: rangeClassKey,
+        label,
+      });
+    }
   }
   return out;
 }

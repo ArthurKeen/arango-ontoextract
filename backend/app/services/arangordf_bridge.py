@@ -757,7 +757,16 @@ def _import_with_rdflib_fallback(
 
     class_ids: dict[str, str] = {}
 
-    for class_uri in sorted({str(s) for s in rdf_graph.subjects(RDF.type, OWL.Class)}):
+    # ``isinstance(s, URIRef)`` skips BLANK NODES, which are anonymous class
+    # expressions (owl:Restriction, intersectionOf members) rather than
+    # concepts. Importing them produces classes labelled with rdflib's internal
+    # hex ids -- BFO 2020 has 36 named classes and 48 such restriction nodes, so
+    # without this filter two thirds of the imported "ontology" is noise the
+    # curator then has to recognise and delete. Matches the filter already
+    # applied when collecting class URIs for the hierarchy edges above.
+    for class_uri in sorted(
+        {str(s) for s in rdf_graph.subjects(RDF.type, OWL.Class) if isinstance(s, URIRef)}
+    ):
         doc = create_class(
             db,
             ontology_id=ontology_id,
@@ -786,7 +795,9 @@ def _import_with_rdflib_fallback(
         (OWL.DatatypeProperty, "datatype"),
     ):
         target_col, rdf_type_label = prop_type_map[property_kind]
-        for prop_uri in sorted({str(s) for s in rdf_graph.subjects(RDF.type, rdf_type)}):
+        for prop_uri in sorted(
+            {str(s) for s in rdf_graph.subjects(RDF.type, rdf_type) if isinstance(s, URIRef)}
+        ):
             domain = rdf_graph.value(URIRef(prop_uri), RDFS.domain)
             range_value = rdf_graph.value(URIRef(prop_uri), RDFS.range)
 

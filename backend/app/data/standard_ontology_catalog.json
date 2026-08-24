@@ -9,7 +9,11 @@
       "uri": "http://purl.org/dc/terms/",
       "version": "minimal-2026-05",
       "tier": "core",
-      "tags": ["metadata", "bibliographic", "w3c"],
+      "tags": [
+        "metadata",
+        "bibliographic",
+        "w3c"
+      ],
       "class_count": 0,
       "property_count": 18,
       "source": {
@@ -26,7 +30,11 @@
       "uri": "http://xmlns.com/foaf/0.1/",
       "version": "0.99",
       "tier": "core",
-      "tags": ["people", "social", "identity"],
+      "tags": [
+        "people",
+        "social",
+        "identity"
+      ],
       "class_count": 16,
       "property_count": 67,
       "source": {
@@ -42,7 +50,11 @@
       "uri": "http://www.w3.org/2004/02/skos/core#",
       "version": "2009-08-18",
       "tier": "core",
-      "tags": ["taxonomy", "thesaurus", "w3c"],
+      "tags": [
+        "taxonomy",
+        "thesaurus",
+        "w3c"
+      ],
       "class_count": 11,
       "property_count": 36,
       "source": {
@@ -58,7 +70,10 @@
       "uri": "http://www.w3.org/ns/prov#",
       "version": "2013-04-30",
       "tier": "core",
-      "tags": ["provenance", "w3c"],
+      "tags": [
+        "provenance",
+        "w3c"
+      ],
       "class_count": 30,
       "property_count": 51,
       "source": {
@@ -74,7 +89,11 @@
       "uri": "http://www.w3.org/2006/time#",
       "version": "2017-04-19",
       "tier": "core",
-      "tags": ["time", "temporal", "w3c"],
+      "tags": [
+        "time",
+        "temporal",
+        "w3c"
+      ],
       "class_count": 30,
       "property_count": 52,
       "source": {
@@ -90,7 +109,11 @@
       "uri": "https://schema.org/",
       "version": "current",
       "tier": "domain",
-      "tags": ["schema-org", "web", "structured-data"],
+      "tags": [
+        "schema-org",
+        "web",
+        "structured-data"
+      ],
       "class_count": 800,
       "property_count": 1500,
       "source": {
@@ -106,7 +129,12 @@
       "uri": "https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/Agents/",
       "version": "latest",
       "tier": "domain",
-      "tags": ["finance", "fibo", "agents", "edmcouncil"],
+      "tags": [
+        "finance",
+        "fibo",
+        "agents",
+        "edmcouncil"
+      ],
       "class_count": 25,
       "property_count": 40,
       "source": {
@@ -122,13 +150,95 @@
       "uri": "https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/",
       "version": "latest",
       "tier": "domain",
-      "tags": ["finance", "fibo", "accounting", "edmcouncil"],
+      "tags": [
+        "finance",
+        "fibo",
+        "accounting",
+        "edmcouncil"
+      ],
       "class_count": 18,
       "property_count": 30,
       "source": {
         "kind": "url",
         "url": "https://spec.edmcouncil.org/fibo/ontology/master/latest/FND/Accounting/AccountingEquity.rdf",
         "format": "xml"
+      }
+    },
+    {
+      "id": "bfo",
+      "name": "BFO 2020 (Basic Formal Ontology)",
+      "description": "ISO/IEC 21838-2 upper ontology. Its central division is continuant vs occurrent -- things that persist through time and are wholly present at each moment (a tyre, a vehicle, a sensor) versus things that unfold in time and have temporal parts (a fault event, a state transition, a maintenance procedure). Underneath that sit the distinctions that keep an extracted hierarchy honest: independent continuants (the bearers) against qualities, roles, dispositions and functions (what the bearers have, play, or are for). A speed rating is a quality of a tyre, not a kind of tyre -- BFO is where that difference is stated rather than assumed.",
+      "uri": "http://purl.obolibrary.org/obo/bfo/2020/",
+      "version": "2020 (ISO/IEC 21838-2:2021)",
+      "tier": "core",
+      "tags": [
+        "upper-ontology",
+        "iso",
+        "bfo",
+        "foundational"
+      ],
+      "class_count": 36,
+      "property_count": 40,
+      "source": {
+        "kind": "bundled",
+        "path": "bfo_core.ttl",
+        "format": "turtle",
+        "upstream_url": "https://github.com/BFO-ontology/BFO-2020/blob/master/21838-2/owl/bfo-core.ttl",
+        "license": "CC BY 4.0",
+        "retrieved": "2026-08-23",
+        "note": "BFO 2020, the ISO-standardised revision. Deliberately not the 2019-08-26 BFO 2.0 that http://purl.obolibrary.org/obo/bfo.owl still serves."
+      }
+    },
+    {
+      "id": "sosa-ssn",
+      "name": "SOSA/SSN (Semantic Sensor Network)",
+      "description": "W3C/OGC Recommendation for sensors, actuators and what they measure. Supplies the pattern a sensor reading needs and an extractor rarely invents: a Sensor makes an Observation, of an ObservableProperty, of a FeatureOfInterest, with a Result at a time. A tyre-pressure sensor is then a Sensor, pressure is an ObservableProperty, the tyre is the FeatureOfInterest, and each reading is its own Observation -- four distinct things where a flat extraction tends to produce one class called 'Tyre Pressure'. SSN adds System, Deployment and Procedure on top of the SOSA core.",
+      "uri": "http://www.w3.org/ns/ssn/",
+      "version": "2017-10-19",
+      "tier": "domain",
+      "tags": [
+        "sensors",
+        "observations",
+        "iot",
+        "w3c",
+        "ogc"
+      ],
+      "class_count": 22,
+      "property_count": 38,
+      "source": {
+        "kind": "bundled",
+        "path": "sosa_ssn.ttl",
+        "format": "turtle",
+        "upstream_url": "http://www.w3.org/ns/ssn/",
+        "license": "W3C Software and Document License; OGC Software Notice",
+        "retrieved": "2026-08-23",
+        "note": "SOSA (http://www.w3.org/ns/sosa/) and SSN merged into one document. SSN owl:imports SOSA and is close to useless without it, and the catalog importer parses a single document rather than following imports. Both owl:Ontology declarations are preserved."
+      }
+    },
+    {
+      "id": "vsso",
+      "name": "VSSo (Vehicle Signal Specification Ontology)",
+      "description": "The COVESA Vehicle Signal Specification expressed as an ontology: a standardised taxonomy of vehicle components and their observable and actuatable properties, from Powertrain and Chassis down to individual sensor and actuator signals. The core vocabulary supplies the structural relations -- Vehicle, VehicleComponent, partOf, partOfVehicle, belongsToVehicleComponent, and the Static/Dynamic/Observable/Actuatable VehicleProperty split -- so component containment is expressed as containment and a reading is a property of a component, rather than both being collapsed into rdfs:subClassOf. That collapse is the single most common way an extracted vehicle hierarchy goes wrong.",
+      "uri": "https://github.com/w3c/vsso#",
+      "version": "v2.0 (VSS release 2.2)",
+      "tier": "domain",
+      "tags": [
+        "automotive",
+        "vehicle",
+        "signals",
+        "covesa",
+        "vss"
+      ],
+      "class_count": 516,
+      "property_count": 9,
+      "source": {
+        "kind": "bundled",
+        "path": "vsso.ttl",
+        "format": "turtle",
+        "upstream_url": "https://github.com/w3c/vsso/blob/gh-pages/spec/vss_rel_2.2.ttl",
+        "license": "CC BY 4.0",
+        "retrieved": "2026-08-23",
+        "note": "vsso-core.ttl (structural vocabulary) and vss_rel_2.2.ttl (generated component catalogue) merged into one document; either alone is half the ontology. Bundled rather than fetched because the published location is a gh-pages branch path."
       }
     }
   ]

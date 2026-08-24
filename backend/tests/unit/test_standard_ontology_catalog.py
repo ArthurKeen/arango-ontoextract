@@ -226,6 +226,91 @@ def test_bundled_dcterms_file_is_real_turtle() -> None:
     assert len(g) > 0, "bundled DCMI Turtle should produce at least one triple"
 
 
+class TestUpperAndDomainBundles:
+    """The three ontologies added for the upper-ontology work (Q15 / §6.21).
+
+    Each is bundled rather than fetched, so the file on disk IS the ontology a
+    user gets. These tests check that what ships is what the catalog claims:
+    a document that parses, declaring the concepts the entry advertises.
+    """
+
+    ENTRIES = ("bfo", "sosa-ssn", "vsso")
+
+    def _graph(self, path: str):
+        import importlib.resources as _resources
+
+        from rdflib import Graph as RDFGraph
+
+        raw = _resources.files("app.data.ontologies").joinpath(path).read_bytes()
+        g = RDFGraph()
+        g.parse(data=raw.decode("utf-8"), format="turtle")
+        return g
+
+    @pytest.mark.parametrize("catalog_id", ENTRIES)
+    def test_entry_is_bundled_and_its_file_parses(self, catalog_id: str) -> None:
+        entry = svc.get_catalog_entry(catalog_id)
+        assert entry is not None, f"{catalog_id} missing from the catalog"
+        source = entry["source"]
+        assert source["kind"] == "bundled"
+        g = self._graph(source["path"])
+        assert len(g) > 100, f"{catalog_id} bundle looks truncated"
+
+    @pytest.mark.parametrize("catalog_id", ENTRIES)
+    def test_provenance_and_licence_are_recorded(self, catalog_id: str) -> None:
+        """Redistributing someone else's ontology without saying whose it is,
+        which version, and under what licence is not acceptable."""
+        source = svc.get_catalog_entry(catalog_id)["source"]
+        for field in ("upstream_url", "license", "retrieved"):
+            assert source.get(field), f"{catalog_id} bundle is missing {field}"
+
+    def test_bfo_carries_the_continuant_occurrent_split(self) -> None:
+        """The reason to adopt BFO at all: things that persist vs things that
+        happen. A tyre is a continuant; a fault event is an occurrent."""
+        from rdflib import RDFS
+
+        labels = {str(o).lower() for o in self._graph("bfo_core.ttl").objects(None, RDFS.label)}
+        for concept in ("continuant", "occurrent", "quality", "role", "disposition", "process"):
+            assert concept in labels, f"BFO bundle has no '{concept}'"
+
+    def test_sosa_ssn_carries_the_observation_pattern(self) -> None:
+        """SSN alone is close to useless -- the four classes that make a sensor
+        reading modellable live in SOSA, which is why they are merged."""
+        g = self._graph("sosa_ssn.ttl")
+        uris = {str(s) for s in g.subjects()}
+        for local in ("Sensor", "Observation", "ObservableProperty", "FeatureOfInterest"):
+            assert f"http://www.w3.org/ns/sosa/{local}" in uris, f"missing sosa:{local}"
+        # And SSN's own layer on top.
+        assert "http://www.w3.org/ns/ssn/System" in uris
+
+    def test_vsso_carries_both_the_structure_and_the_taxonomy(self) -> None:
+        """vsso-core supplies the relations, the generated catalogue supplies
+        the ~500 components; either half alone is not the ontology."""
+        g = self._graph("vsso.ttl")
+        uris = {str(s) for s in g.subjects()}
+        for local in ("Vehicle", "VehicleComponent", "partOf", "ObservableVehicleProperty"):
+            assert f"https://github.com/w3c/vsso-core#{local}" in uris, (
+                f"core vocabulary missing vsso-core:{local}"
+            )
+
+        from rdflib import OWL, RDF, URIRef
+
+        named = [c for c in g.subjects(RDF.type, OWL.Class) if isinstance(c, URIRef)]
+        assert len(named) > 400, f"component taxonomy missing (only {len(named)} classes)"
+
+    @pytest.mark.parametrize("catalog_id", ENTRIES)
+    def test_advertised_class_count_matches_the_bundle(self, catalog_id: str) -> None:
+        """A catalog that lies about size sends a curator into a 500-class
+        import expecting 20."""
+        from rdflib import OWL, RDF, URIRef
+
+        entry = svc.get_catalog_entry(catalog_id)
+        g = self._graph(entry["source"]["path"])
+        actual = len([c for c in g.subjects(RDF.type, OWL.Class) if isinstance(c, URIRef)])
+        assert actual == entry["class_count"], (
+            f"{catalog_id} advertises {entry['class_count']} classes, bundle has {actual}"
+        )
+
+
 # --- HTTP layer ------------------------------------------------------------
 
 

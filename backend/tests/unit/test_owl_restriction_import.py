@@ -16,6 +16,7 @@ returned stats dict carries ``restrictions_imported``.
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import MagicMock, patch
 
 from rdflib import Graph as RDFGraph
@@ -533,3 +534,77 @@ class TestImportOwlToGraphReturnsRestrictionsCount:
         assert kwargs["ontology_id"] == "onto_1"
         assert "rdf_graph" in kwargs
         assert result["restrictions_imported"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Blank-node classes must never be materialized
+# ---------------------------------------------------------------------------
+
+
+class TestAnonymousClassExpressionsAreSkipped:
+    """An ``owl:Restriction`` is a class expression, not a concept.
+
+    Found by importing BFO 2020: 36 named classes came in alongside 48
+    anonymous restriction nodes, each materialized as a "class" labelled with
+    rdflib's internal hex id. Two thirds of the imported ontology was noise the
+    curator would have had to recognise and delete by hand — and on the canvas
+    it is indistinguishable from a real concept.
+    """
+
+    def _run(self, ttl: str):
+        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+        created: list[dict] = []
+
+        def _create_class(_db, *, ontology_id, data, created_by):
+            created.append(data)
+            return {"_id": f"ontology_classes/{len(created)}", "_key": str(len(created))}
+
+        def _create_prop(_db, *, collection=None, ontology_id=None, data=None, created_by=None):
+            return {"_id": f"{collection}/x", "_key": "x"}
+
+        # Property/edge writing goes through the mocked db; a failure there
+        # does not affect what we assert about classes.
+        with (
+            patch("app.services.arangordf_bridge.create_class", side_effect=_create_class),
+            patch("app.services.arangordf_bridge._ensure_import_collections"),
+            contextlib.suppress(Exception),
+        ):
+            _import_with_rdflib_fallback(db, rdf_graph=_parse(ttl), ontology_id="o1")
+        return created
+
+    def test_restriction_nodes_do_not_become_classes(self):
+        ttl = (
+            _PREFIXES
+            + """
+        :Tyre a owl:Class ;
+            rdfs:subClassOf [ a owl:Restriction ;
+                              owl:onProperty :hasPressure ;
+                              owl:minCardinality "1"^^xsd:nonNegativeInteger ] .
+        :hasPressure a owl:DatatypeProperty .
+        """
+        )
+        labels = [c["label"] for c in self._run(ttl)]
+        assert labels == ["Tyre"], f"anonymous restriction leaked in: {labels}"
+
+    def test_named_classes_still_import(self):
+        ttl = _PREFIXES + ":Tyre a owl:Class . :Vehicle a owl:Class .\n"
+        assert sorted(c["label"] for c in self._run(ttl)) == ["Tyre", "Vehicle"]
+
+    def test_intersection_members_do_not_become_classes(self):
+        ttl = (
+            _PREFIXES
+            + """
+        :WinterTyre a owl:Class ;
+            owl:equivalentClass [ a owl:Class ;
+                                  owl:intersectionOf ( :Tyre [ a owl:Restriction ;
+                                        owl:onProperty :hasSeason ;
+                                        owl:hasValue :Winter ] ) ] .
+        :Tyre a owl:Class .
+        :hasSeason a owl:ObjectProperty .
+        """
+        )
+        labels = sorted(c["label"] for c in self._run(ttl))
+        assert labels == ["Tyre", "WinterTyre"], f"anonymous nodes leaked in: {labels}"

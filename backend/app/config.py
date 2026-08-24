@@ -307,6 +307,22 @@ class Settings(BaseSettings):
     #: "surgeon" loop (SO.3) and A-box layer (SO.4) remain out of scope.
     structural_gate_enabled: bool = True
 
+    # -- Subsumption judge (PRD §6.2 FR-2.20) ------------------------------
+    #: Second-opinion LLM pass over every candidate ``rdfs:subClassOf`` edge,
+    #: asking only "is every X a Y?". Default ON: measurement on the 1688-class
+    #: JLR extraction put ~52% of the 753 subclass edges at non-subsumption
+    #: (part-of and attribute-of dominating), and a wrong hierarchy poisons
+    #: every downstream traversal, roll-up and export.
+    #:
+    #: The judge never deletes an edge -- it stamps a verdict the curator can
+    #: act on -- so enabling it cannot lose extraction output. Cost is one LLM
+    #: call per 25 candidate edges. Set to ``False`` to skip the pass entirely.
+    subsumption_judge_enabled: bool = True
+
+    #: Model for the subsumption judge. Empty string falls back to
+    #: ``llm_extraction_model`` so a deployment need only set one model name.
+    subsumption_judge_model: str = ""
+
     # -- Observability (Stream 7 PR 2 -- E.1, OpenTelemetry) ---------------
     #: Master kill-switch for OpenTelemetry tracing. Default OFF so a
     #: fresh ``pip install`` deployment has zero runtime cost and zero

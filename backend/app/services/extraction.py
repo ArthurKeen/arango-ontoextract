@@ -386,6 +386,12 @@ async def execute_run(
         # than zeros.
         belief_revision_summary = final_state.get("belief_revision_summary")
 
+        # FR-2.20: same treatment for the subsumption judge -- candidate /
+        # judged / flagged counts plus the flagged edges, so the Pipeline
+        # Monitor can show "N of M subClassOf edges failed the is-a test"
+        # without parsing audit step_logs. ``None`` means the judge never ran.
+        subsumption_report = final_state.get("subsumption_report")
+
         # IMG.7: surface a non-blocking warning when visual-heavy inputs
         # produce many parent-less classes. Skip entirely when no
         # consistency_result was produced (failed run) -- no classes to
@@ -478,6 +484,7 @@ async def execute_run(
                 "properties_extracted": properties_extracted,
                 "pass_agreement_rate": pass_agreement_rate,
                 "belief_revision": belief_revision_summary,
+                "subsumption": subsumption_report,
                 "visual_extraction_summary": visual_summary,
                 "detected_domains": detected_domains,
                 "warnings": warnings_list,
@@ -669,6 +676,7 @@ async def execute_run(
         EXTRACTION_DURATION.observe(max(0.0, time.time() - started_at))
         partial_logs: list[dict[str, Any]] = []
         partial_belief_revision: dict[str, Any] | None = None
+        partial_subsumption: dict[str, Any] | None = None
         if final_state and final_state.get("step_logs"):
             partial_logs = [_serialize_step_log(sl) for sl in final_state["step_logs"]]
         if final_state:
@@ -678,6 +686,7 @@ async def execute_run(
             # touchpoints, then pipeline failed". ``None`` means the
             # crash happened before the IBR node fired.
             partial_belief_revision = final_state.get("belief_revision_summary")
+            partial_subsumption = final_state.get("subsumption_report")
         col.update(
             {
                 "_key": run_id,
@@ -689,6 +698,7 @@ async def execute_run(
                     "step_logs": partial_logs,
                     "token_usage": (final_state.get("token_usage", {}) if final_state else {}),
                     "belief_revision": partial_belief_revision,
+                    "subsumption": partial_subsumption,
                 },
             }
         )
@@ -1052,6 +1062,9 @@ def get_run_cost(
         # ``status`` / ``reason`` so the frontend can distinguish
         # "ran with N revisions" from "skipped: feature_flag_off".
         "belief_revision": stats.get("belief_revision"),
+        # FR-2.20 subsumption-judge summary; ``None`` on runs that predate the
+        # judge or where it was disabled.
+        "subsumption": stats.get("subsumption"),
     }
 
 
@@ -1271,7 +1284,7 @@ def _materialize_to_graph(
     class_keys: dict[str, str] = {}  # label -> key (legacy name; really label_to_key)
     uri_to_key: dict[str, str] = {}  # full URI -> key
     fragment_to_key: dict[str, str] = {}  # URI fragment -> key (for resolver tier 2)
-    class_parent_uris: list[tuple[str, str, list[dict[str, Any]]]] = []
+    class_parent_uris: list[tuple[str, str, list[dict[str, Any]], dict[str, Any] | None]] = []
     deferred_rels: list[dict[str, Any]] = []
     # Stream 3 PR 1 -- OWL restrictions get materialized AFTER all
     # properties (attributes + relationships) so that ``property_uri``
@@ -1325,7 +1338,14 @@ def _materialize_to_graph(
 
         parent_uri = cls_data.get("parent_uri")
         if parent_uri:
-            class_parent_uris.append((key, parent_uri, cls_data.get("parent_evidence", [])))
+            class_parent_uris.append(
+                (
+                    key,
+                    parent_uri,
+                    cls_data.get("parent_evidence", []),
+                    cls_data.get("subsumption_verdict"),
+                )
+            )
 
         # --- PGT-aligned property handling ---
         attributes: list[dict[str, Any]] = cls_data.get("attributes", [])
@@ -1457,23 +1477,28 @@ def _materialize_to_graph(
             deferred_constraints.append((key, raw_constraints, class_prop_uri_map))
 
     # subclass_of edges
-    for child_key, parent_uri, parent_evidence in class_parent_uris:
+    for child_key, parent_uri, parent_evidence, verdict in class_parent_uris:
         parent_key = uri_to_key.get(parent_uri)
         if not parent_key:
             parent_frag = parent_uri.split("#")[-1].split("/")[-1]
             parent_key = class_keys.get(parent_frag) or class_keys.get(parent_uri)
         if parent_key and parent_key != child_key:
             with contextlib.suppress(Exception):
-                subclass_col.insert(
-                    {
-                        "_from": f"ontology_classes/{child_key}",
-                        "_to": f"ontology_classes/{parent_key}",
-                        "ontology_id": ontology_id,
-                        "evidence": parent_evidence,
-                        "created": now,
-                        "expired": NEVER_EXPIRES,
-                    }
-                )
+                edge_doc: dict[str, Any] = {
+                    "_from": f"ontology_classes/{child_key}",
+                    "_to": f"ontology_classes/{parent_key}",
+                    "ontology_id": ontology_id,
+                    "evidence": parent_evidence,
+                    "created": now,
+                    "expired": NEVER_EXPIRES,
+                }
+                # FR-2.20 -- the judge flags rather than deletes, so a rejected
+                # edge is still written, carrying the verdict a curator acts on.
+                # Added conditionally so a judge-disabled run writes the exact
+                # same edge document as before.
+                if verdict is not None:
+                    edge_doc["subsumption_verdict"] = verdict
+                subclass_col.insert(edge_doc)
         elif parent_key == child_key:
             log.warning("skipping self-referential subclass_of: %s", child_key)
 

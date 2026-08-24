@@ -136,6 +136,21 @@ Visual-extraction guidelines (in addition to the standard tier-1 rules):
   the class exists. Emit the class with ``parent_uri`` matching the \
   surrounding section's class when the deck structure makes that obvious; \
   otherwise leave ``parent_uri`` ``null`` and confidence ~0.5.
+- SUBCLASS DISCIPLINE. Before emitting `parent_uri`, apply the is-a test:
+  "is EVERY <child> a <parent>?" If not, DO NOT emit a parent. Observed
+  mistakes in this domain, all of which are wrong:
+    Airbag              -> Supplementary Restraint System   (part of, not a kind of)
+    Hose                -> Portable Rinse System            (part of)
+    Tyre                -> Vehicle                          (fitted to, not a kind of)
+    Roof Rack           -> Vehicle                          (accessory)
+    Speed Rating        -> Tyre                             (a property of a tyre)
+    Manufacturer Instructions -> Tyre                       (a document about it)
+    Safety Feature      -> Vehicle Component                (a capability, not a part)
+  Correct subsumptions look like:
+    Winter Tyre -> Tyre,  Unleaded Fuel -> Fuel Type,  Child Seat -> Child Restraint
+  A shared word is NOT evidence: "Tyre Pressure" is not a kind of "Tyre".
+  When the real link is part-of / attribute-of / about, express it as a
+  RELATIONSHIP instead, and leave `parent_uri` unset.
 - Cite source evidence for every class, parent_uri, attribute, and \
   relationship using the ``source_chunk_id`` values shown in chunk headers.
 - For object-property evidence, prefer slide titles + body text over \

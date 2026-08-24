@@ -147,3 +147,80 @@ class TestHasChunkEdges:
         )
 
         cols["has_chunk"].insert.assert_not_called()
+
+
+class TestSubsumptionVerdictOnSubclassEdge:
+    """FR-2.20: a rejected subClassOf edge is still written, carrying the verdict.
+
+    Dropping the edge would be the easy implementation and the wrong one: a
+    curator can act on a flagged edge but cannot act on one that vanished
+    between extraction and the graph.
+    """
+
+    def _mock_db(self):
+        mock_db = MagicMock()
+        mock_db.has_collection.return_value = True
+        collections = {}
+        for name in (
+            "ontology_classes",
+            "ontology_properties",
+            "has_property",
+            "subclass_of",
+            "related_to",
+            "extracted_from",
+            "has_chunk",
+            "produced_by",
+        ):
+            col = MagicMock()
+            col.insert.return_value = {}
+            collections[name] = col
+        mock_db.collection.side_effect = lambda name: collections.get(name, MagicMock())
+        mock_db.aql.execute.return_value = iter([])
+        return mock_db, collections
+
+    def _run(self, verdict):
+        from app.models.ontology import ExtractedClass
+        from app.services.extraction import _materialize_to_graph
+
+        mock_db, cols = self._mock_db()
+        child = ExtractedClass(
+            uri="http://x#Airbag",
+            label="Airbag",
+            description="",
+            parent_uri="http://x#SRS",
+            confidence=0.9,
+            subsumption_verdict=verdict,
+        )
+        parent = ExtractedClass(uri="http://x#SRS", label="SRS", description="", confidence=0.9)
+        result = MagicMock()
+        result.classes = [child, parent]
+
+        _materialize_to_graph(
+            mock_db,
+            run_id="run_1",
+            document_id="doc_1",
+            ontology_id="onto_1",
+            result=result,
+        )
+        edges = [call[0][0] for call in cols["subclass_of"].insert.call_args_list]
+        return [e for e in edges if e["_from"].endswith("/Airbag")]
+
+    def test_rejected_edge_is_written_with_its_verdict(self):
+        verdict = {"is_a": False, "relation": "part-of", "reason": "component of"}
+        edges = self._run(verdict)
+
+        assert len(edges) == 1, "a failing verdict must not delete the edge"
+        assert edges[0]["subsumption_verdict"] == verdict
+
+    def test_passing_edge_carries_the_verdict_too(self):
+        edges = self._run({"is_a": True, "relation": "is-a", "reason": "genuine"})
+
+        assert len(edges) == 1
+        assert edges[0]["subsumption_verdict"]["is_a"] is True
+
+    def test_unjudged_edge_is_byte_identical_to_a_pre_judge_run(self):
+        """Judge-disabled runs must write exactly the document they wrote before."""
+        edges = self._run(None)
+
+        assert len(edges) == 1
+        assert "subsumption_verdict" not in edges[0]

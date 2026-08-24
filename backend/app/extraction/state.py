@@ -63,6 +63,12 @@ class ExtractionPipelineState(TypedDict, total=False):
 
     qualitative_evaluation: dict[str, Any]
 
+    # Subsumption judge (PRD §6.2 FR-2.20). One summary dict per run:
+    # candidate/judged/flagged counts plus the flagged edges themselves.
+    # ``None`` when the judge is disabled or had nothing to judge. No
+    # reducer -- replaced wholesale by the node's single write.
+    subsumption_report: dict[str, Any] | None
+
     domain_context: str
 
     # Domain detection (Stream 16 DD.1).

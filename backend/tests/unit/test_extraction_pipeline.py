@@ -159,7 +159,9 @@ class TestNextStepsMapping:
         assert _NEXT_STEPS["er_agent"] == ["belief_revision"]
         # Stream 15 SO.1: structural_gate sits between belief_revision and filter.
         assert _NEXT_STEPS["belief_revision"] == ["structural_gate"]
-        assert _NEXT_STEPS["structural_gate"] == ["filter"]
+        # FR-2.20: the subsumption judge is the last stop before curation.
+        assert _NEXT_STEPS["structural_gate"] == ["subsumption_judge"]
+        assert _NEXT_STEPS["subsumption_judge"] == ["filter"]
 
     def test_filter_not_in_next_steps(self):
         assert "filter" not in _NEXT_STEPS

@@ -854,7 +854,10 @@ class TestPipelineTopologyWiring:
         from app.extraction.pipeline import _NEXT_STEPS
 
         assert _NEXT_STEPS["belief_revision"] == ["structural_gate"]
-        assert _NEXT_STEPS["structural_gate"] == ["filter"]
+        # FR-2.20 then inserted the subsumption judge between the gate and the
+        # curation breakpoint.
+        assert _NEXT_STEPS["structural_gate"] == ["subsumption_judge"]
+        assert _NEXT_STEPS["subsumption_judge"] == ["filter"]
 
     def test_build_pipeline_includes_belief_revision_node(self) -> None:
         from app.extraction.pipeline import build_pipeline

@@ -116,6 +116,21 @@ Guidelines:
   http://example.org/domain#ClassName. NEVER emit the literal word
   "namespace" as the host — that placeholder has shipped into real
   ontologies and produces invalid RDF on export.
+- SUBCLASS DISCIPLINE. Before emitting `parent_uri`, apply the is-a test:
+  "is EVERY <child> a <parent>?" If not, DO NOT emit a parent. Observed
+  mistakes in this domain, all of which are wrong:
+    Airbag              -> Supplementary Restraint System   (part of, not a kind of)
+    Hose                -> Portable Rinse System            (part of)
+    Tyre                -> Vehicle                          (fitted to, not a kind of)
+    Roof Rack           -> Vehicle                          (accessory)
+    Speed Rating        -> Tyre                             (a property of a tyre)
+    Manufacturer Instructions -> Tyre                       (a document about it)
+    Safety Feature      -> Vehicle Component                (a capability, not a part)
+  Correct subsumptions look like:
+    Winter Tyre -> Tyre,  Unleaded Fuel -> Fuel Type,  Child Seat -> Child Restraint
+  A shared word is NOT evidence: "Tyre Pressure" is not a kind of "Tyre".
+  When the real link is part-of / attribute-of / about, express it as a
+  RELATIONSHIP instead, and leave `parent_uri` unset.
 - Assign confidence scores: 1.0 for explicitly stated, lower for inferred
 - Cite source evidence for every class, parent_uri, attribute, and relationship. \
   Use the `source_chunk_id` values shown in chunk headers. Keep `evidence_text` \

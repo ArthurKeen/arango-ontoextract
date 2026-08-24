@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -302,6 +302,12 @@ class ExtractedClass(BaseModel):
     property_agreement: float = Field(default=1.0, ge=0.0, le=1.0)
     attribute_agreement: float = Field(default=1.0, ge=0.0, le=1.0)
     relationship_agreement: float = Field(default=1.0, ge=0.0, le=1.0)
+    # FR-2.20 -- verdict from the subsumption judge on THIS class's
+    # ``parent_uri`` edge. ``None`` means the edge was never judged (judge
+    # disabled, no parent, or the judge errored) which is deliberately
+    # distinct from "judged and passed". Shape:
+    # ``{"is_a": bool, "relation": str, "reason": str}``.
+    subsumption_verdict: dict[str, Any] | None = None
 
 
 class ExtractedProperty(BaseModel):

@@ -23,6 +23,7 @@ from app.extraction.agents.filter import filter_agent_node
 from app.extraction.agents.strategy import strategy_selector_node
 from app.extraction.agents.structural_gate import structural_gate_node
 from app.extraction.judges.quality_judge_node import quality_judge_node
+from app.extraction.judges.subsumption_node import subsumption_judge_node
 from app.extraction.state import ExtractionPipelineState
 
 log = logging.getLogger(__name__)
@@ -37,7 +38,8 @@ _NEXT_STEPS: dict[str, list[str]] = {
     "quality_judge": ["belief_revision"],
     "er_agent": ["belief_revision"],
     "belief_revision": ["structural_gate"],
-    "structural_gate": ["filter"],
+    "structural_gate": ["subsumption_judge"],
+    "subsumption_judge": ["filter"],
 }
 
 
@@ -108,6 +110,7 @@ def build_pipeline() -> StateGraph[Any]:
     graph.add_node("er_agent", er_agent_node)
     graph.add_node("belief_revision", belief_revision_node)
     graph.add_node("structural_gate", structural_gate_node)
+    graph.add_node("subsumption_judge", subsumption_judge_node)
     graph.add_node("filter", filter_agent_node)
 
     graph.set_entry_point("strategy_selector")
@@ -147,7 +150,11 @@ def build_pipeline() -> StateGraph[Any]:
     # curation. The node is a transparent pass-through when
     # ``settings.structural_gate_enabled`` is False.
     graph.add_edge("belief_revision", "structural_gate")
-    graph.add_edge("structural_gate", "filter")
+    # FR-2.20: the subsumption judge runs after the deterministic repairs
+    # and before the curation breakpoint, so flagged subClassOf edges are
+    # visible to the curator rather than discovered after materialization.
+    graph.add_edge("structural_gate", "subsumption_judge")
+    graph.add_edge("subsumption_judge", "filter")
 
     graph.add_conditional_edges(
         "filter",

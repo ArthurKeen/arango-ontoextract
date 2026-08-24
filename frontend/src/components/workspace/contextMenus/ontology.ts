@@ -54,7 +54,11 @@ export function buildOntologyContextMenu(
         if (!ontKey) return;
         const n = String(data.name ?? data.label ?? ontKey).trim();
         const d = typeof data.description === "string" ? data.description : "";
-        actions.setRenameOntology({ key: ontKey, name: n || ontKey, description: d });
+        actions.setRenameOntology({
+          key: ontKey,
+          name: n || ontKey,
+          description: d,
+        });
       },
     },
     {
@@ -135,6 +139,16 @@ export function buildOntologyContextMenu(
       },
     },
     {
+      // FR-2.20: hierarchy links the extraction judge rejected (overlay §9).
+      label: "Subsumption Review…",
+      icon: "⚠️",
+      onClick: () => {
+        if (!ontKey) return;
+        const n = String(data.name ?? data.label ?? ontKey).trim();
+        actions.setSubsumptionReview({ key: ontKey, name: n || ontKey });
+      },
+    },
+    {
       // Stream 21: A-box instance lens (overlay §9).
       label: "View Instances (A-box)…",
       icon: "📎",
@@ -203,7 +217,8 @@ export function buildOntologyContextMenu(
       danger: true,
       onClick: () => {
         if (!ontKey) return;
-        const displayName = String(data.name ?? data.label ?? ontKey).trim() || ontKey;
+        const displayName =
+          String(data.name ?? data.label ?? ontKey).trim() || ontKey;
         // H.4: open the dedicated dialog so the user sees the cascade
         // dependency analysis before being asked to type the ontology
         // name. The dialog itself enforces the typed-name gate and

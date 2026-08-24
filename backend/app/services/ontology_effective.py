@@ -69,6 +69,7 @@ from app.services import label_overlay
 from app.services.edge_confidence import (
     compute_edge_confidence,
     enrich_rdfs_range_class_edges,
+    mark_subsumption_flag,
 )
 from app.services.ontology_projections import (
     INCLUDE_FULL,
@@ -209,6 +210,9 @@ def compute_effective_ontology(
         conf = compute_edge_confidence(edge)
         if conf is not None and edge.get("confidence") in (None, ""):
             edge["confidence"] = conf
+        # FR-2.20 -- the canvas reads THIS endpoint, so the judge's flag has to
+        # be stamped here too, not only on ``/edges``.
+        mark_subsumption_flag(edge)
 
     t = time.perf_counter()
     classes = _annotate_and_project(

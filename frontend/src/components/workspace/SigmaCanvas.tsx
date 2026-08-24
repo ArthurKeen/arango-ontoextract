@@ -213,7 +213,13 @@ const HOVER_SHADOW = "rgba(0,0,0,0.6)";
 
 function drawDarkNodeHover(
   context: CanvasRenderingContext2D,
-  data: { x: number; y: number; size: number; label?: string | null; color: string },
+  data: {
+    x: number;
+    y: number;
+    size: number;
+    label?: string | null;
+    color: string;
+  },
   settings: { labelSize: number; labelFont: string; labelWeight: string },
 ): void {
   const size = settings.labelSize;
@@ -360,8 +366,8 @@ export function computeFocusSet(
   // Multi-origin: a lasso selects many nodes at once, and focus must follow the
   // whole selection. Driving it from a single key meant a lasso turned dimming
   // OFF entirely, because the lasso clears the primary selection.
-  const starts = (typeof origins === "string" ? [origins] : origins).filter((o) =>
-    graph.hasNode(o),
+  const starts = (typeof origins === "string" ? [origins] : origins).filter(
+    (o) => graph.hasNode(o),
   );
   if (starts.length === 0) return new Set();
 
@@ -386,7 +392,16 @@ export function computeFocusSet(
 
 /* ── Topology graph (lens-independent positions & structure) ── */
 
-function buildTopologyGraph(classes: OntologyClass[], edges: OntologyEdge[]): Graph {
+/**
+ * Build the graphology graph the canvas renders from.
+ *
+ * Exported for testing: the structural decisions here (which edges are drawn,
+ * what their labels say) are worth pinning and need no WebGL to check.
+ */
+export function buildTopologyGraph(
+  classes: OntologyClass[],
+  edges: OntologyEdge[],
+): Graph {
   const graph = new Graph({ multi: true, type: "directed" });
 
   const classKeySet = new Set(classes.map((c) => c._key));
@@ -449,22 +464,32 @@ function buildTopologyGraph(classes: OntologyClass[], edges: OntologyEdge[]): Gr
     if (!classKeySet.has(fromKey) || !classKeySet.has(toKey)) continue;
     if (fromKey === toKey) continue;
 
-    const isHierarchy = edgeType === "subclass_of" || edgeType === "extends_domain";
+    const isHierarchy =
+      edgeType === "subclass_of" || edgeType === "extends_domain";
     const source = isHierarchy ? fromKey : fromKey;
     const target = isHierarchy ? toKey : toKey;
 
-    const displayLabel = edge.label || edgeType.replace(/_/g, " ");
+    // FR-2.20 -- mark hierarchy links the judge rejected. A glyph on the label
+    // rather than a colour, so the mark survives every lens: the confidence and
+    // curation lenses both repaint edge colour, and a mark that disappears when
+    // you switch lens is worse than no mark.
+    const flagged = edge.subsumption_flagged === true;
+    const rawLabel = edge.label || edgeType.replace(/_/g, " ");
+    const displayLabel = flagged ? `\u26A0 ${rawLabel}` : rawLabel;
 
     const baseEdgeColor = EDGE_COLORS[edgeType] ?? "#94a3b8";
     graph.addEdgeWithKey(edge._key, source, target, {
       label: displayLabel,
       baseLabel: displayLabel,
-      color: edge.is_imported ? dimColorForImported(baseEdgeColor) : baseEdgeColor,
+      color: edge.is_imported
+        ? dimColorForImported(baseEdgeColor)
+        : baseEdgeColor,
       size: edgeType === "subclass_of" ? 2.5 : 2,
       type: "curvedArrow",
       edgeKey: edge._key,
       edgeType,
       isImported: edge.is_imported === true,
+      subsumptionFlagged: flagged,
       sourceOntologyId: edge.source_ontology_id ?? null,
       sourceOntologyName: edge.source_ontology_name ?? null,
     });
@@ -552,7 +577,8 @@ function paintLensOnGraph(
     // time — the LLM-supplied relation label or the synthetic-edge fallback.
     // We need it for ``displayEdgeLabel`` so the confidence-lens append is
     // consistent with the non-confidence lens.
-    const baseLabel = (attrs.baseLabel as string | undefined) ?? String(attrs.label ?? "");
+    const baseLabel =
+      (attrs.baseLabel as string | undefined) ?? String(attrs.label ?? "");
     const domainEdge = edges.find((ed) => ed._key === ek);
     if (!domainEdge) {
       const synEdge: OntologyEdge = {
@@ -565,7 +591,11 @@ function paintLensOnGraph(
       const ev = lensEdgeVisual(synEdge, et, lens);
       g.setEdgeAttribute(eid, "color", ev.color);
       g.setEdgeAttribute(eid, "size", ev.size);
-      g.setEdgeAttribute(eid, "label", displayEdgeLabel(baseLabel, et, null, lens));
+      g.setEdgeAttribute(
+        eid,
+        "label",
+        displayEdgeLabel(baseLabel, et, null, lens),
+      );
       return;
     }
     const ev = lensEdgeVisual(domainEdge, et, lens);
@@ -698,21 +728,37 @@ export default function SigmaCanvas({
   const graphRef = useRef<Graph | null>(null);
   const [layoutRunning, setLayoutRunning] = useState(false);
   // Screen-space rectangle while a lasso drag is in progress (FR-7.8.18).
-  const [lassoRect, setLassoRect] = useState<
-    { x: number; y: number; w: number; h: number } | null
-  >(null);
+  const [lassoRect, setLassoRect] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
   // The mouseup handler is bound once, so it cannot close over `lassoRect`
   // state — it would always read the value from first render.
-  const lassoRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const lassoRectRef = useRef<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
   lassoRectRef.current = lassoRect;
   const lassoCleanupRef = useRef<(() => void) | null>(null);
 
   const stableClassesKey = useMemo(
-    () => classes.map((c) => c._key).sort().join(","),
+    () =>
+      classes
+        .map((c) => c._key)
+        .sort()
+        .join(","),
     [classes],
   );
   const stableEdgesKey = useMemo(
-    () => edges.map((e) => e._key).sort().join(","),
+    () =>
+      edges
+        .map((e) => e._key)
+        .sort()
+        .join(","),
     [edges],
   );
 
@@ -740,7 +786,14 @@ export default function SigmaCanvas({
 
   useEffect(() => {
     if (graph.order === 0) return;
-    paintLensOnGraph(graph, classes, edges, activeLens, visibleNodeKeys, ontologyTier);
+    paintLensOnGraph(
+      graph,
+      classes,
+      edges,
+      activeLens,
+      visibleNodeKeys,
+      ontologyTier,
+    );
     sigmaRef.current?.refresh();
   }, [graph, classes, edges, activeLens, visibleNodeKeys, ontologyTier]);
 
@@ -860,16 +913,18 @@ export default function SigmaCanvas({
       renderer.setSetting("enableCameraPanning", false);
     });
 
-    renderer.getMouseCaptor().on(
-      "mousemovebody",
-      (event: { x: number; y: number; preventSigmaDefault?: () => void }) => {
-        if (!isDragging || !draggedNode) return;
-        const pos = renderer.viewportToGraph({ x: event.x, y: event.y });
-        graph.setNodeAttribute(draggedNode, "x", pos.x);
-        graph.setNodeAttribute(draggedNode, "y", pos.y);
-        event.preventSigmaDefault?.();
-      },
-    );
+    renderer
+      .getMouseCaptor()
+      .on(
+        "mousemovebody",
+        (event: { x: number; y: number; preventSigmaDefault?: () => void }) => {
+          if (!isDragging || !draggedNode) return;
+          const pos = renderer.viewportToGraph({ x: event.x, y: event.y });
+          graph.setNodeAttribute(draggedNode, "x", pos.x);
+          graph.setNodeAttribute(draggedNode, "y", pos.y);
+          event.preventSigmaDefault?.();
+        },
+      );
 
     renderer.getMouseCaptor().on("mouseup", () => {
       if (draggedNode) {
@@ -986,7 +1041,12 @@ export default function SigmaCanvas({
         // outside the canvas for these inputs — which is why the lasso drew a
         // rectangle and selected nothing.
         const p = renderer.graphToViewport({ x: d.x, y: d.y });
-        if (p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h) {
+        if (
+          p.x >= box.x &&
+          p.x <= box.x + box.w &&
+          p.y >= box.y &&
+          p.y <= box.y + box.h
+        ) {
           picked.push(node);
         }
       });
@@ -1116,74 +1176,104 @@ export default function SigmaCanvas({
     );
 
     const needsReducer =
-      hasVisFilter || hasEdgeVisFilter || hasNodeSel || hasEdgeSel || !!focusSet || !!multiSelectedKeys?.size;
+      hasVisFilter ||
+      hasEdgeVisFilter ||
+      hasNodeSel ||
+      hasEdgeSel ||
+      !!focusSet ||
+      !!multiSelectedKeys?.size;
 
     if (!needsReducer) {
       s.setSetting("nodeReducer", null);
       s.setSetting("edgeReducer", null);
     } else {
-      s.setSetting("nodeReducer", (_node: string, data: Record<string, unknown>) => {
-        let d = data;
-        if (hasVisFilter && !visibleNodeKeys!.has(_node)) {
-          return { ...d, hidden: true };
-        }
-        // Dim, never hide: the shape of the surrounding graph is the context
-        // that makes the focused neighbourhood interpretable.
-        // Primary and shift-added selections render identically — a
-        // multi-selection should read as one thing, not a hierarchy.
-        const isSelected =
-          (hasNodeSel && _node === selectedNodeKey) || !!multiSelectedKeys?.has(_node);
+      s.setSetting(
+        "nodeReducer",
+        (_node: string, data: Record<string, unknown>) => {
+          let d = data;
+          if (hasVisFilter && !visibleNodeKeys!.has(_node)) {
+            return { ...d, hidden: true };
+          }
+          // Dim, never hide: the shape of the surrounding graph is the context
+          // that makes the focused neighbourhood interpretable.
+          // Primary and shift-added selections render identically — a
+          // multi-selection should read as one thing, not a hierarchy.
+          const isSelected =
+            (hasNodeSel && _node === selectedNodeKey) ||
+            !!multiSelectedKeys?.has(_node);
 
-        // Selection BEATS dimming. This check used to sit after the dim branch,
-        // which returned early — so shift-clicking a node outside the focus
-        // radius updated state and rendered nothing, making multi-select look
-        // broken. Anything the user explicitly picked must stay visible.
-        if (!isSelected && !inFocus(_node)) {
-          return { ...d, color: DIMMED_NODE_COLOR, label: "", zIndex: 0 };
-        }
-        if (isSelected) {
-          d = { ...d, highlighted: true, zIndex: 10 };
-        }
-        return d;
-      });
-      s.setSetting("edgeReducer", (edge: string, data: Record<string, unknown>) => {
-        const g = graphRef.current;
-        if (!g) return data;
-        if (focusSet) {
-          // Both endpoints must be in focus, otherwise a bright edge would
-          // trail off a dimmed node and read as a live connection.
-          if (!inFocus(g.source(edge)) || !inFocus(g.target(edge))) {
-            return { ...data, color: DIMMED_EDGE_COLOR, label: "", zIndex: 0 };
+          // Selection BEATS dimming. This check used to sit after the dim branch,
+          // which returned early — so shift-clicking a node outside the focus
+          // radius updated state and rendered nothing, making multi-select look
+          // broken. Anything the user explicitly picked must stay visible.
+          if (!isSelected && !inFocus(_node)) {
+            return { ...d, color: DIMMED_NODE_COLOR, label: "", zIndex: 0 };
           }
-        }
-        if (hasVisFilter) {
-          const src = g.source(edge);
-          const tgt = g.target(edge);
-          if (!visibleNodeKeys!.has(src) || !visibleNodeKeys!.has(tgt)) {
-            return { ...data, hidden: true };
+          if (isSelected) {
+            d = { ...d, highlighted: true, zIndex: 10 };
           }
-        }
-        if (hasEdgeVisFilter) {
-          const attrs = g.getEdgeAttributes(edge);
-          // ``edgeKey`` is the domain key (e.g. ``150170542``); the graphology
-          // ``edge`` may differ for synthetic edges (``syn-…`` prefix). The
-          // filter is keyed by the domain key the slider observed.
-          const ek = (attrs.edgeKey ?? edge) as string;
-          if (!visibleEdgeKeys!.has(ek)) {
-            return { ...data, hidden: true };
+          return d;
+        },
+      );
+      s.setSetting(
+        "edgeReducer",
+        (edge: string, data: Record<string, unknown>) => {
+          const g = graphRef.current;
+          if (!g) return data;
+          if (focusSet) {
+            // Both endpoints must be in focus, otherwise a bright edge would
+            // trail off a dimmed node and read as a live connection.
+            if (!inFocus(g.source(edge)) || !inFocus(g.target(edge))) {
+              return {
+                ...data,
+                color: DIMMED_EDGE_COLOR,
+                label: "",
+                zIndex: 0,
+              };
+            }
           }
-        }
-        if (hasEdgeSel) {
-          const attrs = g.getEdgeAttributes(edge);
-          if ((attrs.edgeKey ?? edge) === selectedEdgeKey) {
-            return { ...data, size: (data.size as number ?? 2) + 2, color: "#818cf8", zIndex: 10 };
+          if (hasVisFilter) {
+            const src = g.source(edge);
+            const tgt = g.target(edge);
+            if (!visibleNodeKeys!.has(src) || !visibleNodeKeys!.has(tgt)) {
+              return { ...data, hidden: true };
+            }
           }
-        }
-        return data;
-      });
+          if (hasEdgeVisFilter) {
+            const attrs = g.getEdgeAttributes(edge);
+            // ``edgeKey`` is the domain key (e.g. ``150170542``); the graphology
+            // ``edge`` may differ for synthetic edges (``syn-…`` prefix). The
+            // filter is keyed by the domain key the slider observed.
+            const ek = (attrs.edgeKey ?? edge) as string;
+            if (!visibleEdgeKeys!.has(ek)) {
+              return { ...data, hidden: true };
+            }
+          }
+          if (hasEdgeSel) {
+            const attrs = g.getEdgeAttributes(edge);
+            if ((attrs.edgeKey ?? edge) === selectedEdgeKey) {
+              return {
+                ...data,
+                size: ((data.size as number) ?? 2) + 2,
+                color: "#818cf8",
+                zIndex: 10,
+              };
+            }
+          }
+          return data;
+        },
+      );
     }
     s.refresh();
-  }, [visibleNodeKeys, visibleEdgeKeys, selectedNodeKey, selectedEdgeKey, focusNodeKey, focusHops, multiSelectedKeys]);
+  }, [
+    visibleNodeKeys,
+    visibleEdgeKeys,
+    selectedNodeKey,
+    selectedEdgeKey,
+    focusNodeKey,
+    focusHops,
+    multiSelectedKeys,
+  ]);
 
   const handleRelayout = useCallback((layout: LayoutType = "force") => {
     if (!graphRef.current || !sigmaRef.current) return;
@@ -1255,10 +1345,7 @@ export default function SigmaCanvas({
 
     if (!isFinite(x) || !isFinite(y)) return;
 
-    s.getCamera().animate(
-      { x, y, ratio: 0.35, angle: 0 },
-      { duration: 300 },
-    );
+    s.getCamera().animate({ x, y, ratio: 0.35, angle: 0 }, { duration: 300 });
   }, []);
 
   const focusEdge = useCallback((edgeKey: string) => {
@@ -1305,10 +1392,7 @@ export default function SigmaCanvas({
 
     if (!isFinite(x) || !isFinite(y)) return;
 
-    s.getCamera().animate(
-      { x, y, ratio: 0.35, angle: 0 },
-      { duration: 300 },
-    );
+    s.getCamera().animate({ x, y, ratio: 0.35, angle: 0 }, { duration: 300 });
   }, []);
 
   const getFocusSet = useCallback((): Set<string> | null => {
@@ -1342,7 +1426,17 @@ export default function SigmaCanvas({
     return () => {
       onViewportApi(null);
     };
-  }, [onViewportApi, fitAll, centerView, handleRelayout, setEdgeStyle, focusNode, focusEdge, getFocusSet, getAllNodeKeys]);
+  }, [
+    onViewportApi,
+    fitAll,
+    centerView,
+    handleRelayout,
+    setEdgeStyle,
+    focusNode,
+    focusEdge,
+    getFocusSet,
+    getAllNodeKeys,
+  ]);
 
   if (classes.length === 0) {
     return (

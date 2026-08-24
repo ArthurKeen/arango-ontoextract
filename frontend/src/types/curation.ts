@@ -38,6 +38,24 @@ export interface OntologyClass extends CuratedLabelFields {
 }
 
 /**
+ * One flagged ``subClassOf`` edge awaiting a curator's ruling (FR-2.20).
+ * Returned by ``GET /api/v1/ontology/{id}/subsumption/flagged``.
+ *
+ * Both labels are joined server-side because "Airbag → Supplementary Restraint
+ * System" is judgeable at a glance and a pair of document keys is not.
+ */
+export interface FlaggedSubsumption {
+  edge_key: string;
+  child_key: string;
+  child_label: string;
+  parent_key: string;
+  parent_label: string;
+  /** What the judge thinks the relation really is: part-of, attribute-of, … */
+  relation?: string | null;
+  reason?: string | null;
+}
+
+/**
  * A-box (assertion graph) types — FR-18.13 canvas rendering.
  *
  * Individuals are fetched on demand per class via
@@ -159,6 +177,13 @@ export interface OntologyEdge {
   source_ontology_id?: string;
   source_ontology_name?: string;
   is_imported?: boolean;
+  /**
+   * FR-2.20 — this ``subclass_of`` edge failed the judge's "is every X a Y?"
+   * test and no curator has ruled on it yet. One boolean rather than the whole
+   * verdict: the canvas only needs to know whether to mark the edge. The
+   * relation and the judge's reason live in the review queue.
+   */
+  subsumption_flagged?: boolean;
 }
 
 /**
@@ -178,9 +203,7 @@ export interface EffectiveSource {
 }
 
 export type EffectiveConflictKind =
-  | "duplicate_uri"
-  | "duplicate_label"
-  | "subclass_cycle_via_import";
+  "duplicate_uri" | "duplicate_label" | "subclass_cycle_via_import";
 
 export interface EffectiveConflict {
   kind: EffectiveConflictKind;

@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo, Suspense } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useMemo,
+  Suspense,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import LensToolbar, { type LensType } from "@/components/workspace/LensToolbar";
@@ -24,12 +31,15 @@ import AlignmentReviewOverlay from "@/components/workspace/AlignmentReviewOverla
 import RequirementsOverlay from "@/components/workspace/RequirementsOverlay";
 import IndividualsOverlay from "@/components/workspace/IndividualsOverlay";
 import LexiconQueueOverlay from "@/components/workspace/LexiconQueueOverlay";
+import SubsumptionReviewOverlay from "@/components/workspace/SubsumptionReviewOverlay";
 import FeedbackLearningOverlay from "@/components/workspace/FeedbackLearningOverlay";
 import CanvasLensLegend from "@/components/workspace/CanvasLensLegend";
 import ToastHost from "@/components/workspace/ToastHost";
 import EmptyCanvasState from "@/components/workspace/EmptyCanvasState";
 import FloatingDetailPanel from "@/components/workspace/FloatingDetailPanel";
-import ContextMenu, { type ContextMenuItem } from "@/components/workspace/ContextMenu";
+import ContextMenu, {
+  type ContextMenuItem,
+} from "@/components/workspace/ContextMenu";
 import {
   CONTEXT_MENU_BUILDERS,
   type WorkspaceContextMenuActions,
@@ -88,23 +98,29 @@ const EdgeRepairOverlay = dynamic(
   { ssr: false },
 );
 
-const SigmaCanvas = dynamic(() => import("@/components/workspace/SigmaCanvas"), {
-  ssr: false,
-  loading: () => (
-    <div className="h-full flex items-center justify-center bg-[#111118]">
-      <div className="animate-spin h-8 w-8 border-2 border-indigo-400 border-t-transparent rounded-full" />
-    </div>
-  ),
-});
+const SigmaCanvas = dynamic(
+  () => import("@/components/workspace/SigmaCanvas"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-[#111118]">
+        <div className="animate-spin h-8 w-8 border-2 border-indigo-400 border-t-transparent rounded-full" />
+      </div>
+    ),
+  },
+);
 
-const BoxArrowCanvas = dynamic(() => import("@/components/workspace/BoxArrowCanvas"), {
-  ssr: false,
-  loading: () => (
-    <div className="h-full flex items-center justify-center bg-[#111118]">
-      <div className="animate-spin h-8 w-8 border-2 border-indigo-400 border-t-transparent rounded-full" />
-    </div>
-  ),
-});
+const BoxArrowCanvas = dynamic(
+  () => import("@/components/workspace/BoxArrowCanvas"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-[#111118]">
+        <div className="animate-spin h-8 w-8 border-2 border-indigo-400 border-t-transparent rounded-full" />
+      </div>
+    ),
+  },
+);
 
 const VCRTimeline = dynamic(() => import("@/components/timeline/VCRTimeline"), {
   ssr: false,
@@ -149,7 +165,9 @@ export default function WorkspacePage() {
 
 function WorkspacePageInner() {
   const searchParams = useSearchParams();
-  const [selectedOntologyId, setSelectedOntologyId] = useState<string | null>(null);
+  const [selectedOntologyId, setSelectedOntologyId] = useState<string | null>(
+    null,
+  );
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
 
@@ -165,13 +183,17 @@ function WorkspacePageInner() {
 
   // Multi-selection (FR-7.8.18). Shift-click adds; shift-clicking a selected
   // node removes it, so a selection can be unpicked without starting over.
-  const [multiSelectedKeys, setMultiSelectedKeys] = useState<Set<string>>(new Set());
-  const [focusCoverage, setFocusCoverage] = useState<{ shown: number; total: number } | null>(
-    null,
+  const [multiSelectedKeys, setMultiSelectedKeys] = useState<Set<string>>(
+    new Set(),
   );
-  const [bulkParentDialog, setBulkParentDialog] = useState<
-    { mode: "create" | "existing"; keys: string[] } | null
-  >(null);
+  const [focusCoverage, setFocusCoverage] = useState<{
+    shown: number;
+    total: number;
+  } | null>(null);
+  const [bulkParentDialog, setBulkParentDialog] = useState<{
+    mode: "create" | "existing";
+    keys: string[];
+  } | null>(null);
   const [mergeDialogKeys, setMergeDialogKeys] = useState<string[] | null>(null);
 
   const handleNodeShiftSelect = useCallback((nodeKey: string) => {
@@ -232,11 +254,12 @@ function WorkspacePageInner() {
   /** Hide just the selected node (FR-7.8.17). */
   const hideSelectedNode = useCallback(() => {
     // Hides the whole selection when there is one; otherwise the single node.
-    const keys = multiSelectedKeys.size > 0
-      ? [...multiSelectedKeys]
-      : selectedNodeKey
-        ? [selectedNodeKey]
-        : [];
+    const keys =
+      multiSelectedKeys.size > 0
+        ? [...multiSelectedKeys]
+        : selectedNodeKey
+          ? [selectedNodeKey]
+          : [];
     if (keys.length === 0) return;
     setHiddenNodeKeys((prev) => {
       const next = new Set(prev);
@@ -249,13 +272,16 @@ function WorkspacePageInner() {
 
   /** The undo. Always one click away while anything is hidden. */
   const showAllHidden = useCallback(() => setHiddenNodeKeys(new Set()), []);
-  const [assetExplorerWidth, setAssetExplorerWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [assetExplorerWidth, setAssetExplorerWidth] =
+    useState(DEFAULT_PANEL_WIDTH);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [activeLens, setActiveLens] = useState<LensType>("semantic");
   const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>("network");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [ontologyName, setOntologyName] = useState<string | null>(null);
-  const [ontologyTier, setOntologyTier] = useState<"domain" | "local" | null>(null);
+  const [ontologyTier, setOntologyTier] = useState<"domain" | "local" | null>(
+    null,
+  );
   const [explorerLibraryNonce, setExplorerLibraryNonce] = useState(0);
   const [renameOntology, setRenameOntology] = useState<{
     key: string;
@@ -279,7 +305,8 @@ function WorkspacePageInner() {
   // extraction above. Opened from the canvas menu's "Extract from
   // Relational DB…" action; the overlay owns its connect/preview/commit
   // state machine, the page just needs an open flag + onImported.
-  const [showRelationalExtraction, setShowRelationalExtraction] = useState(false);
+  const [showRelationalExtraction, setShowRelationalExtraction] =
+    useState(false);
   const [dependencyOverlay, setDependencyOverlay] = useState<{
     key: string;
     name: string;
@@ -338,6 +365,12 @@ function WorkspacePageInner() {
     key: string;
     name: string;
   } | null>(null);
+  // FR-2.20: hierarchy links the extraction judge rejected. Opened from the
+  // ontology context menu's "Subsumption Review…" action.
+  const [subsumptionReview, setSubsumptionReview] = useState<{
+    key: string;
+    name: string;
+  } | null>(null);
   // H.4: typed-name + cascade-impact dialog for ontology deletion. The
   // context-menu builder requests this via ``actions.setOntologyDelete``;
   // the dialog itself fetches the impact analysis and calls
@@ -351,7 +384,9 @@ function WorkspacePageInner() {
   // ``requestConfirm``. ``null`` means no dialog is open. Per
   // ``ui-architecture.mdc`` §18 this surface replaces every ``window.confirm``
   // in the workspace.
-  const [pendingConfirm, setPendingConfirm] = useState<ConfirmRequest | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<ConfirmRequest | null>(
+    null,
+  );
   const requestConfirm = useCallback((request: ConfirmRequest) => {
     setPendingConfirm(request);
   }, []);
@@ -364,21 +399,22 @@ function WorkspacePageInner() {
   // pre-check ("Already imported" rejection without a round-trip).
   // Cleared when the user closes the canvas; refreshed every time
   // ``fetchGraphData`` resolves a fresh ``/effective`` payload.
-  const [effectiveSources, setEffectiveSources] = useState<EffectiveSource[]>([]);
+  const [effectiveSources, setEffectiveSources] = useState<EffectiveSource[]>(
+    [],
+  );
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
-  const [timelineVisibleKeys, setTimelineVisibleKeys] = useState<Set<string> | null>(null);
+  const [timelineVisibleKeys, setTimelineVisibleKeys] =
+    useState<Set<string> | null>(null);
   // Confidence-threshold slider state. Both axes default to ``null`` ("no
   // filter"); each becomes a ``Set`` only when the slider is dragged above
   // 0% in the Confidence lens. The page intersects the class set with
   // ``timelineVisibleKeys`` below so timeline + threshold compose, and the
   // edge set is forwarded directly to ``SigmaCanvas.visibleEdgeKeys``.
-  const [confidenceVisibleClasses, setConfidenceVisibleClasses] = useState<
-    Set<string> | null
-  >(null);
-  const [confidenceVisibleEdges, setConfidenceVisibleEdges] = useState<
-    Set<string> | null
-  >(null);
+  const [confidenceVisibleClasses, setConfidenceVisibleClasses] =
+    useState<Set<string> | null>(null);
+  const [confidenceVisibleEdges, setConfidenceVisibleEdges] =
+    useState<Set<string> | null>(null);
 
   /** Class-key visibility merged across every active filter (currently:
    *  VCR timeline ∩ confidence threshold). ``null`` means "no filter
@@ -411,7 +447,9 @@ function WorkspacePageInner() {
   }, [timelineVisibleKeys, confidenceVisibleClasses, hiddenNodeKeys, classes]);
 
   const [pipelineRunId, setPipelineRunId] = useState<string | null>(null);
-  const [pipelineSteps, setPipelineSteps] = useState<Map<string, StepStatus>>(new Map());
+  const [pipelineSteps, setPipelineSteps] = useState<Map<string, StepStatus>>(
+    new Map(),
+  );
   const [vcrTimestamp, setVcrTimestamp] = useState<number | null>(null);
 
   const stepTimelineEvents = useMemo(
@@ -427,8 +465,12 @@ function WorkspacePageInner() {
     let cancelled = false;
 
     const FRONTEND_STEPS = [
-      "strategy_selector", "extraction_agent", "consistency_checker",
-      "quality_judge", "entity_resolution_agent", "pre_curation_filter",
+      "strategy_selector",
+      "extraction_agent",
+      "consistency_checker",
+      "quality_judge",
+      "entity_resolution_agent",
+      "pre_curation_filter",
     ];
     const BACKEND_TO_FRONTEND: Record<string, string> = {
       strategy_selector: "strategy_selector",
@@ -441,7 +483,9 @@ function WorkspacePageInner() {
 
     async function load() {
       try {
-        const res = await fetch(backendUrl(`/api/v1/extraction/runs/${pipelineRunId}`));
+        const res = await fetch(
+          backendUrl(`/api/v1/extraction/runs/${pipelineRunId}`),
+        );
         if (!res.ok || cancelled) return;
         const run = await res.json();
 
@@ -449,8 +493,14 @@ function WorkspacePageInner() {
           setSelectedOntologyId((prev) => prev ?? run.ontology_id);
         }
 
-        const stepLogs: { step: string; status: string; started_at?: number; completed_at?: number; error?: string | null; metadata?: Record<string, unknown> }[] =
-          run?.stats?.step_logs ?? [];
+        const stepLogs: {
+          step: string;
+          status: string;
+          started_at?: number;
+          completed_at?: number;
+          error?: string | null;
+          metadata?: Record<string, unknown>;
+        }[] = run?.stats?.step_logs ?? [];
 
         const map = new Map<string, StepStatus>();
         for (const s of FRONTEND_STEPS) {
@@ -460,18 +510,26 @@ function WorkspacePageInner() {
         for (const log of stepLogs) {
           const key = BACKEND_TO_FRONTEND[log.step] ?? log.step;
           if (!map.has(key)) continue;
-          const status = log.status === "completed" || log.status === "skipped"
-            ? "completed"
-            : log.status === "failed" ? "failed"
-            : log.status === "running" ? "running"
-            : "pending";
-          const duration = log.started_at && log.completed_at
-            ? Math.round((log.completed_at - log.started_at) * 1000)
-            : undefined;
+          const status =
+            log.status === "completed" || log.status === "skipped"
+              ? "completed"
+              : log.status === "failed"
+                ? "failed"
+                : log.status === "running"
+                  ? "running"
+                  : "pending";
+          const duration =
+            log.started_at && log.completed_at
+              ? Math.round((log.completed_at - log.started_at) * 1000)
+              : undefined;
           map.set(key, {
             status: status as StepStatus["status"],
-            startedAt: log.started_at ? new Date(log.started_at * 1000).toISOString() : undefined,
-            completedAt: log.completed_at ? new Date(log.completed_at * 1000).toISOString() : undefined,
+            startedAt: log.started_at
+              ? new Date(log.started_at * 1000).toISOString()
+              : undefined,
+            completedAt: log.completed_at
+              ? new Date(log.completed_at * 1000).toISOString()
+              : undefined,
             error: log.error ?? undefined,
             data: { ...log.metadata, duration_ms: duration },
           });
@@ -484,7 +542,9 @@ function WorkspacePageInner() {
     }
 
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [pipelineRunId]);
 
   const resizingRef = useRef(false);
@@ -531,8 +591,11 @@ function WorkspacePageInner() {
         const match = res.data.find((o) => o._key === selectedOntologyId);
         if (!cancelled) {
           if (match) {
-            const display =
-              (match.name?.trim() || match.label?.trim() || match._key).trim();
+            const display = (
+              match.name?.trim() ||
+              match.label?.trim() ||
+              match._key
+            ).trim();
             setOntologyName(display);
             setOntologyTier(match.tier ?? null);
           } else {
@@ -544,7 +607,9 @@ function WorkspacePageInner() {
       }
     }
     loadName();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedOntologyId, explorerLibraryNonce]);
 
   const fetchGraphData = useCallback(async (ontologyId: string) => {
@@ -639,7 +704,9 @@ function WorkspacePageInner() {
         if (!cancelled) setProperties([]);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [graphViewMode, selectedOntologyId]);
 
   const classPropertiesMap = useMemo<Record<string, ClassBoxProperty[]>>(() => {
@@ -654,7 +721,8 @@ function WorkspacePageInner() {
     // rdfs_domain: _from = property doc ID, _to = class doc ID
     const map: Record<string, ClassBoxProperty[]> = {};
     for (const edge of edges) {
-      const edgeType = ((edge as unknown as Record<string, unknown>).edge_type ?? edge.type) as string;
+      const edgeType = ((edge as unknown as Record<string, unknown>)
+        .edge_type ?? edge.type) as string;
       if (edgeType !== "rdfs_domain") continue;
 
       const propKey = documentKey(edge._from);
@@ -667,7 +735,10 @@ function WorkspacePageInner() {
       map[classKey].push({
         _key: prop._key,
         label: prop.label,
-        range_datatype: prop.range_type ?? (prop as unknown as Record<string, unknown>).range_datatype as string | undefined,
+        range_datatype:
+          prop.range_type ??
+          ((prop as unknown as Record<string, unknown>).range_datatype as
+            string | undefined),
         status: prop.status,
       });
     }
@@ -705,7 +776,11 @@ function WorkspacePageInner() {
     };
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      )
+        return;
       if (e.key === "Escape") {
         setContextMenu(null);
         setDetailPanelOpen(false);
@@ -747,57 +822,66 @@ function WorkspacePageInner() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedOntologyId]);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    resizingRef.current = true;
-    startXRef.current = e.clientX;
-    startWidthRef.current = assetExplorerWidth;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      resizingRef.current = true;
+      startXRef.current = e.clientX;
+      startWidthRef.current = assetExplorerWidth;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
 
-    function onMouseMove(ev: MouseEvent) {
-      if (!resizingRef.current) return;
-      const delta = ev.clientX - startXRef.current;
-      const newWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidthRef.current + delta));
-      setAssetExplorerWidth(newWidth);
-    }
+      function onMouseMove(ev: MouseEvent) {
+        if (!resizingRef.current) return;
+        const delta = ev.clientX - startXRef.current;
+        const newWidth = Math.min(
+          MAX_PANEL_WIDTH,
+          Math.max(MIN_PANEL_WIDTH, startWidthRef.current + delta),
+        );
+        setAssetExplorerWidth(newWidth);
+      }
 
-    function onMouseUp() {
-      resizingRef.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    }
+      function onMouseUp() {
+        resizingRef.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+      }
 
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  }, [assetExplorerWidth]);
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    },
+    [assetExplorerWidth],
+  );
 
-  const handleSelectOntology = useCallback((ontologyId: string, displayName?: string) => {
-    setSelectedNodeKey(null);
-    setSelectedEdgeKey(null);
-    setDetailPanelOpen(false);
-    setGraphError(null);
-    setInfoPanelItem(null);
-    setPipelineRunId(null);
-    if (ontologyId === selectedOntologyId) {
-      fetchGraphData(ontologyId);
-    } else {
-      // Set the display name synchronously from the explorer's known label
-      // so the loading spinner shows the right ontology immediately. The
-      // background library fetch (in the loadName effect) still runs to
-      // refresh tier and to handle cases where displayName is absent
-      // (URL-param selection, run-completion auto-select). Without this,
-      // the spinner displays the previously selected ontology's name for
-      // the duration of the library round-trip -- the bug where switching
-      // to "WTW Ontology" briefly read "Loading Best Practices in
-      // Healthcare Survey Results Slides...".
-      setOntologyName(displayName ?? null);
-      setOntologyTier(null);
-      setSelectedOntologyId(ontologyId);
-    }
-  }, [selectedOntologyId, fetchGraphData]);
+  const handleSelectOntology = useCallback(
+    (ontologyId: string, displayName?: string) => {
+      setSelectedNodeKey(null);
+      setSelectedEdgeKey(null);
+      setDetailPanelOpen(false);
+      setGraphError(null);
+      setInfoPanelItem(null);
+      setPipelineRunId(null);
+      if (ontologyId === selectedOntologyId) {
+        fetchGraphData(ontologyId);
+      } else {
+        // Set the display name synchronously from the explorer's known label
+        // so the loading spinner shows the right ontology immediately. The
+        // background library fetch (in the loadName effect) still runs to
+        // refresh tier and to handle cases where displayName is absent
+        // (URL-param selection, run-completion auto-select). Without this,
+        // the spinner displays the previously selected ontology's name for
+        // the duration of the library round-trip -- the bug where switching
+        // to "WTW Ontology" briefly read "Loading Best Practices in
+        // Healthcare Survey Results Slides...".
+        setOntologyName(displayName ?? null);
+        setOntologyTier(null);
+        setSelectedOntologyId(ontologyId);
+      }
+    },
+    [selectedOntologyId, fetchGraphData],
+  );
 
   const handleNodeSelect = useCallback((classKey: string) => {
     // FR-7.8.19 — selection does NOT open the detail panel. Selection is now a
@@ -869,40 +953,54 @@ function WorkspacePageInner() {
 
   const handleSelectDocument = useCallback(async (docId: string) => {
     try {
-      const doc = await api.get<Record<string, unknown>>(`/api/v1/documents/${docId}`);
+      const doc = await api.get<Record<string, unknown>>(
+        `/api/v1/documents/${docId}`,
+      );
       setInfoPanelItem({ type: "document", data: doc });
     } catch {
       setInfoPanelItem({ type: "document", data: { _key: docId } });
     }
   }, []);
 
-  const handleSelectRun = useCallback((runId: string, ontologyId?: string) => {
-    setPipelineRunId(runId);
-    setVcrTimestamp(null);
-    setInfoPanelItem(null);
-    if (ontologyId && ontologyId !== selectedOntologyId) {
-      // Clear the previous ontology's name so the canvas's loading
-      // spinner falls back to the id rather than displaying the OLD
-      // ontology's name while the library fetch resolves the new one.
-      // Same race the explorer-click path used to hit; the run-card
-      // click path doesn't have the displayName in scope so we fall
-      // back to ``selectedOntologyId`` in the Loading text.
-      setOntologyName(null);
-      setOntologyTier(null);
-      setSelectedOntologyId(ontologyId);
-    }
-  }, [selectedOntologyId]);
+  const handleSelectRun = useCallback(
+    (runId: string, ontologyId?: string) => {
+      setPipelineRunId(runId);
+      setVcrTimestamp(null);
+      setInfoPanelItem(null);
+      if (ontologyId && ontologyId !== selectedOntologyId) {
+        // Clear the previous ontology's name so the canvas's loading
+        // spinner falls back to the id rather than displaying the OLD
+        // ontology's name while the library fetch resolves the new one.
+        // Same race the explorer-click path used to hit; the run-card
+        // click path doesn't have the displayName in scope so we fall
+        // back to ``selectedOntologyId`` in the Loading text.
+        setOntologyName(null);
+        setOntologyTier(null);
+        setSelectedOntologyId(ontologyId);
+      }
+    },
+    [selectedOntologyId],
+  );
 
   const handleAssetContextMenu = useCallback(
     (e: React.MouseEvent, type: string, data: unknown) => {
       e.preventDefault();
-      setContextMenu({ x: e.clientX, y: e.clientY, type, data: data as Record<string, unknown> });
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        type,
+        data: data as Record<string, unknown>,
+      });
     },
     [],
   );
 
   const handleSigmaContextMenu = useCallback(
-    (e: MouseEvent, type: "node" | "edge" | "canvas", data?: Record<string, unknown>) => {
+    (
+      e: MouseEvent,
+      type: "node" | "edge" | "canvas",
+      data?: Record<string, unknown>,
+    ) => {
       const cmType = type === "node" ? "class" : type;
       // FR-7.8.20 safety rule: right-clicking a node OUTSIDE the current
       // multi-selection collapses the selection to that node first. Without
@@ -915,13 +1013,22 @@ function WorkspacePageInner() {
           setSelectedNodeKey(key);
         }
       }
-      setContextMenu({ x: e.clientX, y: e.clientY, type: cmType, data: data ?? {} });
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        type: cmType,
+        data: data ?? {},
+      });
     },
     [multiSelectedKeys],
   );
 
   const handleDagContextMenu = useCallback(
-    (e: React.MouseEvent, type: "step" | "pipeline_canvas", data?: Record<string, unknown>) => {
+    (
+      e: React.MouseEvent,
+      type: "step" | "pipeline_canvas",
+      data?: Record<string, unknown>,
+    ) => {
       setContextMenu({ x: e.clientX, y: e.clientY, type, data: data ?? {} });
     },
     [],
@@ -931,23 +1038,26 @@ function WorkspacePageInner() {
     dagApiRef.current = a;
   }, []);
 
-  const deleteRun = useCallback(async (key: string) => {
-    try {
-      await api.del(`/api/v1/extraction/runs/${key}`);
-      if (pipelineRunId === key) {
-        setPipelineRunId(null);
+  const deleteRun = useCallback(
+    async (key: string) => {
+      try {
+        await api.del(`/api/v1/extraction/runs/${key}`);
+        if (pipelineRunId === key) {
+          setPipelineRunId(null);
+        }
+        // Deleting a run can change the live class/edge set for the
+        // ontology that run produced. We do not have the run -> ontology
+        // mapping in scope here, so invalidate the currently-selected
+        // ontology if any (the most likely target of the user's interest)
+        // -- if the run belonged to a different ontology, that one's
+        // cache will rebuild on next visit.
+        if (selectedOntologyId) invalidateOntology(selectedOntologyId);
+      } catch (err) {
+        console.error("Failed to delete run", err);
       }
-      // Deleting a run can change the live class/edge set for the
-      // ontology that run produced. We do not have the run -> ontology
-      // mapping in scope here, so invalidate the currently-selected
-      // ontology if any (the most likely target of the user's interest)
-      // -- if the run belonged to a different ontology, that one's
-      // cache will rebuild on next visit.
-      if (selectedOntologyId) invalidateOntology(selectedOntologyId);
-    } catch (err) {
-      console.error("Failed to delete run", err);
-    }
-  }, [pipelineRunId, selectedOntologyId]);
+    },
+    [pipelineRunId, selectedOntologyId],
+  );
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
@@ -1095,12 +1205,7 @@ function WorkspacePageInner() {
         });
       }
     },
-    [
-      selectedOntologyId,
-      effectiveSources,
-      fetchGraphData,
-      ontologyName,
-    ],
+    [selectedOntologyId, effectiveSources, fetchGraphData, ontologyName],
   );
 
   /**
@@ -1146,7 +1251,10 @@ function WorkspacePageInner() {
       const failures: string[] = [];
       for (const key of keys) {
         try {
-          await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status });
+          await api.put(
+            `/api/v1/ontology/${selectedOntologyId}/classes/${key}`,
+            { status },
+          );
         } catch {
           failures.push(key);
         }
@@ -1165,8 +1273,14 @@ function WorkspacePageInner() {
     [selectedOntologyId, multiSelectedKeys],
   );
 
-  const approveSelection = useCallback(() => curateSelection("approved"), [curateSelection]);
-  const rejectSelection = useCallback(() => curateSelection("rejected"), [curateSelection]);
+  const approveSelection = useCallback(
+    () => curateSelection("approved"),
+    [curateSelection],
+  );
+  const rejectSelection = useCallback(
+    () => curateSelection("rejected"),
+    [curateSelection],
+  );
 
   /** Create one class and make the whole selection its subclasses. */
   const introduceSuperclass = useCallback(() => {
@@ -1188,155 +1302,176 @@ function WorkspacePageInner() {
     setMergeDialogKeys([...multiSelectedKeys]);
   }, [multiSelectedKeys]);
 
-  const approveClass = useCallback(async (key: string) => {
-    if (!selectedOntologyId) return;
-    setClasses((prev) =>
-      prev.map((c) =>
-        c._key === key ? { ...c, status: "approved" as const } : c,
-      ),
-    );
-    try {
-      await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status: "approved" });
-      // Drop the cached classes + effective entries so a future
-      // ontology selection refetches the server's authoritative view
-      // rather than serving the pre-mutation cached payload. Local
-      // state already reflects the optimistic update, so no immediate
-      // refetch is needed. ``effective`` is invalidated alongside
-      // ``classes`` because the canvas now reads its payload from the
-      // effective endpoint (Stream 1 H.12 / H.15).
-      invalidateOntologyKind(selectedOntologyId, "classes");
-      invalidateOntologyKind(selectedOntologyId, "effective");
-    } catch (err) {
-      console.error("Failed to approve class", err);
-      // refreshGraph() invalidates and refetches -- correctly drops the
-      // optimistic update if the server rejected it.
-      refreshGraph();
-    }
-  }, [selectedOntologyId, refreshGraph]);
+  const approveClass = useCallback(
+    async (key: string) => {
+      if (!selectedOntologyId) return;
+      setClasses((prev) =>
+        prev.map((c) =>
+          c._key === key ? { ...c, status: "approved" as const } : c,
+        ),
+      );
+      try {
+        await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, {
+          status: "approved",
+        });
+        // Drop the cached classes + effective entries so a future
+        // ontology selection refetches the server's authoritative view
+        // rather than serving the pre-mutation cached payload. Local
+        // state already reflects the optimistic update, so no immediate
+        // refetch is needed. ``effective`` is invalidated alongside
+        // ``classes`` because the canvas now reads its payload from the
+        // effective endpoint (Stream 1 H.12 / H.15).
+        invalidateOntologyKind(selectedOntologyId, "classes");
+        invalidateOntologyKind(selectedOntologyId, "effective");
+      } catch (err) {
+        console.error("Failed to approve class", err);
+        // refreshGraph() invalidates and refetches -- correctly drops the
+        // optimistic update if the server rejected it.
+        refreshGraph();
+      }
+    },
+    [selectedOntologyId, refreshGraph],
+  );
 
-  const rejectClass = useCallback(async (key: string) => {
-    if (!selectedOntologyId) return;
-    setClasses((prev) =>
-      prev.map((c) =>
-        c._key === key ? { ...c, status: "rejected" as const } : c,
-      ),
-    );
-    try {
-      await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, { status: "rejected" });
-      invalidateOntologyKind(selectedOntologyId, "classes");
-      invalidateOntologyKind(selectedOntologyId, "effective");
-    } catch (err) {
-      console.error("Failed to reject class", err);
-      refreshGraph();
-    }
-  }, [selectedOntologyId, refreshGraph]);
+  const rejectClass = useCallback(
+    async (key: string) => {
+      if (!selectedOntologyId) return;
+      setClasses((prev) =>
+        prev.map((c) =>
+          c._key === key ? { ...c, status: "rejected" as const } : c,
+        ),
+      );
+      try {
+        await api.put(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`, {
+          status: "rejected",
+        });
+        invalidateOntologyKind(selectedOntologyId, "classes");
+        invalidateOntologyKind(selectedOntologyId, "effective");
+      } catch (err) {
+        console.error("Failed to reject class", err);
+        refreshGraph();
+      }
+    },
+    [selectedOntologyId, refreshGraph],
+  );
 
-  const approveEdge = useCallback(async (key: string) => {
-    if (!selectedOntologyId) return;
-    setEdges((prev) =>
-      prev.map((e) =>
-        e._key === key ? { ...e, status: "approved" as const } : e,
-      ),
-    );
-    try {
-      await api.put(`/api/v1/ontology/${selectedOntologyId}/edges/${key}`, {
-        status: "approved",
-      });
-      invalidateOntologyKind(selectedOntologyId, "edges");
-      invalidateOntologyKind(selectedOntologyId, "effective");
-    } catch (err) {
-      console.error("Failed to approve edge", err);
-      refreshGraph();
-    }
-  }, [selectedOntologyId, refreshGraph]);
+  const approveEdge = useCallback(
+    async (key: string) => {
+      if (!selectedOntologyId) return;
+      setEdges((prev) =>
+        prev.map((e) =>
+          e._key === key ? { ...e, status: "approved" as const } : e,
+        ),
+      );
+      try {
+        await api.put(`/api/v1/ontology/${selectedOntologyId}/edges/${key}`, {
+          status: "approved",
+        });
+        invalidateOntologyKind(selectedOntologyId, "edges");
+        invalidateOntologyKind(selectedOntologyId, "effective");
+      } catch (err) {
+        console.error("Failed to approve edge", err);
+        refreshGraph();
+      }
+    },
+    [selectedOntologyId, refreshGraph],
+  );
 
-  const rejectEdge = useCallback(async (key: string) => {
-    if (!selectedOntologyId) return;
-    setEdges((prev) =>
-      prev.map((e) =>
-        e._key === key ? { ...e, status: "rejected" as const } : e,
-      ),
-    );
-    try {
-      await api.put(`/api/v1/ontology/${selectedOntologyId}/edges/${key}`, {
-        status: "rejected",
-      });
-      invalidateOntologyKind(selectedOntologyId, "edges");
-      invalidateOntologyKind(selectedOntologyId, "effective");
-    } catch (err) {
-      console.error("Failed to reject edge", err);
-      refreshGraph();
-    }
-  }, [selectedOntologyId, refreshGraph]);
+  const rejectEdge = useCallback(
+    async (key: string) => {
+      if (!selectedOntologyId) return;
+      setEdges((prev) =>
+        prev.map((e) =>
+          e._key === key ? { ...e, status: "rejected" as const } : e,
+        ),
+      );
+      try {
+        await api.put(`/api/v1/ontology/${selectedOntologyId}/edges/${key}`, {
+          status: "rejected",
+        });
+        invalidateOntologyKind(selectedOntologyId, "edges");
+        invalidateOntologyKind(selectedOntologyId, "effective");
+      } catch (err) {
+        console.error("Failed to reject edge", err);
+        refreshGraph();
+      }
+    },
+    [selectedOntologyId, refreshGraph],
+  );
 
-  const approveProperty = useCallback(async (key: string, ontologyId?: string) => {
-    const oid = ontologyId ?? selectedOntologyId;
-    if (!oid) return;
-    try {
-      await api.put(`/api/v1/ontology/${oid}/properties/${key}`, { status: "approved" });
-      invalidateOntologyKind(oid, "properties");
-      // ``/effective`` carries properties[] too (Stream 1 H.12), so the
-      // next consumer of the effective payload (canvas refresh, H.17
-      // extraction context serializer) sees the curated status.
-      invalidateOntologyKind(oid, "effective");
-    } catch (err) {
-      console.error("Failed to approve property", err);
-    }
-  }, [selectedOntologyId]);
+  const approveProperty = useCallback(
+    async (key: string, ontologyId?: string) => {
+      const oid = ontologyId ?? selectedOntologyId;
+      if (!oid) return;
+      try {
+        await api.put(`/api/v1/ontology/${oid}/properties/${key}`, {
+          status: "approved",
+        });
+        invalidateOntologyKind(oid, "properties");
+        // ``/effective`` carries properties[] too (Stream 1 H.12), so the
+        // next consumer of the effective payload (canvas refresh, H.17
+        // extraction context serializer) sees the curated status.
+        invalidateOntologyKind(oid, "effective");
+      } catch (err) {
+        console.error("Failed to approve property", err);
+      }
+    },
+    [selectedOntologyId],
+  );
 
-  const rejectProperty = useCallback(async (key: string, ontologyId?: string) => {
-    const oid = ontologyId ?? selectedOntologyId;
-    if (!oid) return;
-    try {
-      await api.put(`/api/v1/ontology/${oid}/properties/${key}`, { status: "rejected" });
-      invalidateOntologyKind(oid, "properties");
-      invalidateOntologyKind(oid, "effective");
-    } catch (err) {
-      console.error("Failed to reject property", err);
-    }
-  }, [selectedOntologyId]);
+  const rejectProperty = useCallback(
+    async (key: string, ontologyId?: string) => {
+      const oid = ontologyId ?? selectedOntologyId;
+      if (!oid) return;
+      try {
+        await api.put(`/api/v1/ontology/${oid}/properties/${key}`, {
+          status: "rejected",
+        });
+        invalidateOntologyKind(oid, "properties");
+        invalidateOntologyKind(oid, "effective");
+      } catch (err) {
+        console.error("Failed to reject property", err);
+      }
+    },
+    [selectedOntologyId],
+  );
 
-  const deleteClass = useCallback(async (key: string) => {
-    if (!selectedOntologyId) return;
-    try {
-      await api.del(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`);
-      // Deleting a class can break edges that referenced it (rdfs_domain,
-      // rdfs_range_class, subclass_of), so invalidate both kinds, not
-      // just classes. ``effective`` is invalidated alongside because the
-      // canvas reads its merged payload (Stream 1 H.15). refreshGraph
-      // then refetches the authoritative view from the server.
-      invalidateOntologyKind(selectedOntologyId, "classes");
-      invalidateOntologyKind(selectedOntologyId, "edges");
-      invalidateOntologyKind(selectedOntologyId, "effective");
-      refreshGraph();
-    } catch (err) {
-      console.error("Failed to delete class", err);
-    }
-  }, [selectedOntologyId, refreshGraph]);
+  const deleteClass = useCallback(
+    async (key: string) => {
+      if (!selectedOntologyId) return;
+      try {
+        await api.del(`/api/v1/ontology/${selectedOntologyId}/classes/${key}`);
+        // Deleting a class can break edges that referenced it (rdfs_domain,
+        // rdfs_range_class, subclass_of), so invalidate both kinds, not
+        // just classes. ``effective`` is invalidated alongside because the
+        // canvas reads its merged payload (Stream 1 H.15). refreshGraph
+        // then refetches the authoritative view from the server.
+        invalidateOntologyKind(selectedOntologyId, "classes");
+        invalidateOntologyKind(selectedOntologyId, "edges");
+        invalidateOntologyKind(selectedOntologyId, "effective");
+        refreshGraph();
+      } catch (err) {
+        console.error("Failed to delete class", err);
+      }
+    },
+    [selectedOntologyId, refreshGraph],
+  );
 
   // Plain delete-and-cleanup for an ontology. The user-facing typed-name
   // confirmation lives in ``contextMenus/ontology.ts``; this callback is
   // only invoked after that gate has been satisfied. Side-panel "Delete"
   // buttons, if added later, MUST also gate on requestConfirm rather than
   // calling this directly.
-  const deleteOntology = useCallback(async (key: string) => {
-    try {
-      await api.del(`/api/v1/ontology/library/${key}?confirm=true&hard_delete=true`);
-      // Drop every cached entry for the deleted ontology -- if a future
-      // import recreates the same _key, we must not serve the old graph
-      // from cache.
-      invalidateOntology(key);
-      if (selectedOntologyId === key) {
-        setSelectedOntologyId(null);
-        setOntologyName(null);
-        setOntologyTier(null);
-        setClasses([]);
-        setProperties([]);
-        setEdges([]);
-      }
-      setExplorerLibraryNonce((n) => n + 1);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
+  const deleteOntology = useCallback(
+    async (key: string) => {
+      try {
+        await api.del(
+          `/api/v1/ontology/library/${key}?confirm=true&hard_delete=true`,
+        );
+        // Drop every cached entry for the deleted ontology -- if a future
+        // import recreates the same _key, we must not serve the old graph
+        // from cache.
+        invalidateOntology(key);
         if (selectedOntologyId === key) {
           setSelectedOntologyId(null);
           setOntologyName(null);
@@ -1346,18 +1481,33 @@ function WorkspacePageInner() {
           setEdges([]);
         }
         setExplorerLibraryNonce((n) => n + 1);
-        return;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          if (selectedOntologyId === key) {
+            setSelectedOntologyId(null);
+            setOntologyName(null);
+            setOntologyTier(null);
+            setClasses([]);
+            setProperties([]);
+            setEdges([]);
+          }
+          setExplorerLibraryNonce((n) => n + 1);
+          return;
+        }
+        console.error("Failed to delete ontology", err);
       }
-      console.error("Failed to delete ontology", err);
-    }
-  }, [selectedOntologyId]);
+    },
+    [selectedOntologyId],
+  );
 
   const deleteDocument = useCallback(async (key: string) => {
     try {
       await api.del(`/api/v1/documents/${key}?confirm=true`);
-      setInfoPanelItem((current) => (
-        current?.type === "document" && current.data._key === key ? null : current
-      ));
+      setInfoPanelItem((current) =>
+        current?.type === "document" && current.data._key === key
+          ? null
+          : current,
+      );
       setExplorerLibraryNonce((n) => n + 1);
     } catch (err) {
       console.error("Failed to delete document", err);
@@ -1476,6 +1626,7 @@ function WorkspacePageInner() {
     setRequirementsOverlay,
     setIndividualsOverlay,
     setLexiconQueue,
+    setSubsumptionReview,
     exportOntology,
     removeImportEdge,
     retryRun,
@@ -1513,7 +1664,10 @@ function WorkspacePageInner() {
     // hand-painted dark and its graph palette is tuned for a dark canvas, so it
     // keeps the light-mode neutral tokens in both themes and renders
     // identically either way. See the block in globals.css.
-    <div data-canvas-chrome className="h-screen flex flex-col overflow-hidden bg-[#12121f]">
+    <div
+      data-canvas-chrome
+      className="h-screen flex flex-col overflow-hidden bg-[#12121f]"
+    >
       {/* Toast host — bottom-centre overlay, mounted once at the page
           root so any module (drag-and-drop import, future undo-toast
           migrations) can ``pushToast`` without threading context. */}
@@ -1586,10 +1740,14 @@ function WorkspacePageInner() {
                     <span className="text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 font-medium">
                       Pipeline
                     </span>
-                    <span className="text-xs text-gray-500 font-mono">{pipelineRunId}</span>
+                    <span className="text-xs text-gray-500 font-mono">
+                      {pipelineRunId}
+                    </span>
                   </div>
                   <button
-                    onClick={() => { setPipelineRunId(null); }}
+                    onClick={() => {
+                      setPipelineRunId(null);
+                    }}
                     className="text-xs text-gray-400 hover:text-gray-600"
                   >
                     &times; Close
@@ -1599,7 +1757,10 @@ function WorkspacePageInner() {
                 <PipelineSplitPane
                   top={
                     <AgentDAG
-                      steps={filterStepsByTimestamp(pipelineSteps, vcrTimestamp)}
+                      steps={filterStepsByTimestamp(
+                        pipelineSteps,
+                        vcrTimestamp,
+                      )}
                       onContextMenu={handleDagContextMenu}
                       onApi={handleDagApi}
                     />
@@ -1618,11 +1779,23 @@ function WorkspacePageInner() {
               ) : graphError ? (
                 <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-8 bg-[#111118]">
                   <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    <svg
+                      className="w-6 h-6 text-red-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                      />
                     </svg>
                   </div>
-                  <p className="text-sm text-red-400 font-medium">{graphError}</p>
+                  <p className="text-sm text-red-400 font-medium">
+                    {graphError}
+                  </p>
                   <button
                     onClick={refreshGraph}
                     className="text-xs text-indigo-400 hover:text-indigo-300 underline"
@@ -1709,7 +1882,8 @@ function WorkspacePageInner() {
                       data-testid="hidden-nodes-banner"
                     >
                       <span className="text-xs font-medium text-amber-900">
-                        {hiddenNodeKeys.size} node{hiddenNodeKeys.size === 1 ? "" : "s"} hidden
+                        {hiddenNodeKeys.size} node
+                        {hiddenNodeKeys.size === 1 ? "" : "s"} hidden
                       </span>
                       <button
                         onClick={showAllHidden}
@@ -1729,7 +1903,6 @@ function WorkspacePageInner() {
                     />
                   )}
                 </>
-
               )
             ) : (
               <div
@@ -1761,14 +1934,17 @@ function WorkspacePageInner() {
               />
             )}
 
-            {detailPanelOpen && selectedEdgeKey && selectedOntologyId && !selectedNodeKey && (
-              <FloatingDetailPanel
-                entityType="edge"
-                entityKey={selectedEdgeKey}
-                ontologyId={selectedOntologyId}
-                onClose={() => setDetailPanelOpen(false)}
-              />
-            )}
+            {detailPanelOpen &&
+              selectedEdgeKey &&
+              selectedOntologyId &&
+              !selectedNodeKey && (
+                <FloatingDetailPanel
+                  entityType="edge"
+                  entityKey={selectedEdgeKey}
+                  ontologyId={selectedOntologyId}
+                  onClose={() => setDetailPanelOpen(false)}
+                />
+              )}
 
             {/* Asset info panel (left-click on document / run) */}
             {infoPanelItem && (
@@ -1861,7 +2037,8 @@ function WorkspacePageInner() {
               Computing quality report for &ldquo;{qualityLoading}&rdquo;…
             </p>
             <p className="text-xs text-gray-500">
-              Running ~20 live checks against the database — this usually takes a few seconds.
+              Running ~20 live checks against the database — this usually takes
+              a few seconds.
             </p>
             <button
               onClick={() => {
@@ -1880,8 +2057,12 @@ function WorkspacePageInner() {
       {qualityLoadError && !qualityLoading && !qualityOverlay && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl px-8 py-6 flex flex-col items-center gap-3 max-w-sm text-center">
-            <p className="text-sm font-medium text-red-600">Quality report failed</p>
-            <p className="text-xs text-gray-500 break-words">{qualityLoadError}</p>
+            <p className="text-sm font-medium text-red-600">
+              Quality report failed
+            </p>
+            <p className="text-xs text-gray-500 break-words">
+              {qualityLoadError}
+            </p>
             <button
               onClick={() => setQualityLoadError(null)}
               className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
@@ -2102,6 +2283,22 @@ function WorkspacePageInner() {
         />
       )}
 
+      {subsumptionReview && (
+        <SubsumptionReviewOverlay
+          ontologyId={subsumptionReview.key}
+          ontologyName={subsumptionReview.name}
+          // TODO: same identity gap as the lexicon queue — no curator identity
+          // is plumbed through the frontend yet (FR-20.3). A ruling recorded
+          // against "anonymous" is an audit trail in name only.
+          curatorId="anonymous"
+          // A ruling changes the graph: "detach" removes the edge, "keep"
+          // clears its mark. Refetch so the canvas matches the database
+          // rather than drifting until the next reload.
+          onResolved={() => refreshGraph()}
+          onClose={() => setSubsumptionReview(null)}
+        />
+      )}
+
       {feedbackLearning && (
         <FeedbackLearningOverlay
           ontologyId={feedbackLearning.ontologyId}
@@ -2161,17 +2358,28 @@ function AssetInfoPanel({
   mainColumnLeftInset: number;
   onClose: () => void;
   onOpenOntology: (key: string) => void;
-  onReloadQualityReport?: (ontologyData: Record<string, unknown>) => void | Promise<void>;
+  onReloadQualityReport?: (
+    ontologyData: Record<string, unknown>,
+  ) => void | Promise<void>;
 }) {
-  const { panelRef, panelStyle, dragHandleProps } = useDraggablePanel(ASSET_INFO_PANEL_WIDTH, {
-    placement: "mainColumnTopLeft",
-    mainColumnLeftInset,
-  });
-  const { className: dragHandleClassName, ...dragHandleEvents } = dragHandleProps;
+  const { panelRef, panelStyle, dragHandleProps } = useDraggablePanel(
+    ASSET_INFO_PANEL_WIDTH,
+    {
+      placement: "mainColumnTopLeft",
+      mainColumnLeftInset,
+    },
+  );
+  const { className: dragHandleClassName, ...dragHandleEvents } =
+    dragHandleProps;
 
-  const extractedClasses = Array.isArray(data.classes) ? (data.classes as Record<string, unknown>[]) : [];
-  const extractedProperties = Array.isArray(data.properties) ? (data.properties as Record<string, unknown>[]) : [];
-  const hasExtractedEntities = extractedClasses.length > 0 || extractedProperties.length > 0;
+  const extractedClasses = Array.isArray(data.classes)
+    ? (data.classes as Record<string, unknown>[])
+    : [];
+  const extractedProperties = Array.isArray(data.properties)
+    ? (data.properties as Record<string, unknown>[])
+    : [];
+  const hasExtractedEntities =
+    extractedClasses.length > 0 || extractedProperties.length > 0;
 
   const [activeTab, setActiveTab] = useState<"info" | "entities">(
     hasExtractedEntities ? "entities" : "info",
@@ -2201,7 +2409,10 @@ function AssetInfoPanel({
       { label: "Classes", value: data.class_count as number },
       { label: "Properties", value: data.property_count as number },
       { label: "Edges", value: data.edge_count as number },
-      { label: "Health Score", value: formatOntologyHealthSummary(data.health_score) },
+      {
+        label: "Health Score",
+        value: formatOntologyHealthSummary(data.health_score),
+      },
       { label: "Created", value: data.created_at as string },
     );
   } else if (type === "run") {
@@ -2216,26 +2427,54 @@ function AssetInfoPanel({
     };
     const startSec = toSeconds(rawStart);
     const endSec = toSeconds(rawEnd);
-    const duration = startSec != null && endSec != null
-      ? `${Math.round(endSec - startSec)}s`
-      : data.duration_ms != null
-        ? `${Math.round((data.duration_ms as number) / 1000)}s`
-        : undefined;
+    const duration =
+      startSec != null && endSec != null
+        ? `${Math.round(endSec - startSec)}s`
+        : data.duration_ms != null
+          ? `${Math.round((data.duration_ms as number) / 1000)}s`
+          : undefined;
     const tokenUsage = stats.token_usage as Record<string, number> | undefined;
     const totalTokens = tokenUsage
       ? (tokenUsage.prompt_tokens ?? 0) + (tokenUsage.completion_tokens ?? 0)
       : undefined;
 
     rows.push(
-      { label: "Document", value: data.document_name as string ?? (data.doc_id as string) },
+      {
+        label: "Document",
+        value: (data.document_name as string) ?? (data.doc_id as string),
+      },
       { label: "Status", value: data.status as string },
       { label: "Model", value: data.model as string },
       { label: "Duration", value: duration },
-      { label: "Classes Extracted", value: extractedClasses.length || (data.classes_extracted as number ?? stats.classes_extracted as number) },
-      { label: "Properties Extracted", value: extractedProperties.length || (data.properties_extracted as number ?? stats.properties_extracted as number) },
+      {
+        label: "Classes Extracted",
+        value:
+          extractedClasses.length ||
+          ((data.classes_extracted as number) ??
+            (stats.classes_extracted as number)),
+      },
+      {
+        label: "Properties Extracted",
+        value:
+          extractedProperties.length ||
+          ((data.properties_extracted as number) ??
+            (stats.properties_extracted as number)),
+      },
       { label: "Total Tokens", value: totalTokens },
-      { label: "Estimated Cost", value: stats.estimated_cost != null ? `$${(stats.estimated_cost as number).toFixed(4)}` : undefined },
-      { label: "Agreement Rate", value: stats.pass_agreement_rate != null ? `${((stats.pass_agreement_rate as number) * 100).toFixed(1)}%` : undefined },
+      {
+        label: "Estimated Cost",
+        value:
+          stats.estimated_cost != null
+            ? `$${(stats.estimated_cost as number).toFixed(4)}`
+            : undefined,
+      },
+      {
+        label: "Agreement Rate",
+        value:
+          stats.pass_agreement_rate != null
+            ? `${((stats.pass_agreement_rate as number) * 100).toFixed(1)}%`
+            : undefined,
+      },
     );
   }
 
@@ -2259,7 +2498,12 @@ function AssetInfoPanel({
             {titleMap[type]}
           </span>
           <span className="text-sm font-semibold text-gray-800 truncate">
-            {(data.name ?? data.filename ?? data.document_name ?? data._key) as string}
+            {
+              (data.name ??
+                data.filename ??
+                data.document_name ??
+                data._key) as string
+            }
           </span>
         </div>
         <button
@@ -2294,7 +2538,8 @@ function AssetInfoPanel({
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
-            Extracted Entities ({extractedClasses.length + extractedProperties.length})
+            Extracted Entities (
+            {extractedClasses.length + extractedProperties.length})
           </button>
         </div>
       )}
@@ -2302,74 +2547,108 @@ function AssetInfoPanel({
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {/* Entities tab */}
         {activeTab === "entities" && hasExtractedEntities ? (
-          <ExtractedEntitiesView classes={extractedClasses} properties={extractedProperties} />
+          <ExtractedEntitiesView
+            classes={extractedClasses}
+            properties={extractedProperties}
+          />
         ) : (
           <>
-        {filteredRows.map((row) => (
-          <div key={row.label}>
-            <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">
-              {row.label}
-            </dt>
-            <dd className="text-sm text-gray-700">{String(row.value)}</dd>
-          </div>
-        ))}
+            {filteredRows.map((row) => (
+              <div key={row.label}>
+                <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">
+                  {row.label}
+                </dt>
+                <dd className="text-sm text-gray-700">{String(row.value)}</dd>
+              </div>
+            ))}
 
-        {/* Quality Report (when loaded via "View Quality Report") */}
-        {type === "ontology" && typeof data._qualityReport === "object" && data._qualityReport != null && (
-          <QualityReportSection report={data._qualityReport as Record<string, unknown>} />
-        )}
+            {/* Quality Report (when loaded via "View Quality Report") */}
+            {type === "ontology" &&
+              typeof data._qualityReport === "object" &&
+              data._qualityReport != null && (
+                <QualityReportSection
+                  report={data._qualityReport as Record<string, unknown>}
+                />
+              )}
 
-        {/* Provenance chunks */}
-        {Array.isArray(data._provenance) && (data._provenance as Record<string, unknown>[]).length > 0 && (
-          <div className="border-t border-gray-100 pt-3">
-            <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-              Source Chunks ({(data._provenance as unknown[]).length})
-            </dt>
-            <p className="text-[10px] leading-snug text-gray-500 mb-2">
-              Classes link to whole documents; chunks here are from those documents. Highlights match
-              the class name heuristically — exact extraction spans are not stored.
-            </p>
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {(data._provenance as Record<string, unknown>[]).map((chunk, idx) => (
-                <div key={(chunk._key as string) ?? idx} className="text-xs bg-amber-50 rounded-md p-2 border border-amber-100">
-                  {typeof chunk.section_heading === "string" && chunk.section_heading && (
-                    <div className="font-medium text-amber-800 mb-1">{chunk.section_heading}</div>
-                  )}
-                  <div className="text-gray-600 whitespace-pre-wrap break-words">
-                    <HighlightedText
-                      text={((chunk.text as string) ?? "").slice(0, 500)}
-                      highlight={(data.name as string) ?? ""}
-                    />
-                    {((chunk.text as string) ?? "").length > 500 && "…"}
+            {/* Provenance chunks */}
+            {Array.isArray(data._provenance) &&
+              (data._provenance as Record<string, unknown>[]).length > 0 && (
+                <div className="border-t border-gray-100 pt-3">
+                  <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                    Source Chunks ({(data._provenance as unknown[]).length})
+                  </dt>
+                  <p className="text-[10px] leading-snug text-gray-500 mb-2">
+                    Classes link to whole documents; chunks here are from those
+                    documents. Highlights match the class name heuristically —
+                    exact extraction spans are not stored.
+                  </p>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {(data._provenance as Record<string, unknown>[]).map(
+                      (chunk, idx) => (
+                        <div
+                          key={(chunk._key as string) ?? idx}
+                          className="text-xs bg-amber-50 rounded-md p-2 border border-amber-100"
+                        >
+                          {typeof chunk.section_heading === "string" &&
+                            chunk.section_heading && (
+                              <div className="font-medium text-amber-800 mb-1">
+                                {chunk.section_heading}
+                              </div>
+                            )}
+                          <div className="text-gray-600 whitespace-pre-wrap break-words">
+                            <HighlightedText
+                              text={((chunk.text as string) ?? "").slice(
+                                0,
+                                500,
+                              )}
+                              highlight={(data.name as string) ?? ""}
+                            />
+                            {((chunk.text as string) ?? "").length > 500 && "…"}
+                          </div>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              )}
 
-        {/* Version History */}
-        {Array.isArray(data._history) && (data._history as Record<string, unknown>[]).length > 0 && (
-          <div className="border-t border-gray-100 pt-3">
-            <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-              Version History ({(data._history as unknown[]).length})
-            </dt>
-            <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
-              {(data._history as Record<string, unknown>[]).map((ver, idx) => {
-                const created = ver.created as number | undefined;
-                const label = (ver.label ?? ver._key) as string;
-                const ts = created ? new Date(created * 1000).toLocaleString() : "—";
-                return (
-                  <div key={idx} className="flex items-baseline gap-2 text-xs bg-gray-50 rounded-md px-2.5 py-1.5">
-                    <span className="text-gray-400 font-mono text-[10px] flex-shrink-0">v{(data._history as unknown[]).length - idx}</span>
-                    <span className="font-medium text-gray-800 truncate">{label}</span>
-                    <span className="text-gray-400 ml-auto flex-shrink-0">{ts}</span>
+            {/* Version History */}
+            {Array.isArray(data._history) &&
+              (data._history as Record<string, unknown>[]).length > 0 && (
+                <div className="border-t border-gray-100 pt-3">
+                  <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                    Version History ({(data._history as unknown[]).length})
+                  </dt>
+                  <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
+                    {(data._history as Record<string, unknown>[]).map(
+                      (ver, idx) => {
+                        const created = ver.created as number | undefined;
+                        const label = (ver.label ?? ver._key) as string;
+                        const ts = created
+                          ? new Date(created * 1000).toLocaleString()
+                          : "—";
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-baseline gap-2 text-xs bg-gray-50 rounded-md px-2.5 py-1.5"
+                          >
+                            <span className="text-gray-400 font-mono text-[10px] flex-shrink-0">
+                              v{(data._history as unknown[]).length - idx}
+                            </span>
+                            <span className="font-medium text-gray-800 truncate">
+                              {label}
+                            </span>
+                            <span className="text-gray-400 ml-auto flex-shrink-0">
+                              {ts}
+                            </span>
+                          </div>
+                        );
+                      },
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                </div>
+              )}
           </>
         )}
       </div>
@@ -2437,25 +2716,39 @@ function ExtractedEntitiesView({
         const isExpanded = expandedClass === key;
         const classProps = propsByClass.get(name) ?? [];
         const confidence = cls.confidence as number | undefined;
-        const description = (cls.description ?? cls.rdfs_comment) as string | undefined;
+        const description = (cls.description ?? cls.rdfs_comment) as
+          string | undefined;
 
         return (
-          <div key={key} className="border border-gray-100 rounded-lg overflow-hidden">
+          <div
+            key={key}
+            className="border border-gray-100 rounded-lg overflow-hidden"
+          >
             <button
               onClick={() => setExpandedClass(isExpanded ? null : key)}
               className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-gray-50 transition-colors"
             >
-              <span className="text-xs text-gray-400">{isExpanded ? "▾" : "▸"}</span>
-              <span className="text-sm font-medium text-gray-800 flex-1 truncate">{name}</span>
+              <span className="text-xs text-gray-400">
+                {isExpanded ? "▾" : "▸"}
+              </span>
+              <span className="text-sm font-medium text-gray-800 flex-1 truncate">
+                {name}
+              </span>
               {classProps.length > 0 && (
-                <span className="text-[10px] text-gray-400">{classProps.length} props</span>
+                <span className="text-[10px] text-gray-400">
+                  {classProps.length} props
+                </span>
               )}
               {confidence != null && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  confidence >= 0.8 ? "bg-green-50 text-green-700" :
-                  confidence >= 0.5 ? "bg-yellow-50 text-yellow-700" :
-                  "bg-red-50 text-red-700"
-                }`}>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    confidence >= 0.8
+                      ? "bg-green-50 text-green-700"
+                      : confidence >= 0.5
+                        ? "bg-yellow-50 text-yellow-700"
+                        : "bg-red-50 text-red-700"
+                  }`}
+                >
                   {(confidence * 100).toFixed(0)}%
                 </span>
               )}
@@ -2463,21 +2756,38 @@ function ExtractedEntitiesView({
             {isExpanded && (
               <div className="px-3 pb-2 space-y-1.5 border-t border-gray-50">
                 {description && (
-                  <p className="text-xs text-gray-500 mt-1.5 italic">{description}</p>
+                  <p className="text-xs text-gray-500 mt-1.5 italic">
+                    {description}
+                  </p>
                 )}
                 {classProps.length > 0 ? (
                   classProps.map((prop, idx) => {
-                    const propName = (prop.label ?? prop.name ?? prop._key) as string;
-                    const propRange = (prop.range ?? prop.datatype ?? prop.type) as string | undefined;
+                    const propName = (prop.label ??
+                      prop.name ??
+                      prop._key) as string;
+                    const propRange = (prop.range ??
+                      prop.datatype ??
+                      prop.type) as string | undefined;
                     return (
-                      <div key={idx} className="flex items-baseline gap-2 text-xs bg-gray-50 rounded px-2 py-1">
-                        <span className="font-mono text-gray-700">{propName}</span>
-                        {propRange && <span className="text-gray-400 ml-auto">{propRange}</span>}
+                      <div
+                        key={idx}
+                        className="flex items-baseline gap-2 text-xs bg-gray-50 rounded px-2 py-1"
+                      >
+                        <span className="font-mono text-gray-700">
+                          {propName}
+                        </span>
+                        {propRange && (
+                          <span className="text-gray-400 ml-auto">
+                            {propRange}
+                          </span>
+                        )}
                       </div>
                     );
                   })
                 ) : (
-                  <p className="text-[11px] text-gray-400 mt-1">No properties</p>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    No properties
+                  </p>
                 )}
               </div>
             )}
@@ -2489,7 +2799,9 @@ function ExtractedEntitiesView({
 }
 
 function DocumentContentSection({ docKey }: { docKey: string }) {
-  const [chunks, setChunks] = useState<{ _key: string; text: string; page?: number }[]>([]);
+  const [chunks, setChunks] = useState<
+    { _key: string; text: string; page?: number }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -2530,7 +2842,9 @@ function DocumentContentSection({ docKey }: { docKey: string }) {
       {expanded && (
         <div className="max-h-[300px] overflow-y-auto px-4 py-2 space-y-2">
           {loading && (
-            <p className="text-xs text-gray-400 animate-pulse py-2">Loading chunks...</p>
+            <p className="text-xs text-gray-400 animate-pulse py-2">
+              Loading chunks...
+            </p>
           )}
           {!loading && chunks.length === 0 && (
             <p className="text-xs text-gray-400 italic py-2">No chunks found</p>
@@ -2596,8 +2910,14 @@ function PipelineSplitPane({
   }, []);
 
   return (
-    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div className="overflow-hidden" style={{ flex: `0 0 ${topFraction * 100}%` }}>
+    <div
+      ref={containerRef}
+      className="flex-1 flex flex-col min-h-0 overflow-hidden"
+    >
+      <div
+        className="overflow-hidden"
+        style={{ flex: `0 0 ${topFraction * 100}%` }}
+      >
         {top}
       </div>
       <div
@@ -2607,9 +2927,7 @@ function PipelineSplitPane({
         aria-orientation="horizontal"
         aria-label="Resize pipeline panes"
       />
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {bottom}
-      </div>
+      <div className="flex-1 overflow-y-auto min-h-0">{bottom}</div>
     </div>
   );
 }
@@ -2636,7 +2954,11 @@ function QualityReportSection({ report }: { report: Record<string, unknown> }) {
         {metrics.map((m) => (
           <div key={m.label} className="bg-gray-50 rounded-md px-2.5 py-1.5">
             <div className="text-[10px] text-gray-500 uppercase">{m.label}</div>
-            <div className={`text-sm font-semibold ${m.color ?? "text-gray-800"}`}>{m.value}</div>
+            <div
+              className={`text-sm font-semibold ${m.color ?? "text-gray-800"}`}
+            >
+              {m.value}
+            </div>
           </div>
         ))}
       </div>
@@ -2644,14 +2966,26 @@ function QualityReportSection({ report }: { report: Record<string, unknown> }) {
   );
 }
 
-function HighlightedText({ text, highlight }: { text: string; highlight: string }) {
+function HighlightedText({
+  text,
+  highlight,
+}: {
+  text: string;
+  highlight: string;
+}) {
   if (!highlight || highlight.length < 2) return <>{text}</>;
-  const parts = splitTextByKeywordAlternation(text, termsFromEntityLabel(highlight));
+  const parts = splitTextByKeywordAlternation(
+    text,
+    termsFromEntityLabel(highlight),
+  );
   return (
     <>
       {parts.map((part, i) =>
         i % 2 === 1 ? (
-          <mark key={i} className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5">
+          <mark
+            key={i}
+            className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5"
+          >
             {part}
           </mark>
         ) : (

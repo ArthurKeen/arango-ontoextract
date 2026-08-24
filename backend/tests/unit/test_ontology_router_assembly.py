@@ -48,7 +48,8 @@ ONTOLOGY_PREFIX = "/api/v1/ontology"
 #   + decisions list/history.
 # + 1 bulk reparent for set actions on a multi-selection (FR-7.8.20).
 # + 1 bulk-reparent undo (FR-7.8.21).
-EXPECTED_ROUTE_COUNT = 87
+# + 2 subsumption review (FR-2.20): flagged list + resolve.
+EXPECTED_ROUTE_COUNT = 89
 
 
 def _ontology_openapi_paths() -> dict[str, list[str]]:

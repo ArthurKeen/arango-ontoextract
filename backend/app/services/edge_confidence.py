@@ -139,3 +139,24 @@ def enrich_rdfs_range_class_edges(
             existing = edge.get(field)
             if existing in (None, "", [], {}):
                 edge[field] = prop[field]
+
+
+def mark_subsumption_flag(edge: dict[str, Any]) -> None:
+    """Stamp ``subsumption_flagged`` on one edge in place (FR-2.20).
+
+    Collapses the judge's verdict to the single bit the canvas renders: this
+    ``subClassOf`` edge failed the "is every X a Y?" test and no curator has
+    ruled on it yet. A ruling either way -- kept or detached -- clears the
+    mark; the reasoning stays on the edge document for the detail panel and
+    the review queue.
+
+    Shared by both read paths (``/edges`` and the effective-graph ``/effective``
+    the canvas actually loads) because two copies of this rule would drift, and
+    a flag visible on one path but not the other is worse than no flag.
+    """
+    verdict = edge.get("subsumption_verdict")
+    edge["subsumption_flagged"] = bool(
+        isinstance(verdict, dict)
+        and verdict.get("is_a") is False
+        and not verdict.get("curator_decision")
+    )

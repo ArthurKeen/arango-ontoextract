@@ -27,6 +27,7 @@ from app.api.ontology import (
     requirements,
     schema_relational,
     schema_temporal,
+    subsumption,
 )
 from app.services import export as export_svc  # noqa: F401  re-exported for tests
 from app.services import schema_diff as schema_diff_svc  # noqa: F401  re-exported for tests
@@ -45,6 +46,7 @@ router.include_router(schema_temporal.router)
 router.include_router(requirements.router)
 router.include_router(individuals.router)
 router.include_router(lexicon.router)
+router.include_router(subsumption.router)
 
 # Re-export handlers / module-level state that callers (mainly tests) still
 # import from the package root, mapped to their new sub-modules.

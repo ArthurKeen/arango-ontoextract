@@ -14,6 +14,7 @@ from app.services import temporal as temporal_svc
 from app.services.edge_confidence import (
     compute_edge_confidence,
     enrich_rdfs_range_class_edges,
+    mark_subsumption_flag,
 )
 from app.services.ontology_projections import (
     CLASS_SUMMARY_RETURN,
@@ -439,6 +440,7 @@ async def list_ontology_edges(
         conf = compute_edge_confidence(edge)
         if conf is not None and edge.get("confidence") in (None, ""):
             edge["confidence"] = conf
+        mark_subsumption_flag(edge)
     t_conf = time.perf_counter() - t2
 
     t3 = time.perf_counter()

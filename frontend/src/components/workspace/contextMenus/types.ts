@@ -127,6 +127,15 @@ export type LexiconQueueArg = {
   name: string;
 } | null;
 
+/** Argument shape for ``setSubsumptionReview`` (``null`` closes the overlay).
+ *  Drives the FR-2.20 ``SubsumptionReviewOverlay``: hierarchy links the
+ *  extraction judge rejected on the "is every X a Y?" test, awaiting a
+ *  curator's ruling. Overlay-not-route (rule 9). */
+export type SubsumptionReviewArg = {
+  key: string;
+  name: string;
+} | null;
+
 /** Argument shape for ``setOntologyDelete`` (``null`` closes the dialog).
  *  Drives the H.4 ``OntologyDeleteDialog``: fetches a deletion-impact
  *  preview before allowing the typed-name confirmation. */
@@ -282,7 +291,11 @@ export interface WorkspaceContextMenuActions {
   setRequirementsOverlay: (arg: RequirementsOverlayArg) => void;
   setIndividualsOverlay: (arg: IndividualsOverlayArg) => void;
   setLexiconQueue: (arg: LexiconQueueArg) => void;
-  exportOntology: (ontologyKey: string, format: "turtle" | "jsonld" | "csv") => void;
+  setSubsumptionReview: (arg: SubsumptionReviewArg) => void;
+  exportOntology: (
+    ontologyKey: string,
+    format: "turtle" | "jsonld" | "csv",
+  ) => void;
 
   // ── Imports (Stream 1 H.16) ───────────────────────────────────────────
   /** Soft-delete the ``imports`` edge from the currently-open ontology to

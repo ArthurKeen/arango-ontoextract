@@ -102,6 +102,10 @@ EDGE_SUMMARY_FIELDS: Final[tuple[str, ...]] = (
     "confidence",
     "created",
     "expired",
+    # FR-2.20 -- one boolean, not the whole verdict: the canvas only needs to
+    # know whether to mark the edge. The relation and the judge's reason are a
+    # detail-panel / review-queue concern and stay out of the canvas payload.
+    "subsumption_flagged",
 )
 
 

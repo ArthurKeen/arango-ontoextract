@@ -96,7 +96,7 @@ export default function CreateOntologyDialog({ open, onClose, onCreated }: Props
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Financial Services Domain"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               autoFocus
             />
           </div>
@@ -111,7 +111,7 @@ export default function CreateOntologyDialog({ open, onClose, onCreated }: Props
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional description of this ontology"
               rows={2}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none"
             />
           </div>
 
@@ -123,7 +123,7 @@ export default function CreateOntologyDialog({ open, onClose, onCreated }: Props
               id="ont-tier"
               value={tier}
               onChange={(e) => setTier(e.target.value as "local" | "domain")}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             >
               <option value="local">Local (organization-specific)</option>
               <option value="domain">Domain (shared standard)</option>

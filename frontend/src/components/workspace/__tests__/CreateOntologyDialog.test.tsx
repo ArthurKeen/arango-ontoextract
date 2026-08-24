@@ -33,24 +33,61 @@ describe("CreateOntologyDialog", () => {
     jest.clearAllMocks();
   });
 
+  it("gives every form control its own text colour", () => {
+    // The dialog is white in both themes. Its labels declare a colour but its
+    // inputs did not, so in dark mode they inherited white from the document
+    // and the Tier value was invisible on the white panel. The subtree-level
+    // fix is in globals.css; this pins the controls so a future edit cannot
+    // quietly go back to relying on inheritance.
+    render(
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
+    );
+
+    for (const id of ["ont-name", "ont-desc", "ont-tier"]) {
+      const el = document.getElementById(id);
+      expect(el).not.toBeNull();
+      expect(el!.className).toMatch(
+        /\btext-(gray|slate|zinc|neutral)-(8|9)00\b/,
+      );
+    }
+  });
+
   it("renders nothing when closed", () => {
     const { container } = render(
-      <CreateOntologyDialog open={false} onClose={mockClose} onCreated={mockCreated} />,
+      <CreateOntologyDialog
+        open={false}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it("renders the dialog when open", async () => {
     render(
-      <CreateOntologyDialog open={true} onClose={mockClose} onCreated={mockCreated} />,
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
     );
     expect(screen.getByText("Create New Ontology")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Financial Services/)).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/Financial Services/),
+    ).toBeInTheDocument();
   });
 
   it("disables create button when name is empty", () => {
     render(
-      <CreateOntologyDialog open={true} onClose={mockClose} onCreated={mockCreated} />,
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
     );
     const btn = screen.getByRole("button", { name: /Create Ontology/i });
     expect(btn).toBeDisabled();
@@ -58,7 +95,11 @@ describe("CreateOntologyDialog", () => {
 
   it("enables create button after entering a name", () => {
     render(
-      <CreateOntologyDialog open={true} onClose={mockClose} onCreated={mockCreated} />,
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
     );
     const input = screen.getByPlaceholderText(/Financial Services/);
     fireEvent.change(input, { target: { value: "My Ontology" } });
@@ -69,16 +110,23 @@ describe("CreateOntologyDialog", () => {
   it("calls API and onCreated on submit", async () => {
     const { api } = require("@/lib/api-client");
     render(
-      <CreateOntologyDialog open={true} onClose={mockClose} onCreated={mockCreated} />,
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
     );
     const input = screen.getByPlaceholderText(/Financial Services/);
     fireEvent.change(input, { target: { value: "My Ontology" } });
     fireEvent.click(screen.getByRole("button", { name: /Create Ontology/i }));
 
     await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith("/api/v1/ontology/create", expect.objectContaining({
-        name: "My Ontology",
-      }));
+      expect(api.post).toHaveBeenCalledWith(
+        "/api/v1/ontology/create",
+        expect.objectContaining({
+          name: "My Ontology",
+        }),
+      );
     });
 
     await waitFor(() => {
@@ -88,7 +136,11 @@ describe("CreateOntologyDialog", () => {
 
   it("shows available ontologies as import checkboxes", async () => {
     render(
-      <CreateOntologyDialog open={true} onClose={mockClose} onCreated={mockCreated} />,
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
     );
 
     await waitFor(() => {
@@ -99,7 +151,11 @@ describe("CreateOntologyDialog", () => {
 
   it("calls onClose when Cancel is clicked", () => {
     render(
-      <CreateOntologyDialog open={true} onClose={mockClose} onCreated={mockCreated} />,
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(mockClose).toHaveBeenCalledTimes(1);

@@ -277,6 +277,24 @@ html[data-theme="dark"] {
    */
   color-scheme: light;
 
+  /*
+   * ...and an EXPLICIT colour, because `color-scheme` alone is not enough.
+   *
+   * `color-scheme` supplies the UA default (`canvastext`) only for an element
+   * that has no colour of its own. In dark theme `html` has `color-scheme:
+   * dark`, so ITS default resolves to white, `body` inherits that resolved
+   * white, and this subtree inherits it in turn — inheriting a value counts as
+   * having one, so the `light` hint above never gets consulted. The symptom is
+   * every element in here that relies on inheritance rendering white on the
+   * white floating panels: the Create-Ontology dialog's inputs were invisible.
+   *
+   * Restating the light-mode default here re-establishes it for the whole
+   * subtree at once, which is the same argument as the token block below —
+   * better than pinning `text-gray-900` on each control and having the next
+   * one added silently inherit wrong.
+   */
+  color: #000;
+
   --color-white: #fff;
   --color-black: #000;
 

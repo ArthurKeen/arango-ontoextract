@@ -191,6 +191,8 @@ export function buildClassContextMenu(
         onClick: () => actions.introduceSuperclass() },
       { label: `Set parent for these ${n}…`, icon: "🔗",
         onClick: () => actions.setParentForSelection() },
+      { label: `Merge these ${n} into one…`, icon: "🔀",
+        onClick: () => actions.mergeSelection() },
       { label: "separatorSet1", separator: true },
       { label: `Approve these ${n}`, icon: "✅", onClick: () => actions.approveSelection() },
       { label: `Reject these ${n}`, icon: "❌", danger: true,

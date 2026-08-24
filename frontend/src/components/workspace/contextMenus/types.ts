@@ -320,6 +320,8 @@ export interface WorkspaceContextMenuActions {
   introduceSuperclass: () => void;
   setParentForSelection: () => void;
   clearSelection: () => void;
+  /** Merge the selection into one surviving class (FR-7.8.22). */
+  mergeSelection: () => void;
   setActiveLens: (lens: LensType) => void;
   graphViewMode: GraphViewMode;
   setGraphViewMode: (mode: GraphViewMode) => void;

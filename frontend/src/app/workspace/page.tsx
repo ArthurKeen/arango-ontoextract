@@ -18,6 +18,7 @@ import OntologyDeleteDialog from "@/components/workspace/OntologyDeleteDialog";
 import ManageImportsOverlay from "@/components/workspace/ManageImportsOverlay";
 import RevisionsInboxOverlay from "@/components/workspace/RevisionsInboxOverlay";
 import BulkParentDialog from "@/components/workspace/BulkParentDialog";
+import MergeClassesDialog from "@/components/workspace/MergeClassesDialog";
 import MergeCandidatesOverlay from "@/components/workspace/MergeCandidatesOverlay";
 import AlignmentReviewOverlay from "@/components/workspace/AlignmentReviewOverlay";
 import RequirementsOverlay from "@/components/workspace/RequirementsOverlay";
@@ -171,6 +172,7 @@ function WorkspacePageInner() {
   const [bulkParentDialog, setBulkParentDialog] = useState<
     { mode: "create" | "existing"; keys: string[] } | null
   >(null);
+  const [mergeDialogKeys, setMergeDialogKeys] = useState<string[] | null>(null);
 
   const handleNodeShiftSelect = useCallback((nodeKey: string) => {
     setMultiSelectedKeys((prev) => {
@@ -1180,6 +1182,12 @@ function WorkspacePageInner() {
 
   const clearSelection = useCallback(() => setMultiSelectedKeys(new Set()), []);
 
+  /** Merge the selection into one surviving class (FR-7.8.22). */
+  const mergeSelection = useCallback(() => {
+    if (multiSelectedKeys.size < 2) return;
+    setMergeDialogKeys([...multiSelectedKeys]);
+  }, [multiSelectedKeys]);
+
   const approveClass = useCallback(async (key: string) => {
     if (!selectedOntologyId) return;
     setClasses((prev) =>
@@ -1462,6 +1470,7 @@ function WorkspacePageInner() {
     introduceSuperclass,
     setParentForSelection,
     clearSelection,
+    mergeSelection,
     setMergeCandidates,
     setAlignmentReview,
     setRequirementsOverlay,
@@ -1980,6 +1989,24 @@ function WorkspacePageInner() {
             // edges become visible without a full page reload.
             refreshGraph();
             setExplorerLibraryNonce((n) => n + 1);
+          }}
+        />
+      )}
+
+      {mergeDialogKeys && selectedOntologyId && (
+        <MergeClassesDialog
+          classKeys={mergeDialogKeys}
+          classes={classes}
+          // FR-20.3 is open: identity is not plumbed through, so this records a
+          // placeholder rather than a person. Passed explicitly instead of
+          // defaulted inside the dialog, so the gap stays visible at the call site.
+          curatorId="anonymous"
+          onClose={() => setMergeDialogKeys(null)}
+          onDone={() => {
+            setMergeDialogKeys(null);
+            setMultiSelectedKeys(new Set());
+            invalidateOntology(selectedOntologyId);
+            fetchGraphData(selectedOntologyId);
           }}
         />
       )}

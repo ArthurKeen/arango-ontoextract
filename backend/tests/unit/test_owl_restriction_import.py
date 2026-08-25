@@ -762,3 +762,82 @@ class TestSchemaOrgSoftTyping:
 
         prop = next(p for p in props if p["uri"].endswith("hasFeatureOfInterest"))
         assert "range" not in prop
+
+
+class TestInverseOfImport:
+    """``owl:inverseOf`` states one fact in two directions.
+
+    SOSA declares 35 such pairs and the importer ignored every one, so
+    ``hasFeatureOfInterest`` and ``isFeatureOfInterestOf`` arrived as two
+    unrelated properties and the canvas drew both — roughly half of SOSA's
+    edges were one relation mirrored.
+    """
+
+    def _props(self, ttl: str) -> dict[str, dict]:
+        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+        out: dict[str, dict] = {}
+
+        def _create_property(_db, *, ontology_id, data, created_by, collection):
+            out[data["uri"]] = data
+            return {"_id": f"{collection}/{data['uri']}"}
+
+        with (
+            patch("app.services.arangordf_bridge.create_class", return_value={"_id": "c/1"}),
+            patch("app.services.arangordf_bridge.create_property", side_effect=_create_property),
+            patch("app.services.arangordf_bridge.create_edge", return_value={"_id": "e/1"}),
+            patch("app.services.arangordf_bridge._ensure_import_collections"),
+        ):
+            _import_with_rdflib_fallback(db, rdf_graph=_parse(ttl), ontology_id="o1")
+        return out
+
+    ONE_WAY = (
+        _PREFIXES
+        + """
+    :hasFeatureOfInterest a owl:ObjectProperty .
+    :isFeatureOfInterestOf a owl:ObjectProperty ;
+        owl:inverseOf :hasFeatureOfInterest .
+    """
+    )
+
+    def test_declared_direction_is_recorded(self):
+        props = self._props(self.ONE_WAY)
+
+        assert props["http://example.org/onto#isFeatureOfInterestOf"]["inverse_of"] == (
+            "http://example.org/onto#hasFeatureOfInterest"
+        )
+
+    def test_the_implicit_mirror_is_materialised(self):
+        """owl:inverseOf is symmetric, but files state it once. Deriving the
+        mirror here means consumers do one lookup instead of each re-deriving
+        the symmetry, and half of them forgetting."""
+        props = self._props(self.ONE_WAY)
+
+        assert props["http://example.org/onto#hasFeatureOfInterest"]["inverse_of"] == (
+            "http://example.org/onto#isFeatureOfInterestOf"
+        )
+
+    def test_property_without_an_inverse_has_no_field(self):
+        props = self._props(_PREFIXES + ":observes a owl:ObjectProperty .\n")
+
+        assert "inverse_of" not in props["http://example.org/onto#observes"]
+
+    def test_real_sosa_bundle_declares_pairs_symmetrically(self):
+        """Guards the bundle as well as the code: if a future refresh of the
+        SOSA file drops its inverse axioms, the canvas silently doubles again."""
+        import importlib.resources as _resources
+
+        from rdflib import OWL as _OWL
+
+        from app.services.arangordf_bridge import _inverse_index
+
+        raw = _resources.files("app.data.ontologies").joinpath("sosa_ssn.ttl").read_bytes()
+        g = _parse(raw.decode("utf-8"))
+        index = _inverse_index(g)
+
+        declared = len(list(g.triples((None, _OWL.inverseOf, None))))
+        assert declared >= 30, f"SOSA bundle declares only {declared} inverse pairs"
+        # Symmetric closure: every partner resolves back to its source.
+        assert all(index[partner] == prop for prop, partner in index.items())

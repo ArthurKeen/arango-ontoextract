@@ -223,6 +223,132 @@ describe("graphCanvasEdges", () => {
     });
   });
 
+  describe("owl:inverseOf pairs are drawn once", () => {
+    // SOSA states 35 inverse pairs. hasFeatureOfInterest and
+    // isFeatureOfInterestOf are one fact in two directions; drawing both
+    // doubles the edge count and tells the reader nothing extra.
+    const keys = new Set(["Observation", "FeatureOfInterest"]);
+
+    function pair(activeLabel: string, passiveLabel: string): OntologyEdge[] {
+      return [
+        {
+          _key: "d-active",
+          _from: "op/active",
+          _to: "ontology_classes/Observation",
+          type: "rdfs_domain",
+          label: "",
+        },
+        {
+          _key: "r-active",
+          _from: "op/active",
+          _to: "ontology_classes/FeatureOfInterest",
+          type: "rdfs_range_class",
+          label: activeLabel,
+          inverse_of_id: "op/passive",
+        },
+        {
+          _key: "d-passive",
+          _from: "op/passive",
+          _to: "ontology_classes/FeatureOfInterest",
+          type: "rdfs_domain",
+          label: "",
+        },
+        {
+          _key: "r-passive",
+          _from: "op/passive",
+          _to: "ontology_classes/Observation",
+          type: "rdfs_range_class",
+          label: passiveLabel,
+          inverse_of_id: "op/active",
+        },
+      ] as unknown as OntologyEdge[];
+    }
+
+    it("keeps the active reading and drops the mirror", () => {
+      const syn = buildSyntheticRdfsRangeClassEdges(
+        pair("has feature of interest", "is feature of interest of"),
+        keys,
+      );
+
+      expect(syn).toHaveLength(1);
+      expect(syn[0].label).toBe("has feature of interest");
+      expect(syn[0].sourceClassKey).toBe("Observation");
+      expect(syn[0].targetClassKey).toBe("FeatureOfInterest");
+    });
+
+    it("names the reverse reading rather than losing it", () => {
+      const syn = buildSyntheticRdfsRangeClassEdges(
+        pair("has feature of interest", "is feature of interest of"),
+        keys,
+      );
+
+      expect(syn[0].inverseLabel).toBe("is feature of interest of");
+    });
+
+    it("recognises the 'made by' form of a passive label", () => {
+      const syn = buildSyntheticRdfsRangeClassEdges(
+        pair("made observation", "made by sensor"),
+        keys,
+      );
+
+      expect(syn).toHaveLength(1);
+      expect(syn[0].label).toBe("made observation");
+    });
+
+    it("still drops exactly one when the heuristic cannot separate them", () => {
+      // Two labels that both look active. Something must still yield, and the
+      // choice has to be the same on every render or the canvas would flicker.
+      const edges = pair("relates to", "connects to");
+      const first = buildSyntheticRdfsRangeClassEdges(edges, keys);
+      const second = buildSyntheticRdfsRangeClassEdges(
+        [...edges].reverse(),
+        keys,
+      );
+
+      expect(first).toHaveLength(1);
+      expect(second).toHaveLength(1);
+      expect(first[0].label).toBe(second[0].label);
+    });
+
+    it("keeps both when only one half is on the canvas", () => {
+      // The partner property has no domain edge, so it draws nothing. Dropping
+      // this one too would lose the relation entirely.
+      const edges = pair(
+        "has feature of interest",
+        "is feature of interest of",
+      ).filter((e) => e._key !== "d-passive");
+      const syn = buildSyntheticRdfsRangeClassEdges(edges, keys);
+
+      expect(syn).toHaveLength(1);
+      expect(syn[0].label).toBe("has feature of interest");
+    });
+
+    it("leaves a property with no declared inverse alone", () => {
+      const edges: OntologyEdge[] = [
+        {
+          _key: "d1",
+          _from: "op/observes",
+          _to: "ontology_classes/Observation",
+          type: "rdfs_domain",
+          label: "",
+        },
+        {
+          _key: "r1",
+          _from: "op/observes",
+          _to: "ontology_classes/FeatureOfInterest",
+          type: "rdfs_range_class",
+          label: "is observed by",
+        },
+      ];
+      const syn = buildSyntheticRdfsRangeClassEdges(edges, keys);
+
+      // Passive-looking, but with no partner there is nothing to collapse into
+      // -- the heuristic must never drop an edge on its own.
+      expect(syn).toHaveLength(1);
+      expect(syn[0].inverseLabel).toBeUndefined();
+    });
+  });
+
   describe("individual node ids (FR-18.13)", () => {
     it("namespaces an individual key", () => {
       expect(individualNodeId("i1")).toBe("ind:i1");

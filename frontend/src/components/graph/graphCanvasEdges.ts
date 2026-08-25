@@ -44,6 +44,26 @@ export interface SyntheticRdfsRangeEdge {
   sourceClassKey: string;
   targetClassKey: string;
   label: string;
+  /** Label of the `owl:inverseOf` partner, when this edge stands in for a
+   *  mirrored pair. Nothing is hidden — the reverse reading is still nameable
+   *  in the detail panel; it just is not drawn as a second arrow. */
+  inverseLabel?: string;
+}
+
+/**
+ * Does this label read as the passive half of an inverse pair?
+ *
+ * Purely a DISPLAY heuristic for choosing which of two equivalent directions to
+ * draw — it decides nothing semantic, and when it cannot tell, a stable
+ * tiebreak takes over so the canvas never flickers between renders.
+ *
+ * The convention it keys on is near-universal in published ontologies: the
+ * active member is `hasX` / `madeX` / `observes`, the passive one is `isXOf` /
+ * `madeByX` / `isObservedBy`. It picks the active member for all nine of
+ * SOSA's inverse pairs.
+ */
+export function looksLikeInverseLabel(label: string): boolean {
+  return /^(is|was|are|were)\b/i.test(label.trim()) || /\bby\b/i.test(label);
 }
 
 /**
@@ -80,6 +100,14 @@ export function buildSyntheticRdfsRangeClassEdges(
     }
   }
 
+  // Label of each property, so a collapsed pair can still name its reverse.
+  const labelByPropertyId = new Map<string, string>();
+  for (const edge of edges) {
+    if (getEdgeType(edge) !== "rdfs_range_class") continue;
+    const label = edge.label && edge.label.trim();
+    if (label) labelByPropertyId.set(edge._from, label);
+  }
+
   const out: SyntheticRdfsRangeEdge[] = [];
   for (const edge of edges) {
     if (getEdgeType(edge) !== "rdfs_range_class") continue;
@@ -89,6 +117,28 @@ export function buildSyntheticRdfsRangeClassEdges(
     if (!classKeySet.has(rangeClassKey)) continue;
     const label =
       (edge.label && edge.label.trim()) || RDFS_RANGE_CLASS_LABEL_FALLBACK;
+
+    // An owl:inverseOf pair states one fact in both directions. Drawing both
+    // doubles the edge count for no added information: SOSA ships 35 such
+    // pairs. Draw the active reading and carry the passive one as a label.
+    const partnerId = inverseOfPropertyId(edge);
+    let inverseLabel: string | undefined;
+    if (partnerId && propertyIdToDomainClassKeys.has(partnerId)) {
+      const partnerLabel = labelByPropertyId.get(partnerId);
+      const mine = String(edge._from);
+      // Both halves reach this line; exactly one must yield. Prefer the active
+      // label; when the heuristic cannot separate them, the lower property id
+      // wins, which is stable across renders and across reloads.
+      const partnerIsPassive = partnerLabel
+        ? looksLikeInverseLabel(partnerLabel)
+        : false;
+      const mineIsPassive = looksLikeInverseLabel(label);
+      const iYield =
+        mineIsPassive !== partnerIsPassive ? mineIsPassive : mine > partnerId;
+      if (iYield) continue;
+      inverseLabel = partnerLabel;
+    }
+
     for (const domainClassKey of domainClassKeys) {
       if (!classKeySet.has(domainClassKey)) continue;
       // A self-loop (domain and range the same class) is legitimate -- SOSA's
@@ -101,8 +151,15 @@ export function buildSyntheticRdfsRangeClassEdges(
         sourceClassKey: domainClassKey,
         targetClassKey: rangeClassKey,
         label,
+        ...(inverseLabel ? { inverseLabel } : {}),
       });
     }
   }
   return out;
+}
+
+/** The `owl:inverseOf` partner id the API lifted onto a range edge, if any. */
+function inverseOfPropertyId(edge: OntologyEdge): string | null {
+  const raw = (edge as unknown as Record<string, unknown>).inverse_of_id;
+  return typeof raw === "string" && raw ? raw : null;
 }

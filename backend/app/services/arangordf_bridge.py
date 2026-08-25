@@ -53,6 +53,33 @@ _SCHEMA_RANGE_INCLUDES = (
 )
 
 
+def _inverse_index(rdf_graph: RDFGraph) -> dict[str, str]:
+    """Map each property URI to its ``owl:inverseOf`` partner, BOTH ways.
+
+    ``owl:inverseOf`` is symmetric in OWL, but a file usually states it once --
+    SOSA writes ``sosa:isFeatureOfInterestOf owl:inverseOf sosa:hasFeatureOfInterest``
+    and leaves the mirror implicit. Materialising both directions here means
+    every consumer does one lookup instead of re-deriving the symmetry (and half
+    of them forgetting to).
+
+    An inverse pair states one fact twice. Without this the canvas draws
+    ``hasFeatureOfInterest`` and ``isFeatureOfInterestOf`` as two separate
+    arrows between the same pair of classes; SOSA ships 35 such pairs, so
+    roughly half its edges were one relation mirrored.
+
+    First declaration wins on conflict -- an ontology naming two different
+    inverses for one property is malformed, and picking deterministically beats
+    letting document order decide.
+    """
+    out: dict[str, str] = {}
+    for subject, obj in rdf_graph.subject_objects(OWL.inverseOf):
+        if not (isinstance(subject, URIRef) and isinstance(obj, URIRef)):
+            continue
+        out.setdefault(str(subject), str(obj))
+        out.setdefault(str(obj), str(subject))
+    return out
+
+
 def _soft_typed(rdf_graph: RDFGraph, subject: URIRef, predicates: tuple[URIRef, ...]) -> list[str]:
     """Named classes named by schema.org soft typing, de-duplicated, ordered."""
     seen: list[str] = []
@@ -826,6 +853,7 @@ def _import_with_rdflib_fallback(
 
     property_ids: dict[str, str] = {}
     property_meta: list[dict[str, Any]] = []
+    inverses = _inverse_index(rdf_graph)
 
     for rdf_type, property_kind in (
         (OWL.ObjectProperty, "object"),
@@ -861,6 +889,12 @@ def _import_with_rdflib_fallback(
                 "rdf_type": rdf_type_label,
                 "status": "approved",
             }
+            # owl:inverseOf partner, when the file declares one. Carried on the
+            # property so consumers can recognise that two properties state the
+            # same fact in opposite directions.
+            inverse_uri = inverses.get(prop_uri)
+            if inverse_uri:
+                prop_data["inverse_of"] = inverse_uri
             if property_kind == "datatype" and range_value:
                 prop_data["range_datatype"] = str(range_value)
             # Only the HARD rdfs:range lands on the property document. Export

@@ -107,6 +107,28 @@ _PROPERTY_FIELDS_TO_LIFT = (
 )
 
 
+def _inverse_property_ids(properties_by_id: dict[str, Any]) -> dict[str, str]:
+    """Map property ``_id`` -> its ``owl:inverseOf`` partner's ``_id``.
+
+    The property document stores the partner as a URI (that is what the source
+    file states). The canvas pairs edges by ``_from``, which is an ``_id``, so
+    the URI is resolved here once rather than per edge.
+    """
+    id_by_uri = {
+        prop["uri"]: pid
+        for pid, prop in properties_by_id.items()
+        if isinstance(prop, dict) and isinstance(prop.get("uri"), str)
+    }
+    out: dict[str, str] = {}
+    for pid, prop in properties_by_id.items():
+        if not isinstance(prop, dict):
+            continue
+        partner_id = id_by_uri.get(prop.get("inverse_of") or "")
+        if partner_id and partner_id != pid:
+            out[pid] = partner_id
+    return out
+
+
 def enrich_rdfs_range_class_edges(
     edges: list[dict[str, Any]],
     properties_by_id: dict[str, dict[str, Any]],
@@ -124,6 +146,8 @@ def enrich_rdfs_range_class_edges(
 
     No-op for any edge whose ``edge_type`` is not ``rdfs_range_class``.
     """
+    inverse_ids = _inverse_property_ids(properties_by_id)
+
     for edge in edges:
         if edge.get("edge_type") != "rdfs_range_class":
             continue
@@ -133,6 +157,11 @@ def enrich_rdfs_range_class_edges(
         prop = properties_by_id.get(prop_id)
         if not isinstance(prop, dict):
             continue
+        # The partner property's id, so the canvas can recognise that this edge
+        # and its mirror state one fact twice and draw it once.
+        partner_id = inverse_ids.get(prop_id)
+        if partner_id:
+            edge["inverse_of_id"] = partner_id
         for field in _PROPERTY_FIELDS_TO_LIFT:
             if field not in prop:
                 continue

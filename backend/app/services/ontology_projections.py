@@ -100,6 +100,10 @@ EDGE_SUMMARY_FIELDS: Final[tuple[str, ...]] = (
     "description",
     "status",
     "confidence",
+    # owl:inverseOf partner id -- the canvas needs it to collapse a mirrored
+    # relation pair into one drawn edge, and the canvas only ever fetches the
+    # summary projection.
+    "inverse_of_id",
     "created",
     "expired",
     # FR-2.20 -- one boolean, not the whole verdict: the canvas only needs to

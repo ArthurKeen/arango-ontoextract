@@ -11,7 +11,7 @@ from app.db.client import get_db
 from app.db.ontology_collections import PROPERTY_VERTEX_COLLECTIONS
 from app.db.utils import run_aql
 from app.models.ontology import ExtractionResult
-from app.services.arangordf_bridge import import_owl_to_graph
+from app.services.ontology_import import import_owl_to_graph
 from app.services.owl_serializer import extraction_to_owl
 
 log = logging.getLogger(__name__)

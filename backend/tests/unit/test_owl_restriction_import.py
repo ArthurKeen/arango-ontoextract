@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 from rdflib import Graph as RDFGraph
 
 from app.db.temporal_constants import NEVER_EXPIRES
-from app.services.arangordf_bridge import (
+from app.services.ontology_import import (
     _coerce_cardinality_int,
     _extract_owl_restrictions,
     _import_owl_restrictions,
@@ -386,7 +386,7 @@ class TestImportOwlRestrictions:
         def fake_run_aql(_db, _query, bind_vars):  # type: ignore[no-untyped-def]
             return responses.pop(0)
 
-        with patch("app.services.arangordf_bridge.run_aql", side_effect=fake_run_aql):
+        with patch("app.services.ontology_import.run_aql", side_effect=fake_run_aql):
             written = _import_owl_restrictions(
                 db,
                 rdf_graph=rdf_graph,
@@ -438,7 +438,7 @@ class TestImportOwlRestrictions:
         # Empty class lookup, empty property lookups.
         with (
             patch(
-                "app.services.arangordf_bridge.run_aql",
+                "app.services.ontology_import.run_aql",
                 side_effect=lambda *a, **k: iter([]),
             ),
             caplog.at_level("WARNING"),
@@ -485,7 +485,7 @@ class TestImportOwlRestrictions:
         def fake_run_aql(_db, _query, bind_vars):  # type: ignore[no-untyped-def]
             return responses.pop(0)
 
-        with patch("app.services.arangordf_bridge.run_aql", side_effect=fake_run_aql):
+        with patch("app.services.ontology_import.run_aql", side_effect=fake_run_aql):
             written = _import_owl_restrictions(
                 db, rdf_graph=rdf_graph, ontology_id="onto_1", now=1.0
             )
@@ -503,18 +503,17 @@ class TestImportOwlRestrictions:
 
 
 class TestImportOwlToGraphReturnsRestrictionsCount:
-    @patch("app.services.arangordf_bridge._ensure_named_graph")
-    @patch("app.services.arangordf_bridge._tag_documents_with_ontology_id")
-    @patch("app.services.arangordf_bridge._import_owl_restrictions")
-    @patch("app.services.arangordf_bridge._ensure_arango_rdf")
+    @patch("app.services.ontology_import._ensure_named_graph")
+    @patch("app.services.ontology_import._tag_documents_with_ontology_id")
+    @patch("app.services.ontology_import._import_owl_restrictions")
+    @patch("app.services.ontology_import._materialize_rdf_graph")
     def test_stats_carries_restrictions_imported(
         self,
-        mock_ensure_rdf,
+        mock_materialize,
         mock_import_restrictions,
         mock_tag,
         mock_ensure_graph,
     ):
-        mock_ensure_rdf.return_value = MagicMock()
         mock_tag.return_value = 0
         mock_import_restrictions.return_value = 3
         db = MagicMock()
@@ -552,7 +551,7 @@ class TestAnonymousClassExpressionsAreSkipped:
     """
 
     def _run(self, ttl: str):
-        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+        from app.services.ontology_import import _materialize_rdf_graph
 
         db = MagicMock()
         db.has_collection.return_value = True
@@ -568,11 +567,11 @@ class TestAnonymousClassExpressionsAreSkipped:
         # Property/edge writing goes through the mocked db; a failure there
         # does not affect what we assert about classes.
         with (
-            patch("app.services.arangordf_bridge.create_class", side_effect=_create_class),
-            patch("app.services.arangordf_bridge._ensure_import_collections"),
+            patch("app.services.ontology_import.create_class", side_effect=_create_class),
+            patch("app.services.ontology_import._ensure_import_collections"),
             contextlib.suppress(Exception),
         ):
-            _import_with_rdflib_fallback(db, rdf_graph=_parse(ttl), ontology_id="o1")
+            _materialize_rdf_graph(db, rdf_graph=_parse(ttl), ontology_id="o1")
         return created
 
     def test_restriction_nodes_do_not_become_classes(self):
@@ -629,7 +628,7 @@ class TestSchemaOrgSoftTyping:
     """
 
     def _edges(self, ttl: str):
-        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+        from app.services.ontology_import import _materialize_rdf_graph
 
         db = MagicMock()
         db.has_collection.return_value = True
@@ -655,12 +654,12 @@ class TestSchemaOrgSoftTyping:
             return {"_id": "e/1"}
 
         with (
-            patch("app.services.arangordf_bridge.create_class", side_effect=_create_class),
-            patch("app.services.arangordf_bridge.create_property", side_effect=_create_property),
-            patch("app.services.arangordf_bridge.create_edge", side_effect=_create_edge),
-            patch("app.services.arangordf_bridge._ensure_import_collections"),
+            patch("app.services.ontology_import.create_class", side_effect=_create_class),
+            patch("app.services.ontology_import.create_property", side_effect=_create_property),
+            patch("app.services.ontology_import.create_edge", side_effect=_create_edge),
+            patch("app.services.ontology_import._ensure_import_collections"),
         ):
-            _import_with_rdflib_fallback(db, rdf_graph=_parse(ttl), ontology_id="o1")
+            _materialize_rdf_graph(db, rdf_graph=_parse(ttl), ontology_id="o1")
         return created
 
     SOSA = (
@@ -740,25 +739,25 @@ class TestSchemaOrgSoftTyping:
     def test_soft_range_never_reaches_the_property_document(self):
         """Export turns the property's ``range`` field into an rdfs:range
         triple, so a soft value must not be written there."""
-        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+        from app.services.ontology_import import _materialize_rdf_graph
 
         db = MagicMock()
         db.has_collection.return_value = True
         props: list[dict] = []
 
         with (
-            patch("app.services.arangordf_bridge.create_class", return_value={"_id": "c/1"}),
+            patch("app.services.ontology_import.create_class", return_value={"_id": "c/1"}),
             patch(
-                "app.services.arangordf_bridge.create_property",
+                "app.services.ontology_import.create_property",
                 side_effect=lambda _db, **kw: (
                     props.append(kw["data"]),
                     {"_id": "p/1"},
                 )[1],
             ),
-            patch("app.services.arangordf_bridge.create_edge", return_value={"_id": "e/1"}),
-            patch("app.services.arangordf_bridge._ensure_import_collections"),
+            patch("app.services.ontology_import.create_edge", return_value={"_id": "e/1"}),
+            patch("app.services.ontology_import._ensure_import_collections"),
         ):
-            _import_with_rdflib_fallback(db, rdf_graph=_parse(self.SOSA), ontology_id="o1")
+            _materialize_rdf_graph(db, rdf_graph=_parse(self.SOSA), ontology_id="o1")
 
         prop = next(p for p in props if p["uri"].endswith("hasFeatureOfInterest"))
         assert "range" not in prop
@@ -774,7 +773,7 @@ class TestInverseOfImport:
     """
 
     def _props(self, ttl: str) -> dict[str, dict]:
-        from app.services.arangordf_bridge import _import_with_rdflib_fallback
+        from app.services.ontology_import import _materialize_rdf_graph
 
         db = MagicMock()
         db.has_collection.return_value = True
@@ -785,12 +784,12 @@ class TestInverseOfImport:
             return {"_id": f"{collection}/{data['uri']}"}
 
         with (
-            patch("app.services.arangordf_bridge.create_class", return_value={"_id": "c/1"}),
-            patch("app.services.arangordf_bridge.create_property", side_effect=_create_property),
-            patch("app.services.arangordf_bridge.create_edge", return_value={"_id": "e/1"}),
-            patch("app.services.arangordf_bridge._ensure_import_collections"),
+            patch("app.services.ontology_import.create_class", return_value={"_id": "c/1"}),
+            patch("app.services.ontology_import.create_property", side_effect=_create_property),
+            patch("app.services.ontology_import.create_edge", return_value={"_id": "e/1"}),
+            patch("app.services.ontology_import._ensure_import_collections"),
         ):
-            _import_with_rdflib_fallback(db, rdf_graph=_parse(ttl), ontology_id="o1")
+            _materialize_rdf_graph(db, rdf_graph=_parse(ttl), ontology_id="o1")
         return out
 
     ONE_WAY = (
@@ -831,7 +830,7 @@ class TestInverseOfImport:
 
         from rdflib import OWL as _OWL
 
-        from app.services.arangordf_bridge import _inverse_index
+        from app.services.ontology_import import _inverse_index
 
         raw = _resources.files("app.data.ontologies").joinpath("sosa_ssn.ttl").read_bytes()
         g = _parse(raw.decode("utf-8"))

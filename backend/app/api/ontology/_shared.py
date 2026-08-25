@@ -10,7 +10,7 @@ from app.db import constraints_repo, ontology_repo, registry_repo
 from app.db.client import get_db
 from app.db.pagination import paginate
 from app.db.utils import run_aql
-from app.services.arangordf_bridge import import_from_file
+from app.services.ontology_import import import_from_file
 
 __all__ = [
     "constraints_repo",

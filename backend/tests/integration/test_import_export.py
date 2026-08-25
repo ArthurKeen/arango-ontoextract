@@ -26,7 +26,7 @@ class TestImportExportRoundtrip:
     def test_import_then_export_turtle(self, test_db):
         """Import sample OWL → export as TTL → verify triples are preserved."""
         try:
-            from app.services.arangordf_bridge import import_from_file
+            from app.services.ontology_import import import_from_file
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -35,7 +35,7 @@ class TestImportExportRoundtrip:
         from unittest.mock import patch
 
         with (
-            patch("app.services.arangordf_bridge.get_db", return_value=test_db),
+            patch("app.services.ontology_import.get_db", return_value=test_db),
             patch("app.services.export.get_db", return_value=test_db),
         ):
             import_result = import_from_file(
@@ -63,7 +63,7 @@ class TestImportExportRoundtrip:
     def test_roundtrip_preserves_class_uris(self, test_db):
         """Class URIs from the original file should appear in the export."""
         try:
-            from app.services.arangordf_bridge import import_from_file
+            from app.services.ontology_import import import_from_file
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -76,7 +76,7 @@ class TestImportExportRoundtrip:
         from unittest.mock import patch
 
         with (
-            patch("app.services.arangordf_bridge.get_db", return_value=test_db),
+            patch("app.services.ontology_import.get_db", return_value=test_db),
             patch("app.services.export.get_db", return_value=test_db),
         ):
             import_from_file(
@@ -103,7 +103,7 @@ class TestImportExportRoundtrip:
     def test_import_creates_registry_entry(self, test_db):
         """Import should create a registry entry accessible by ontology_id."""
         try:
-            from app.services.arangordf_bridge import import_from_file
+            from app.services.ontology_import import import_from_file
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -111,7 +111,7 @@ class TestImportExportRoundtrip:
 
         from unittest.mock import patch
 
-        with patch("app.services.arangordf_bridge.get_db", return_value=test_db):
+        with patch("app.services.ontology_import.get_db", return_value=test_db):
             result = import_from_file(
                 file_content=ttl_content,
                 filename="sample_ontology.ttl",
@@ -134,7 +134,7 @@ class TestImportExportRoundtrip:
     def test_export_jsonld_format(self, test_db):
         """Export as JSON-LD should produce valid JSON-LD."""
         try:
-            from app.services.arangordf_bridge import import_from_file
+            from app.services.ontology_import import import_from_file
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -143,7 +143,7 @@ class TestImportExportRoundtrip:
         from unittest.mock import patch
 
         with (
-            patch("app.services.arangordf_bridge.get_db", return_value=test_db),
+            patch("app.services.ontology_import.get_db", return_value=test_db),
             patch("app.services.export.get_db", return_value=test_db),
         ):
             import_from_file(
@@ -169,7 +169,7 @@ class TestImportExportRoundtrip:
     def test_export_csv_format(self, test_db):
         """Export as CSV should contain class and property sections."""
         try:
-            from app.services.arangordf_bridge import import_from_file
+            from app.services.ontology_import import import_from_file
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -178,7 +178,7 @@ class TestImportExportRoundtrip:
         from unittest.mock import patch
 
         with (
-            patch("app.services.arangordf_bridge.get_db", return_value=test_db),
+            patch("app.services.ontology_import.get_db", return_value=test_db),
             patch("app.services.export.get_db", return_value=test_db),
         ):
             import_from_file(
@@ -198,7 +198,7 @@ class TestImportExportRoundtrip:
 
     def test_unsupported_format_raises_error(self, test_db):
         """Importing a file with unsupported extension should raise ValueError."""
-        from app.services.arangordf_bridge import import_from_file
+        from app.services.ontology_import import import_from_file
 
         with pytest.raises(ValueError, match="Unsupported file extension"):
             import_from_file(

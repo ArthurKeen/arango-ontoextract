@@ -1,8 +1,38 @@
-"""ArangoRDF bridge — wraps arango_rdf for PGT import with post-processing.
+"""OWL/RDF import into the PGT-aligned ontology collections.
 
-Handles OWL/TTL import into ArangoDB, post-import ontology_id tagging,
-per-ontology named graph creation, and file/URL-based import with format
-detection.
+Parses OWL / Turtle / RDF-XML / JSON-LD with rdflib and materialises it into
+this application's own schema — ``ontology_classes``,
+``ontology_object_properties``, ``ontology_datatype_properties``,
+``subclass_of``, ``rdfs_domain``, ``rdfs_range_class`` (ADR-006) — then tags
+the result with ``ontology_id``, creates the per-ontology named graph, and
+imports OWL restrictions and SHACL shapes.
+
+Why not ArangoRDF
+-----------------
+This module was once named ``ontology_import`` and claimed to wrap
+``arango_rdf``. It never did: the dependency was neither declared nor
+installed, so every import in every deployment took the rdflib path below,
+which the code described as a degraded fallback. Two real defects sat unnoticed
+in it for that reason -- blank-node class expressions materialised as
+hex-labelled concepts, and schema.org soft typing ignored -- because the path
+everyone used was documented as the one nobody used.
+
+Adopting ArangoRDF was evaluated against 2.0.0 on 2026-08-25 and rejected. Its
+PGT writer produces a fundamentally different store: one vertex collection per
+RDF type and one edge collection per predicate (``Class``, ``ObjectProperty``,
+``subClassOf``, ``domainIncludes``, ``inverseOf``, ``type``, ... -- 24
+collections for SOSA/SSN alone), with documents shaped ``{_key, _label,
+_rdftype}``. Nothing overlaps what this application reads, its documents carry
+neither ``ontology_id`` nor the ``created``/``expired`` pair the entire
+temporal model rests on, and 86 of the 105 ``Class`` rows it produced for
+SOSA/SSN were unlabelled blank nodes against that ontology's 22 real classes.
+Switching would be a rewrite of the storage layer, not an integration -- and it
+would not remove the interpretation work (soft typing, inverse pairs) that
+motivated looking at it, since ArangoRDF stores those predicates without acting
+on them.
+
+If an RDF-native store is ever wanted, it belongs beside this one as a separate
+mode with its own requirements, not as a replacement for it.
 """
 
 from __future__ import annotations
@@ -136,18 +166,6 @@ _OWL_RESTRICTION_ATTACHMENT_PREDICATES: tuple[URIRef, ...] = (
 _IMPORT_SOURCE_OWL_RESTRICTION = "owl_restriction"
 
 
-def _ensure_arango_rdf() -> type[Any]:
-    """Import arango_rdf lazily to avoid hard dependency at module load."""
-    try:
-        from arango_rdf import ArangoRDF as _ArangoRDFCls
-
-        return cast(type[Any], _ArangoRDFCls)
-    except ImportError as exc:
-        raise ImportError(
-            "arango_rdf is required for OWL import. Install it with: pip install arango-rdf"
-        ) from exc
-
-
 def import_owl_to_graph(
     db: StandardDatabase | None = None,
     *,
@@ -182,27 +200,7 @@ def import_owl_to_graph(
         },
     )
 
-    try:
-        arango_rdf_cls = _ensure_arango_rdf()
-    except ImportError:
-        log.warning("arango_rdf unavailable; using rdflib fallback importer")
-        _import_with_rdflib_fallback(
-            db,
-            rdf_graph=rdf_graph,
-            ontology_id=ontology_id,
-        )
-    else:
-        adb_rdf = arango_rdf_cls(db)
-
-        adb_rdf.init_rdf_collections(
-            bnode_collection=f"{graph_name}_bnodes",
-        )
-
-        adb_rdf.rdf_to_arangodb_by_pgt(
-            name=graph_name,
-            rdf_graph=rdf_graph,
-            overwrite=False,
-        )
+    _materialize_rdf_graph(db, rdf_graph=rdf_graph, ontology_id=ontology_id)
 
     _tag_documents_with_ontology_id(
         db,
@@ -610,7 +608,7 @@ def _resolve_property_ids(
     ``ontology_datatype_properties`` (PR 1's resolution pattern). When a
     URI lives in both -- which would mean the import produced a bug,
     not a valid OWL graph -- the object-property hit wins, matching
-    the iteration order in ``_import_with_rdflib_fallback`` and PGT.
+    the iteration order in ``_materialize_rdf_graph``.
     """
     if not property_uris:
         return {}
@@ -804,13 +802,16 @@ def _comment_for(graph: RDFGraph, subject: URIRef) -> str:
     return str(comment) if comment else ""
 
 
-def _import_with_rdflib_fallback(
+def _materialize_rdf_graph(
     db: StandardDatabase,
     *,
     rdf_graph: RDFGraph,
     ontology_id: str,
 ) -> None:
-    """Minimal OWL importer used when ``arango_rdf`` is unavailable.
+    """Write a parsed RDF graph into the PGT-aligned ontology collections.
+
+    This is the import path -- the only one. See the module docstring for why
+    there is no ArangoRDF alternative behind a flag.
 
     Writes ``owl:ObjectProperty`` instances to ``ontology_object_properties``
     and ``owl:DatatypeProperty`` instances to ``ontology_datatype_properties``.

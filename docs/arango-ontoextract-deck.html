@@ -1,0 +1,1342 @@
+<title>Living Ontologies — Arango-OntoExtract</title>
+
+<style>
+/* ============================================================
+   TOKENS — light is the base; dark redefines tokens only.
+   ============================================================ */
+:root {
+  --paper:      #F7FAF6;
+  --paper-2:    #EDF3EC;
+  --ink:        #10241A;
+  --ink-2:      #3D5446;
+  --muted:      #6B7F72;
+  --rule:       #CBD9CE;
+  --rule-soft:  #DFE8E0;
+  --accent:     #006532;
+  --accent-2:   #43B06B;
+  --accent-wash:#E4F3E8;
+  --alarm:      #B71419;
+  --alarm-wash: #FBE9EA;
+  --stage:      #FFFFFF;
+
+  --f-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+            "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --f-mono: "Courier New", Courier, ui-monospace, SFMono-Regular, Menlo,
+            Monaco, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #060F0A;
+    --paper-2:    #12261A;
+    --ink:        #E9F1EA;
+    --ink-2:      #B3C5B8;
+    --muted:      #7E9585;
+    --rule:       #24382C;
+    --rule-soft:  #1A2A20;
+    --accent:     #5FD08A;
+    --accent-2:   #43B06B;
+    --accent-wash:#11291B;
+    --alarm:      #FF6B6F;
+    --alarm-wash: #2A1214;
+    --stage:      #0B1811;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #060F0A;
+  --paper-2:    #12261A;
+  --ink:        #E9F1EA;
+  --ink-2:      #B3C5B8;
+  --muted:      #7E9585;
+  --rule:       #24382C;
+  --rule-soft:  #1A2A20;
+  --accent:     #5FD08A;
+  --accent-2:   #43B06B;
+  --accent-wash:#11291B;
+  --alarm:      #FF6B6F;
+  --alarm-wash: #2A1214;
+  --stage:      #0B1811;
+}
+
+/* ============================================================
+   SHELL
+   ============================================================ */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-sans);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#viewport {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+#stage {
+  width: 1280px;
+  height: 720px;
+  position: relative;
+  transform-origin: center center;
+  background: var(--stage);
+  overflow: hidden;
+  box-shadow: 0 1px 0 var(--rule), 0 24px 60px -30px rgba(4, 24, 12, .45);
+}
+
+/* ============================================================
+   SLIDES
+   ============================================================ */
+.slide {
+  position: absolute;
+  inset: 0;
+  padding: 66px 84px 92px;
+  display: none;
+  flex-direction: column;
+}
+.slide.is-active { display: flex; }
+
+.slide > .notes { display: none; }
+
+/* --- eyebrow / act label --- */
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+h1 {
+  font-size: 76px;
+  line-height: 1.02;
+  letter-spacing: -.035em;
+  font-weight: 800;
+  margin: 0 0 22px;
+  text-wrap: balance;
+  max-width: 20ch;
+}
+
+h2 {
+  font-size: 46px;
+  line-height: 1.08;
+  letter-spacing: -.028em;
+  font-weight: 750;
+  margin: 0 0 14px;
+  text-wrap: balance;
+  max-width: 22ch;
+}
+
+.deck { font-size: 22px; line-height: 1.45; color: var(--ink-2); max-width: 62ch; margin: 0 0 26px; }
+.deck strong { color: var(--ink); font-weight: 650; }
+.kicker { font-size: 26px; line-height: 1.35; color: var(--ink-2); max-width: 48ch; margin: 0; }
+.kicker strong { color: var(--ink); font-weight: 650; }
+
+.body-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; min-height: 0; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.grow  { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+
+/* --- bullets --- */
+ul.pts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 15px; }
+ul.pts li {
+  position: relative;
+  padding-left: 26px;
+  font-size: 21px;
+  line-height: 1.42;
+  color: var(--ink-2);
+  max-width: 56ch;
+}
+ul.pts li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: .58em;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--accent);
+  transform: rotate(45deg);
+}
+ul.pts li b { color: var(--ink); font-weight: 700; }
+
+/* --- table --- */
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 18px;
+}
+table.grid th {
+  text-align: left;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  padding: 0 14px 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+table.grid td {
+  padding: 13px 14px 13px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ink-2);
+  vertical-align: top;
+  line-height: 1.35;
+}
+table.grid td:first-child { color: var(--ink); font-weight: 650; }
+table.grid tr:last-child td { border-bottom: 0; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* --- node / chip motif (the deck is about graphs) --- */
+.chip {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  letter-spacing: .02em;
+  padding: 9px 13px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper-2);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.chip.on   { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
+.chip.warn { border-color: var(--alarm);  color: var(--alarm);  background: var(--alarm-wash); }
+.chip.ghost{ color: var(--muted); border-style: dashed; background: transparent; }
+
+.flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.arrow { color: var(--rule); font-size: 18px; line-height: 1; }
+
+/* --- callout card --- */
+.card {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--paper-2);
+  padding: 20px 22px;
+  border-radius: 2px;
+}
+.card.alarm { border-left-color: var(--alarm); background: var(--alarm-wash); }
+.card h3 {
+  margin: 0 0 8px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 400;
+}
+.card.alarm h3 { color: var(--alarm); }
+.card p { margin: 0; font-size: 18px; line-height: 1.45; color: var(--ink-2); }
+.card p + p { margin-top: 10px; }
+
+/* --- big stat --- */
+.stats { display: flex; gap: 56px; align-items: flex-end; }
+.stat .val {
+  font-size: 92px;
+  font-weight: 800;
+  letter-spacing: -.045em;
+  line-height: .92;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.stat .val .was {
+  font-size: 40px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: -.02em;
+}
+.stat .val .to { font-size: 34px; color: var(--rule); font-weight: 400; }
+.stat .lab {
+  margin-top: 12px;
+  font-family: var(--f-mono);
+  font-size: 13px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  max-width: 24ch;
+  line-height: 1.5;
+}
+
+/* --- title slide --- */
+.slide.title { padding: 0; }
+.slide.title canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.title-inner {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding: 74px 84px 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.wordmark {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 30px;
+}
+.title-inner h1 { font-size: 92px; max-width: 16ch; }
+.title-rule { width: 96px; height: 3px; background: var(--accent); margin: 26px 0 24px; }
+.byline {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  letter-spacing: .1em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* --- section divider slide --- */
+.slide.divider { justify-content: center; }
+.slide.divider .act-no {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  letter-spacing: .3em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+.slide.divider h2 { font-size: 62px; max-width: 20ch; }
+.slide.divider .kicker { font-size: 23px; margin-top: 14px; }
+
+/* ============================================================
+   RAIL (bottom chrome)
+   ============================================================ */
+#rail {
+  position: absolute;
+  left: 84px;
+  right: 84px;
+  bottom: 34px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  z-index: 5;
+}
+#rail-act { min-width: 190px; color: var(--ink-2); }
+#rail-bar { flex: 1; display: flex; gap: 4px; height: 3px; }
+#rail-bar .seg { flex: 1; background: var(--rule-soft); position: relative; overflow: hidden; }
+#rail-bar .seg i { position: absolute; inset: 0; width: 0; background: var(--accent); transition: width .28s ease; }
+/* The repo URL rides every slide: a photographed slide should be actionable. */
+#rail-repo { color: var(--accent); letter-spacing: .06em; text-transform: none; }
+#rail-no { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+/* ============================================================
+   NOTES DRAWER + JUMP PANEL
+   ============================================================ */
+#notes {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-height: 42vh;
+  overflow-y: auto;
+  background: var(--paper-2);
+  border-top: 1px solid var(--rule);
+  padding: 20px 28px 24px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  z-index: 20;
+  display: none;
+}
+#notes.open { display: block; }
+#notes h4 {
+  margin: 0 0 8px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 400;
+}
+#notes p { margin: 0 0 10px; max-width: 100ch; }
+#notes p:last-child { margin-bottom: 0; }
+
+#jump {
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  z-index: 30;
+  padding: 44px 56px;
+  overflow-y: auto;
+  display: none;
+}
+#jump.open { display: block; }
+#jump h4 {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 22px;
+  font-weight: 400;
+}
+.jump-act { margin-bottom: 26px; }
+.jump-act > span {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 10px;
+}
+.jump-act ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 44px; }
+.jump-act li { break-inside: avoid; }
+.jump-act button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  padding: 7px 8px;
+  border-radius: 2px;
+  font-size: 17px;
+  color: var(--ink-2);
+  width: 100%;
+}
+.jump-act button:hover { background: var(--accent-wash); color: var(--ink); }
+.jump-act button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.jump-act button b { font-family: var(--f-mono); font-size: 13px; color: var(--muted); font-weight: 400; min-width: 22px; }
+
+#help {
+  position: fixed;
+  right: 14px;
+  bottom: 12px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  color: var(--muted);
+  z-index: 15;
+  opacity: .75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+@media print {
+  body { overflow: visible; background: #fff; }
+  #rail, #help, #jump, #notes { display: none !important; }
+  #viewport { position: static; display: block; }
+  #stage { transform: none !important; width: 100%; height: auto; box-shadow: none; }
+  .slide { display: flex !important; position: relative; height: 720px; page-break-after: always; }
+}
+</style>
+
+<div id="viewport">
+  <div id="stage">
+
+    <!-- ══════════════════ 1 · TITLE ══════════════════ -->
+    <section class="slide title" data-act="0">
+      <canvas id="constellation" aria-hidden="true"></canvas>
+      <div class="title-inner">
+        <div class="wordmark">Arango-OntoExtract</div>
+        <h1>Living ontologies from documents and databases</h1>
+        <div class="title-rule"></div>
+        <p class="kicker">Using LLMs to <strong>propose</strong> a formal model of a business — and building the machinery that makes a human's judgement about it <strong>survive</strong>.</p>
+        <div style="flex:1"></div>
+        <div class="byline">Open source · MIT licence · Why "extract once" is the wrong mental model</div>
+      </div>
+      <aside class="notes">
+        <p><b>Opening line:</b> "Every company I've worked with has a model of its own business that exists nowhere in machine-readable form. It's in the decks, and it's implied by the database schema. This is a system that goes and gets it."</p>
+        <p>Set expectations: no prior knowledge of ontologies, OWL, or ArangoDB is assumed — everything gets defined as we go. About 20 minutes.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 2 · ACT I DIVIDER ══════════════════ -->
+    <section class="slide divider" data-act="1">
+      <div class="act-no">Part one</div>
+      <h2>Knowledge you already own, in a form nothing can use</h2>
+      <p class="kicker">Two piles of latent structure, and why the obvious fix has never scaled.</p>
+      <aside class="notes"><p>Short act. Goal is to make the audience recognise their own organisation in the next two slides before any technology appears.</p></aside>
+    </section>
+
+    <!-- ══════════════════ 3 · TWO PILES ══════════════════ -->
+    <section class="slide" data-act="1">
+      <div class="eyebrow">The problem</div>
+      <h2>Two giant piles of latent structure</h2>
+      <div class="body-cols" style="margin-top:18px">
+        <div class="stack">
+          <div class="card">
+            <h3>Pile one — documents</h3>
+            <p>PDFs, decks, specs, wikis. These describe how the business actually <em>thinks</em>: its concepts, its taxonomies, its rules.</p>
+            <p><strong>But it's prose.</strong> You can search it. You cannot reason over it.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h3>Pile two — databases</h3>
+            <p>Tables and columns that already encode a working model of the domain — but only <em>physically</em>.</p>
+            <p><strong>A <code>customers</code> table and a <code>places_order</code> foreign key imply concepts.</strong> Nothing anywhere says "a Customer is a kind of Party," or "an Order must have at least one line item."</p>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Both piles contain the same knowledge in different disguises. The document pile knows the <i>meaning</i> but not the structure; the database pile knows the <i>structure</i> but not the meaning.</p>
+        <p>Ask the room: how many of you could produce a single diagram that a machine could read, saying what your core business entities are and how they relate? Almost nobody can.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 4 · WHAT IS AN ONTOLOGY ══════════════════ -->
+    <section class="slide" data-act="1">
+      <div class="eyebrow">Definitions, once</div>
+      <h2>An ontology is a schema that carries meaning</h2>
+      <p class="deck">A machine-readable model of what exists in a domain and how it relates. Four ingredients:</p>
+      <div class="grow">
+        <table class="grid">
+          <tr>
+            <td style="width:20%">Classes</td>
+            <td style="width:44%">The things that exist</td>
+            <td><span class="chip">Customer</span> <span class="chip">Order</span> <span class="chip">Loan Product</span></td>
+          </tr>
+          <tr>
+            <td>Properties</td>
+            <td>What connects and describes them</td>
+            <td><span class="chip">Order &nbsp;—has→&nbsp; Line Item</span></td>
+          </tr>
+          <tr>
+            <td>Hierarchy</td>
+            <td>What is a kind of what</td>
+            <td><span class="chip">Retail Mortgage &nbsp;⊂&nbsp; Loan Product</span></td>
+          </tr>
+          <tr>
+            <td>Constraints</td>
+            <td>What must be true</td>
+            <td><span class="chip">Order &nbsp;≥1&nbsp; Line Item</span></td>
+          </tr>
+        </table>
+      </div>
+      <p class="deck" style="margin:22px 0 0">The standards for writing this down are called <strong>OWL</strong> and <strong>RDFS</strong>. That's the last acronym you need — software can traverse an ontology, validate against it, and reason over it.</p>
+      <aside class="notes">
+        <p>Don't belabour OWL/RDFS. The one-sentence version people remember: <b>"a database schema that carries meaning instead of just storage layout."</b></p>
+        <p>If someone asks how this differs from a data catalog: a catalog tells you what columns exist; an ontology tells you what they <i>mean</i> and lets a machine draw conclusions from it.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 5 · WHY NOBODY HAS ONE ══════════════════ -->
+    <section class="slide" data-act="1">
+      <div class="eyebrow">Why this isn't already solved</div>
+      <h2>Hand-authored ontologies are expensive — and then they rot</h2>
+      <div class="body-cols" style="margin-top:20px">
+        <ul class="pts">
+          <li><b>Slow.</b> Months of workshops to agree on what a "customer" is.</li>
+          <li><b>Expensive.</b> Ontology engineering is a rare and costly skill.</li>
+          <li><b>Perishable.</b> The documents and schemas it was derived from keep changing. The ontology doesn't.</li>
+        </ul>
+        <div class="stack" style="justify-content:center">
+          <div class="card">
+            <h3>The trap</h3>
+            <p>Treat the ontology as a <strong>build artifact</strong> — produced once, signed off, filed — and it is wrong within a quarter and abandoned within a year.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>This is the slide that explains why a genuinely useful idea from the 1990s never went mainstream. The cost was in human authoring, and there was no way to amortise it.</p>
+        <p>LLMs change the authoring cost. They do <i>not</i>, on their own, change the rot — that's the engineering problem the rest of the talk is about.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 6 · THE THESIS ══════════════════ -->
+    <section class="slide" data-act="1">
+      <div class="eyebrow">The thesis</div>
+      <h2>The LLM proposes. The human disposes.</h2>
+      <p class="deck">Arango-OntoExtract uses language models to <strong>propose</strong> an ontology — from documents and from live database schemas — then puts a domain expert in the loop to curate it.</p>
+      <div class="grow">
+        <div class="flow" style="gap:14px">
+          <span class="chip ghost">Build artifact</span>
+          <span class="arrow">→</span>
+          <span class="chip on">Living knowledge graph</span>
+        </div>
+        <ul class="pts" style="margin-top:26px">
+          <li><b>Grounded</b> — every concept traces back to the slide or table it came from.</li>
+          <li><b>Versioned</b> — nothing is overwritten; every change is reversible.</li>
+          <li><b>Revised</b> — new evidence updates existing beliefs instead of triggering a re-extraction from scratch.</li>
+          <li><b>Self-repairing</b> — deterministic fixes run before a human ever sees the result.</li>
+        </ul>
+      </div>
+      <aside class="notes">
+        <p>"Propose / dispose" is the phrase to repeat. Everything architectural in this system follows from taking it literally.</p>
+        <p>Flag the through-line early: <b>the hard part isn't getting an LLM to emit an ontology. It's making the resulting artifact trustworthy enough to keep.</b></p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 7 · ACT II DIVIDER ══════════════════ -->
+    <section class="slide divider" data-act="2">
+      <div class="act-no">Part two</div>
+      <h2>How it works</h2>
+      <p class="kicker">One database, a pipeline of agents, and a hard stop before anything is committed.</p>
+      <aside class="notes"><p>Shift into architecture. Warn the room this part has one piece of infrastructure vocabulary in it, and then it's over.</p></aside>
+    </section>
+
+    <!-- ══════════════════ 8 · ARCHITECTURE ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">System at a glance</div>
+      <h2>Three layers, one store</h2>
+      <div class="grow">
+        <table class="grid">
+          <tr>
+            <td style="width:26%">Workspace</td>
+            <td>A single persistent stage — a graph canvas, an asset explorer, a timeline. Not a twelve-page wizard.</td>
+          </tr>
+          <tr>
+            <td>Backend</td>
+            <td>Ingestion, extraction, entity resolution and curation services, orchestrated as a multi-agent state machine.</td>
+          </tr>
+          <tr>
+            <td>Database</td>
+            <td>One engine holding the documents, the ontology graph, the vector embeddings and the search index.</td>
+          </tr>
+          <tr>
+            <td>Agent interface</td>
+            <td>The whole platform is also exposed over <strong>MCP</strong> — the emerging standard for handing an application's capabilities to an AI agent as callable tools. A coding assistant can extract, query and curate without a human touching the UI.</td>
+          </tr>
+        </table>
+      </div>
+      <aside class="notes">
+        <p>Keep this brief — it's a map, not a destination. The only claim that matters is the third row, which the next slide justifies.</p>
+        <p>MCP question that always comes: yes, the agent path and the UI path hit the same services. There is no privileged back door.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 9 · WHY ONE DATABASE ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">The one piece of infrastructure vocabulary</div>
+      <h2>This normally takes four databases</h2>
+      <div class="grow">
+        <table class="grid">
+          <thead><tr><th style="width:26%">What it stores</th><th style="width:40%">Why this system needs it</th><th>What you'd normally run</th></tr></thead>
+          <tbody>
+            <tr><td>Documents</td><td>Uploaded files, text chunks, run metadata</td><td>MongoDB, Postgres JSONB</td></tr>
+            <tr><td>A graph</td><td>The ontology itself — classes linked to classes</td><td>Neo4j</td></tr>
+            <tr><td>Vectors</td><td>Semantic search; finding near-duplicate concepts</td><td>Pinecone, pgvector</td></tr>
+            <tr><td>Full-text search</td><td>"Every class mentioning <em>mortgage</em>"</td><td>Elasticsearch</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:24px">
+        <h3>Multi-model</h3>
+        <p><strong>ArangoDB does all four in one engine, one query language, one transaction.</strong> A single query can start at a document chunk, walk the ontology graph, filter by vector similarity and rank by text relevance — without leaving the database. The glue code between four systems is where the bugs live: a concept in the graph store whose embedding never reached the vector store; a document deleted here but not there.</p>
+      </div>
+      <aside class="notes">
+        <p>This is the slide for the 99.9% who have never used ArangoDB. Don't sell the database — sell the <i>absence of synchronisation</i>. Provenance, retrieval and traversal are the same engine, so they cannot drift apart.</p>
+        <p>Vocabulary note if anyone reads the docs later: a "collection" is what everyone else calls a table, and a "named graph" is a declared bundle of them the engine will traverse as a unit.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 10 · PIPELINE ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">Extraction</div>
+      <h2>A pipeline of agents, not a prompt</h2>
+      <p class="deck">"Send the document to an LLM and parse the JSON" fails in ways you cannot audit. Extraction here is a state machine with retries, a parallel fork, and a mandatory pause.</p>
+      <div class="grow">
+        <div class="flow">
+          <span class="chip">strategy</span><span class="arrow">→</span>
+          <span class="chip">extractor</span><span class="arrow">→</span>
+          <span class="chip">consistency</span><span class="arrow">→</span>
+          <span class="chip">quality judge</span>
+          <span class="arrow">＋</span>
+          <span class="chip">entity resolution</span>
+        </div>
+        <div class="flow" style="margin-top:14px">
+          <span class="arrow">→</span>
+          <span class="chip">belief revision</span><span class="arrow">→</span>
+          <span class="chip">structural gate</span><span class="arrow">→</span>
+          <span class="chip">filter</span><span class="arrow">→</span>
+          <span class="chip on">human curation</span>
+        </div>
+        <ul class="pts" style="margin-top:28px">
+          <li><b>Multi-pass with self-consistency.</b> Keep only concepts that survive across passes — a cheap, effective hallucination filter.</li>
+          <li><b>Evidence-constrained.</b> Every class and relationship carries the source chunks and quoted text that justify it.</li>
+          <li><b>A hard stop.</b> Nothing reaches the curated ontology without a person — or an explicit written policy — saying yes.</li>
+        </ul>
+      </div>
+      <aside class="notes">
+        <p>Emphasise the fork: quality judging (an LLM-as-judge scoring faithfulness) and entity resolution (dedup via similarity + union-find clustering) run in parallel, then get reconciled.</p>
+        <p>The retry loop on the extractor fires when yield is suspiciously low — a document that produces two classes is usually a parsing failure, not a simple document.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 11 · PROVENANCE ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">Grounding</div>
+      <h2>Every concept knows where it came from</h2>
+      <div class="body-cols" style="margin-top:14px">
+        <ul class="pts">
+          <li><b>Chunks keep their address.</b> Document, page or slide number, section heading — preserved from the first byte.</li>
+          <li><b>Diagrams aren't silently dropped.</b> Domain decks encode taxonomies in <em>pictures</em>. Every embedded image and scanned page is counted and represented, so omitted evidence is visible rather than invisible.</li>
+          <li><b>Click a class, see the slide.</b> "Which document produced this, and which chunks contributed?" is a two-hop graph query, not a join across systems.</li>
+        </ul>
+        <div class="stack" style="justify-content:center">
+          <div class="card">
+            <h3>Why it matters</h3>
+            <p>An ungrounded ontology is an opinion. A grounded one is a <strong>claim with a citation</strong> — and a curator can settle it in five seconds instead of relitigating it in a meeting.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>The visual-evidence point lands well with anyone who has watched a text extractor silently skip the one slide that had the taxonomy on it.</p>
+        <p>Optional OCR/vision captioning appends clearly-labelled context the extractor can cite; it's off by default, and the counts are reported either way.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 12 · FROM A DATABASE ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">The other on-ramp</div>
+      <h2>If you run a database, you already have a draft</h2>
+      <p class="deck">Tables are already classes. Foreign keys are already relationships. Columns are already attributes. Nobody wrote it down as a formal model — but the model is <em>there</em>, and unlike an LLM's reading of a PDF, it is exactly right.</p>
+      <div class="grow">
+        <div class="flow">
+          <span class="chip">table / collection</span><span class="arrow">→</span><span class="chip on">class</span>
+          <span style="width:24px"></span>
+          <span class="chip">foreign key / edge</span><span class="arrow">→</span><span class="chip on">relationship</span>
+        </div>
+        <div class="flow" style="margin-top:12px">
+          <span class="chip">column</span><span class="arrow">→</span><span class="chip on">attribute</span>
+          <span style="width:24px"></span>
+          <span class="chip">unique index, check</span><span class="arrow">→</span><span class="chip on">constraint</span>
+        </div>
+        <div class="card" style="margin-top:26px">
+          <h3>No model in the loop</h3>
+          <p>This path is <strong>deterministic</strong> — a mechanical walk of the live schema, with full provenance back to the source table. There is no LLM, and therefore nothing to hallucinate. Relational databases and ArangoDB are both first-class sources.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Good moment for the practical pitch: the fastest path to a first ontology is usually <i>not</i> documents. Point it at the production schema and you have a defensible draft in minutes.</p>
+        <p>Nice detail if there's time: the walk handles the "one Node table, one relations table" shape common in graph-database exports, where the real types hide in a field rather than in table names — it reads every distinct value and turns one physical table into the dozens of classes it actually encodes.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 13 · ACT III DIVIDER ══════════════════ -->
+    <section class="slide divider" data-act="3">
+      <div class="act-no">Part three</div>
+      <h2>Making it trustworthy enough to keep</h2>
+      <p class="kicker">The engineering that separates a demo from a system anyone will still be using next year.</p>
+      <aside class="notes"><p>The heart of the talk. Everything here exists because automation without reversibility is unusable in an enterprise.</p></aside>
+    </section>
+
+    <!-- ══════════════════ 14 · TIME TRAVEL ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">Temporal versioning</div>
+      <h2>Nothing is overwritten. Ever.</h2>
+      <div class="body-cols" style="margin-top:14px">
+        <ul class="pts">
+          <li>Every node and edge carries a <b>created</b> and <b>expired</b> timestamp. "Current" just means <em>expired</em> is set to a far-future sentinel.</li>
+          <li>Editing a class doesn't destroy the old one — it <b>expires that version and writes a new one</b>.</li>
+          <li>Every read filters to "what was live at time T," where T defaults to now. History is queryable <b>by construction</b>, not by an audit log someone remembered to write.</li>
+          <li>The workspace exposes a <b>VCR timeline</b>: play forward, play backward, step, or drag to any past moment and watch the graph redraw as it stood that day.</li>
+        </ul>
+        <div class="stack" style="justify-content:center">
+          <div class="card">
+            <h3>Not a luxury feature</h3>
+            <p>Time travel is the <strong>precondition for automating curation at all</strong>. If an agent-driven revision goes wrong, you can see exactly what changed, when, and by whom — and undo it.</p>
+            <p>Take that away and every autonomous behaviour in this system becomes unshippable.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Connect it forward: the autonomy dial at the end of the talk is only defensible because of this slide. Reversibility is what buys the right to automate.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 15 · BELIEF REVISION ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">Belief revision</div>
+      <h2>The second document shouldn't start over</h2>
+      <p class="deck">Add a document to an existing ontology and you don't want a fresh, disconnected extraction. You want the new evidence to <strong>update what the ontology already believes</strong>. Every class is a belief with evidence and a confidence score; each comparison produces a verdict.</p>
+      <div class="grow">
+        <table class="grid">
+          <tr><td style="width:24%"><span class="chip on">Reinforced</span></td><td>More evidence agrees → raise confidence</td><td style="width:22%; color:var(--muted)">automatic</td></tr>
+          <tr><td><span class="chip on">Refined</span></td><td>Better definition supersedes the old version</td><td style="color:var(--muted)">automatic</td></tr>
+          <tr><td><span class="chip on">Gap-filling</span></td><td>Genuinely new concept → add it</td><td style="color:var(--muted)">automatic</td></tr>
+          <tr><td><span class="chip warn">Contradicted</span></td><td>The new source disagrees with the old</td><td style="color:var(--alarm)">to a human</td></tr>
+          <tr><td><span class="chip warn">Retract</span></td><td>The belief no longer holds → expire it</td><td style="color:var(--alarm)">to a human</td></tr>
+        </table>
+      </div>
+      <p class="deck" style="margin:22px 0 0">The mechanical majority is handled deterministically and cheaply. Only contradictions reach a curator's inbox — and because everything is temporal, every revision is reversible.</p>
+      <aside class="notes">
+        <p>The economics matter: paying an LLM to adjudicate every comparison is unaffordable and unnecessary. Spend tokens only where they change the answer.</p>
+        <p>Safety rails worth naming if asked: published items are protected, there's a circuit breaker on revision rate, and per-organisation budgets.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 16 · STRUCTURAL GATE ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">Self-repair</div>
+      <h2>Fix the graph before it's a graph</h2>
+      <p class="deck">LLM extractions fail in a characteristic way: dozens of plausible classes, but relationships pointing at targets that don't quite match anything, and classes connected to nothing at all. A <strong>disconnected</strong> schema.</p>
+      <div class="grow">
+        <div class="body-cols">
+          <div class="stack">
+            <div class="card alarm">
+              <h3>Before the gate</h3>
+              <p><span class="chip warn">island class</span> connects to nothing</p>
+              <p><span class="chip warn">edge → dangling target</span></p>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <h3>After — deterministic repairs only</h3>
+              <p><b>URI normalization</b> — re-point a target that matches a known class only by fragment.</p>
+              <p><b>Link recovery</b> — when a target resolves to nothing, re-point it to the class named in the relationship's <em>own evidence text</em>.</p>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:24px">
+          <h3>The constraint that let us turn it on by default</h3>
+          <p>Repairs rewrite relationship <em>targets</em> only — never a label, description, or evidence. So they <strong>cannot</strong> lower the faithfulness score. That's a guarantee held in place by a regression test, not a hope.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>"No invention" is the phrase. The gate is allowed to reconnect things the source already supports; it is never allowed to add a fact.</p>
+        <p>If someone asks why not have the LLM fix it: because then the repair needs its own faithfulness audit, and you're back where you started.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 17 · ALIGNMENT + ABOX ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">Two more capabilities, briefly</div>
+      <h2>Many sources, one master — and facts, not just schema</h2>
+      <div class="body-cols" style="margin-top:14px">
+        <div class="stack">
+          <div class="card">
+            <h3>Reconciling many sources</h3>
+            <p>Organisations accumulate several ontologies of the <em>same</em> domain. Vector retrieval proposes candidate matches, an LLM adjudicates <strong>only the uncertain middle</strong>, and a classical-anchor ensemble refuses any LLM match without grounded lexical or structural support.</p>
+            <p>Merges that would violate a declared disjointness are automatically repaired — every removal reported.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h3>Schema <em>and</em> instances</h3>
+            <p>Beyond the schema, the same chunks yield <strong>individuals</strong> — "Acme Corp <em>is a</em> Company; Acme <em>employs</em> Bob."</p>
+            <p>Typing is <strong>schema-guided</strong>: an individual whose type isn't in the schema is dropped, not invented. Coreferent mentions are merged. Every fact carries the character span it came from.</p>
+          </div>
+        </div>
+      </div>
+      <p class="deck" style="margin-top:22px">Instances render on the canvas beside their classes — <strong>opt-in, one class at a time</strong>, because a schema has dozens of classes and an instance graph can have hundreds of thousands of nodes.</p>
+      <aside class="notes">
+        <p>Compress this slide if you're running long — it's two capabilities that each deserve their own talk, and neither is the punchline.</p>
+        <p>Jargon note if it comes up: the schema half is conventionally called the T-box, the instance half the A-box. Nobody outside the field needs those words.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 18 · ACT IV DIVIDER ══════════════════ -->
+    <section class="slide divider" data-act="4">
+      <div class="act-no">Part four</div>
+      <h2>The result that changed how we spend effort</h2>
+      <p class="kicker">We were measuring something else when this turned up.</p>
+      <aside class="notes"><p>Slow down here. This act is the reason the talk is worth giving — everything before it is architecture, and architecture is cheap to claim.</p></aside>
+    </section>
+
+    <!-- ══════════════════ 19 · CQs ══════════════════ -->
+    <section class="slide" data-act="4">
+      <div class="eyebrow">Requirements-driven</div>
+      <h2>An ontology exists to answer questions — so start there</h2>
+      <p class="deck">A curator writes the <strong>competency questions</strong> the ontology must answer, or an LLM proposes candidates from the purpose statement and class labels. Every suggestion stays <em>proposed</em> until a human accepts it — nothing auto-persists — and a deterministic lint flags malformed questions before they waste anyone's time.</p>
+      <div class="grow">
+        <ul class="pts">
+          <li>Accepted questions are <b>formalized into queries</b> and scored for coverage, producing a gap backlog and a release gate.</li>
+          <li>The set of terms those questions reference then <b>scopes everything else</b>: which cross-source matches matter, which instances are worth keeping.</li>
+          <li>The result is a <b>use-case-shaped knowledge graph</b>, not an everything-graph.</li>
+        </ul>
+      </div>
+      <p class="deck" style="margin:24px 0 0">And running those questions as a benchmark is how we found the next slide.</p>
+      <aside class="notes">
+        <p>The lint catches the four classic pitfalls: not phrased as a question, compound "and/or" clauses, yes/no binaries, and no domain term to ground against.</p>
+        <p>Set up the next slide explicitly: "we built the benchmark to measure coverage. What it actually taught us was something about names."</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 20 · THE RESULT ══════════════════ -->
+    <section class="slide" data-act="4">
+      <div class="eyebrow">Measured — 71-question benchmark</div>
+      <h2>Human curation is the highest-leverage input</h2>
+      <p class="deck" style="margin-bottom:4px">Six curated label decisions, measured against a natural-language question benchmark. Identical across five runs.</p>
+      <div class="grow">
+        <div class="stats">
+          <div class="stat">
+            <div class="val"><span class="was">60%</span><span class="to">→</span>69%</div>
+            <div class="lab">Overall accuracy<br>all 71 questions</div>
+          </div>
+          <div class="stat">
+            <div class="val"><span class="was">15%</span><span class="to">→</span>25%</div>
+            <div class="lab">The 8 questions that<br>span three sources</div>
+          </div>
+          <div class="stat" style="padding-bottom:6px">
+            <div class="lab" style="margin:0">We benchmarked the alternatives first — candidate ranking, join assembly, embedding-based concept resolution, clause pruning. <strong style="color:var(--ink)">Curation won.</strong></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:30px">
+          <h3>So we built the product around that finding</h3>
+          <p>If a handful of human decisions is worth more than another retrieval heuristic, then the job of the platform is to <strong>make those decisions cheap to make, and impossible to lose</strong>. That is exactly what the next two slides are.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Lead with the capability, not the post-mortem. The point of this slide is that we <i>measured</i> where effort pays — that's rigour, and it's why the curation workflow exists.</p>
+        <p><b>Say the base rate out loud:</b> three-source questions are 8 of 71, so 15%→25% is two additional questions. The robust number is the overall 60→69% across all 71. An audience that spots the small sample before you name it stops trusting the deck — naming it first costs nothing and buys credibility.</p>
+        <p>The renames themselves: two classes each had an attribute labelled <code>role</code>. On Document it meant the kind of document; on Contact it meant the person's job. The right answer for the second was neither existing name — it was <b>"job title"</b>, which no renaming rule would ever propose. That's the case for a human in the loop, in one example.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 21 · LEXICON ══════════════════ -->
+    <section class="slide" data-act="4">
+      <div class="eyebrow">The curated lexicon</div>
+      <h2>What a thing is called is a domain judgement</h2>
+      <p class="deck">A machine detects the collision trivially — same label, two different concepts. It cannot resolve it, because the answer is frequently <strong>neither existing name</strong>.</p>
+      <div class="grow">
+        <div class="flow">
+          <span class="chip warn">Document.role</span>
+          <span class="arrow">＋</span>
+          <span class="chip warn">Contact.role</span>
+          <span class="arrow">→</span>
+          <span class="chip">collision queue</span>
+          <span class="arrow">→</span>
+          <span class="chip on">curator decides</span>
+          <span class="arrow">→</span>
+          <span class="chip on">"job title"</span>
+        </div>
+        <ul class="pts" style="margin-top:28px">
+          <li><b>A decision, not an edit.</b> Renaming one side only is often correct, so partial resolution is first-class. Re-deciding <em>expires</em> the prior decision rather than overwriting it — so "why is this called job title?" always has an answer with a name and a date on it.</li>
+          <li><b>Merged in at read time.</b> Decisions overlay the extracted label everywhere one is shown or exported — entity lists, detail panels, the canvas, RDF export.</li>
+          <li><b>And it survives the next extraction.</b> That guarantee is harder than it sounds — and it's the next slide.</li>
+        </ul>
+      </div>
+      <aside class="notes">
+        <p>The audit trail is genuinely half the value here. In a regulated environment, "who decided this and when" is the question that gets asked, and the string itself is the easy part.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 22 · THE BUG ══════════════════ -->
+    <section class="slide" data-act="4">
+      <div class="eyebrow">Durability by design</div>
+      <h2>A curated decision has to survive the next refresh</h2>
+      <p class="deck" style="margin-bottom:14px">Every tool in this category re-runs extraction over changing sources — and the obvious way to build it loses the human's work.</p>
+      <div class="body-cols" style="margin-top:0">
+        <div class="stack">
+          <div class="card alarm">
+            <h3>The trap</h3>
+            <p>Store the curated label <em>on the concept</em>. Refresh, and extraction reclaims the key curation had retired — resetting its expiry and reviving the old row.</p>
+            <p>You get <strong>two live rows for one attribute</strong>, and nothing reports an error. A "locked" flag doesn't save you: overwrite replaces the whole document, lock included.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h3>What AOE does instead</h3>
+            <p>Decisions live in <strong>their own store, outside the path extraction writes to</strong>, joined to concepts by identity and merged over the extracted label on read.</p>
+            <p>Survival becomes <strong>structural</strong> — it holds because of where the data lives, not because every future write path remembered a rule.</p>
+          </div>
+        </div>
+      </div>
+      <p class="deck" style="margin:20px 0 0"><strong>Proven, not asserted:</strong> an integration test against a live database confirms a decision survives repeated re-extraction — a guarantee no mock could establish.</p>
+      <aside class="notes">
+        <p>Frame this as a capability slide, not a war story: the failure mode is generic to the category, and AOE is architected so it can't occur. The red card is the naïve implementation — say "the obvious way to build this," not "our bug."</p>
+        <p>If asked how we know: we argued it from reading the code, didn't trust that, and wrote the live-database test. It confirmed the analysis — one live row after a curator edit, two after a re-extraction on the naïve layout, and a decision in the current design surviving two consecutive re-extractions untouched.</p>
+        <p>This is a good differentiator question to put back to the room: <b>ask your current tooling vendor what happens to a human correction on the next refresh.</b> Most cannot answer it.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 23 · THE LESSON ══════════════════ -->
+    <section class="slide" data-act="4">
+      <div class="eyebrow">The principle</div>
+      <h2>Ask any tool in this category one question</h2>
+      <div class="grow" style="justify-content:center">
+        <div class="card" style="border-left-width:4px">
+          <h3>The question</h3>
+          <p style="font-size:30px; line-height:1.3; color:var(--ink); font-weight:600; margin-top:6px">What happens to the human's decision the next time the machine runs?</p>
+        </div>
+        <div class="body-cols" style="margin-top:24px; flex:0 0 auto">
+          <div class="card alarm">
+            <h3>If the answer is vague</h3>
+            <p>The human's work disappears on a refresh, the metric quietly regresses, and nobody is told. Every other guarantee in that product is decoration.</p>
+          </div>
+          <div class="card">
+            <h3>AOE's answer</h3>
+            <p><strong>It survives — structurally, and there's a test against a live database that says so.</strong> Same for every curation action: they all sit on a temporal layer where nothing is overwritten and everything is reversible.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>This is the slide to leave up if you're asked to compare AOE to anything else. It's a question competitors mostly cannot answer, and it costs nothing to ask.</p>
+        <p>It generalises well beyond ontologies — any labelling tool, data-quality workflow, or human-in-the-loop annotation pipeline that also has an automated refresh has this exposure. Invite the room to go and ask it of their own stack.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 24 · ACT V DIVIDER ══════════════════ -->
+    <section class="slide divider" data-act="5">
+      <div class="act-no">Part five</div>
+      <h2>Where it goes</h2>
+      <p class="kicker">Measuring the thing, then turning the dial.</p>
+      <aside class="notes"><p>Short landing. Two slides and the close.</p></aside>
+    </section>
+
+    <!-- ══════════════════ 25 · TRUST MEASURED ══════════════════ -->
+    <section class="slide" data-act="5">
+      <div class="eyebrow">Legibility</div>
+      <h2>Because it's automated, it has to be measurable</h2>
+      <p class="deck">Every extraction is scored along six signals, rolled into a 0–100 health score with a traffic light.</p>
+      <div class="grow">
+        <table class="grid">
+          <tr><td style="width:26%">Faithfulness</td><td>Does each class trace to real evidence? Scored by an LLM judge.</td></tr>
+          <tr><td>Semantic validity</td><td>Are the assertions internally coherent?</td></tr>
+          <tr><td>Connectivity</td><td>Is this a graph, or a bag of islands?</td></tr>
+          <tr><td>Structural integrity</td><td>Do the relationships point at things that exist?</td></tr>
+          <tr><td>Completeness</td><td>How much declared structure survived to materialization?</td></tr>
+          <tr><td>Confidence</td><td>Evidence age and count, combined with judge scores.</td></tr>
+        </table>
+      </div>
+      <p class="deck" style="margin:22px 0 0">These aren't vanity numbers. Connectivity and structural integrity are exactly what the self-repair gate moves — and <strong>faithfulness is a hard cap no automated repair or revision is permitted to regress</strong>.</p>
+      <aside class="notes">
+        <p>The link between this slide and the structural-gate slide is the point: the metric that proves the repair worked is the same metric that constrains what the repair is allowed to do.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 26 · AUTONOMY DIAL ══════════════════ -->
+    <section class="slide" data-act="5">
+      <div class="eyebrow">Governance</div>
+      <h2>Autonomy is a dial, not a default</h2>
+      <p class="deck">When an engineer cuts a release candidate, a readiness review composes signals the system already computes — rule violations, the six metrics, the breaking-change report — and an LLM critic ranks findings as blocking, warning, or info.</p>
+      <div class="grow">
+        <table class="grid">
+          <tr><td style="width:30%"><span class="chip on">Advisory</span></td><td>The report informs a human, who publishes. <em style="color:var(--muted)">(Default.)</em></td></tr>
+          <tr><td><span class="chip">Gated-autonomous</span></td><td>Auto-publish only with zero blocking findings <em>and</em> metrics clear of configured thresholds. Otherwise escalate.</td></tr>
+          <tr><td><span class="chip">Supervised-autonomous</span></td><td>Auto-publish and notify, report attached for audit.</td></tr>
+        </table>
+        <div class="card" style="margin-top:26px">
+          <h3>Two invariants that keep the higher settings honest</h3>
+          <p><strong>Faithfulness is a floor the review can never waive.</strong> And <strong>every release is reversible</strong> — which is only true because of the temporal model from part three.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Frame it as the same move that let CI/CD scale for code: human <i>in</i> the loop (a person must touch every item) becomes human <i>on</i> the loop (people set policy and handle exceptions).</p>
+        <p>Nobody starts on the third setting. The dial turns up as the signals earn it.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 27 · CLOSE ══════════════════ -->
+    <section class="slide" data-act="5">
+      <div class="eyebrow">The bet</div>
+      <h2>The future isn't a better one-shot extractor</h2>
+      <p class="deck">It's a living system that proposes, grounds, versions and revises — with a human holding the pen.</p>
+      <div class="grow">
+        <div class="flow" style="gap:8px">
+          <span class="chip on">Proposed</span><span class="chip on">Grounded</span><span class="chip on">Versioned</span><span class="chip on">Revised</span><span class="chip on">Self-repairing</span>
+        </div>
+        <div class="flow" style="gap:8px; margin-top:10px">
+          <span class="chip on">Composed</span><span class="chip on">Reconciled</span><span class="chip on">Populated</span><span class="chip on">Requirements-driven</span><span class="chip on">Named by people</span>
+        </div>
+        <div class="card" style="margin-top:32px">
+          <h3>Where we'd tell you to spend your effort</h3>
+          <p>We benchmarked the algorithmic route against the human one, and human judgement won. The scarce resource in a system like this <strong>isn't model capability</strong> — it's expert judgement, and the engineering that decides whether that judgement is captured cheaply and then <em>kept</em>. That's what we built.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Close on the last sentence, not on a feature list. Then hand to the repo slide.</p>
+        <p>Likely questions: (1) how big can the graphs get — thousands of classes render fine, instances are opt-in per class; (2) which models — provider-configurable, the pipeline is model-agnostic; (3) what stops the LLM inventing classes — evidence constraints, multi-pass consistency, the judge, and a human gate.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 28 · GET IT ══════════════════ -->
+    <section class="slide" data-act="5">
+      <div class="eyebrow">It's open source</div>
+      <h2 style="max-width:26ch">All of this is in the repo</h2>
+      <p class="deck" style="margin-bottom:20px"><span class="chip on" style="font-size:19px; padding:12px 16px">github.com/arango-solutions/arango-ontoextract</span> &nbsp; <span style="color:var(--muted); font-size:18px">MIT licence</span></p>
+      <div class="body-cols" style="gap:44px">
+        <div class="stack">
+          <div class="card">
+            <h3>Running it</h3>
+            <p>Docker, Python 3.11+, Node 18+, and two API keys. <code>make infra</code> brings up the database — you never install one by hand, and <code>make doctor</code> preflights your keys, models and DB before you waste a run on a bad config.</p>
+            <p>Then open <strong>localhost:3000</strong>. It's a workspace, not a CLI.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h3>Three things to try first</h3>
+            <p><b>1.</b> Point it at a database you already run — no LLM, no keys, nothing to hallucinate. A defensible first ontology in about a minute.</p>
+            <p><b>2.</b> Upload two decks on one subject. Watch the second one <em>revise</em> rather than restart.</p>
+            <p><b>3.</b> Rename a class, then re-extract — and watch the decision survive.</p>
+          </div>
+        </div>
+      </div>
+      <p class="deck" style="margin:22px 0 0">Issues and PRs welcome. The product requirements document is in the repo and is the real source of truth for what the system must do — which makes it an unusually easy codebase to propose against.</p>
+      <aside class="notes">
+        <p>Leave this slide up for questions. If there's a laptop in the room, the database-schema on-ramp is the demo that lands — it needs no API keys and produces a real ontology from something the audience already owns.</p>
+        <p>The PRD point is worth making to potential contributors: every requirement has an ID, and the drift between PRD and code is audited, so "what should this do?" always has a written answer.</p>
+      </aside>
+    </section>
+
+    <div id="rail">
+      <span id="rail-act">Title</span>
+      <span id="rail-bar"></span>
+      <span id="rail-repo">github.com/arango-solutions/arango-ontoextract</span>
+      <span id="rail-no">01 / 28</span>
+    </div>
+  </div>
+</div>
+
+<div id="notes" aria-live="polite"><h4>Speaker notes</h4><div id="notes-body"></div></div>
+
+<div id="jump" role="dialog" aria-label="Jump to slide">
+  <h4>Jump to slide &nbsp;·&nbsp; press O or Esc to close</h4>
+  <div id="jump-body"></div>
+</div>
+
+<div id="help">← → navigate &nbsp;·&nbsp; N notes &nbsp;·&nbsp; O overview</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ACTS = [
+    "Title",
+    "I · The problem",
+    "II · How it works",
+    "III · Trustworthy",
+    "IV · The finding",
+    "V · Where it goes"
+  ];
+
+  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var stage  = document.getElementById("stage");
+  var railAct = document.getElementById("rail-act");
+  var railNo  = document.getElementById("rail-no");
+  var railBar = document.getElementById("rail-bar");
+  var notes   = document.getElementById("notes");
+  var notesBody = document.getElementById("notes-body");
+  var jump    = document.getElementById("jump");
+  var current = 0;
+  var notesOpen = false;
+
+  /* ---- build the act-segmented progress rail --------------------------- */
+  var actCounts = ACTS.map(function () { return 0; });
+  slides.forEach(function (s) { actCounts[+s.dataset.act] += 1; });
+
+  var segs = ACTS.map(function (_, i) {
+    var seg = document.createElement("span");
+    seg.className = "seg";
+    seg.style.flexGrow = String(actCounts[i]);
+    var fill = document.createElement("i");
+    seg.appendChild(fill);
+    railBar.appendChild(seg);
+    return fill;
+  });
+
+  /* ---- jump panel ------------------------------------------------------ */
+  (function buildJump() {
+    var body = document.getElementById("jump-body");
+    ACTS.forEach(function (actName, ai) {
+      var members = slides
+        .map(function (s, i) { return { s: s, i: i }; })
+        .filter(function (o) { return +o.s.dataset.act === ai; });
+      if (!members.length) return;
+
+      var wrap = document.createElement("div");
+      wrap.className = "jump-act";
+      var lab = document.createElement("span");
+      lab.textContent = actName;
+      wrap.appendChild(lab);
+
+      var ol = document.createElement("ol");
+      members.forEach(function (o) {
+        var h = o.s.querySelector("h1, h2");
+        var li = document.createElement("li");
+        var btn = document.createElement("button");
+        btn.type = "button";
+        var n = document.createElement("b");
+        n.textContent = String(o.i + 1).padStart(2, "0");
+        var t = document.createElement("span");
+        t.textContent = h ? h.textContent : "Slide " + (o.i + 1);
+        btn.appendChild(n);
+        btn.appendChild(t);
+        btn.addEventListener("click", function () { go(o.i); closeJump(); });
+        li.appendChild(btn);
+        ol.appendChild(li);
+      });
+      wrap.appendChild(ol);
+      body.appendChild(wrap);
+    });
+  })();
+
+  function closeJump() { jump.classList.remove("open"); }
+
+  /* ---- scale the fixed 16:9 stage to the viewport ---------------------- */
+  function fit() {
+    var pad = 26;
+    var availH = window.innerHeight - pad * 2 - (notesOpen ? window.innerHeight * 0.42 : 0);
+    var availW = window.innerWidth - pad * 2;
+    var scale = Math.min(availW / 1280, availH / 720);
+    if (!isFinite(scale) || scale <= 0) scale = 0.2;
+    stage.style.transform = "scale(" + scale + ")";
+    document.getElementById("viewport").style.alignItems = notesOpen ? "flex-start" : "center";
+    document.getElementById("viewport").style.paddingTop = notesOpen ? pad + "px" : "0";
+  }
+
+  /* ---- navigation ------------------------------------------------------ */
+  function go(n) {
+    current = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function (s, i) { s.classList.toggle("is-active", i === current); });
+
+    var act = +slides[current].dataset.act;
+    railAct.textContent = ACTS[act];
+    railNo.textContent = String(current + 1).padStart(2, "0") + " / " + slides.length;
+
+    // fill each act segment by how far through that act we are
+    var seen = ACTS.map(function () { return 0; });
+    for (var i = 0; i <= current; i++) seen[+slides[i].dataset.act] += 1;
+    segs.forEach(function (fill, ai) {
+      var pct = actCounts[ai] ? Math.min(1, seen[ai] / actCounts[ai]) : 0;
+      fill.style.width = (pct * 100) + "%";
+    });
+
+    var note = slides[current].querySelector(".notes");
+    notesBody.innerHTML = note ? note.innerHTML : "<p>—</p>";
+    try {
+      if (location.hash !== "#" + (current + 1)) {
+        history.replaceState(null, "", "#" + (current + 1));
+      }
+    } catch (err) { /* sandboxed history is not fatal to navigation */ }
+  }
+
+  function toggleNotes() {
+    notesOpen = !notesOpen;
+    notes.classList.toggle("open", notesOpen);
+    fit();
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (k === "ArrowRight" || k === "PageDown" || k === " " || k === "Enter") { e.preventDefault(); go(current + 1); }
+    else if (k === "ArrowLeft" || k === "PageUp" || k === "Backspace") { e.preventDefault(); go(current - 1); }
+    else if (k === "Home") { e.preventDefault(); go(0); }
+    else if (k === "End") { e.preventDefault(); go(slides.length - 1); }
+    else if (k === "n" || k === "N" || k === "s" || k === "S") { e.preventDefault(); toggleNotes(); }
+    else if (k === "o" || k === "O") { e.preventDefault(); jump.classList.toggle("open"); }
+    else if (k === "Escape") { closeJump(); }
+  });
+
+  stage.addEventListener("click", function (e) {
+    if (jump.classList.contains("open")) return;
+    var r = stage.getBoundingClientRect();
+    go(e.clientX < r.left + r.width * 0.28 ? current - 1 : current + 1);
+  });
+
+  window.addEventListener("resize", fit);
+
+  /* ---- title-slide constellation (the subject is a graph) -------------- */
+  (function constellation() {
+    var cv = document.getElementById("constellation");
+    if (!cv) return;
+    var ctx = cv.getContext("2d");
+    var W = 1280, H = 720;
+    cv.width = W; cv.height = H;
+
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var N = 34;
+    var pts = [];
+    // deterministic pseudo-random so the composition is stable across reloads
+    var seed = 20260817;
+    function rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
+    for (var i = 0; i < N; i++) {
+      pts.push({
+        x: 470 + rnd() * (W - 520),
+        y: 40 + rnd() * (H - 80),
+        vx: (rnd() - 0.5) * 0.14,
+        vy: (rnd() - 0.5) * 0.14,
+        r: 1.6 + rnd() * 2.2
+      });
+    }
+
+    function colors() {
+      var cs = getComputedStyle(document.documentElement);
+      return {
+        edge: cs.getPropertyValue("--rule").trim() || "#CBD9CE",
+        node: cs.getPropertyValue("--accent-2").trim() || "#43B06B"
+      };
+    }
+
+    function draw() {
+      var c = colors();
+      ctx.clearRect(0, 0, W, H);
+      ctx.lineWidth = 1;
+      for (var i = 0; i < N; i++) {
+        for (var j = i + 1; j < N; j++) {
+          var dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 148) {
+            ctx.globalAlpha = 0.55 * (1 - d / 148);
+            ctx.strokeStyle = c.edge;
+            ctx.beginPath();
+            ctx.moveTo(pts[i].x, pts[i].y);
+            ctx.lineTo(pts[j].x, pts[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+      ctx.globalAlpha = 0.65;
+      ctx.fillStyle = c.node;
+      for (var k = 0; k < N; k++) {
+        ctx.beginPath();
+        ctx.arc(pts[k].x, pts[k].y, pts[k].r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function tick() {
+      for (var i = 0; i < N; i++) {
+        var p = pts[i];
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 440 || p.x > W - 30) p.vx *= -1;
+        if (p.y < 24 || p.y > H - 24) p.vy *= -1;
+      }
+      draw();
+      if (slides[current] && slides[current].classList.contains("title")) {
+        requestAnimationFrame(tick);
+      } else {
+        running = false;
+      }
+    }
+
+    var running = false;
+    draw();
+    if (!reduce) {
+      var kick = function () {
+        if (!running && slides[current] && slides[current].classList.contains("title")) {
+          running = true;
+          requestAnimationFrame(tick);
+        }
+      };
+      kick();
+      document.addEventListener("keydown", function () { setTimeout(kick, 0); });
+      stage.addEventListener("click", function () { setTimeout(kick, 0); });
+    }
+  })();
+
+  /* ---- boot ------------------------------------------------------------ */
+  var fromHash = parseInt((location.hash || "").replace("#", ""), 10);
+  go(isFinite(fromHash) && fromHash > 0 ? fromHash - 1 : 0);
+  fit();
+})();
+</script>

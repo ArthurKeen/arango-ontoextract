@@ -1,16 +1,17 @@
-"""Unit tests for app.services.arangordf_bridge -- OWL/RDF import bridge."""
+"""Unit tests for app.services.ontology_import -- OWL/RDF import bridge."""
 
 from __future__ import annotations
 
+import pathlib
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.arangordf_bridge import (
+from app.services.ontology_import import (
     _detect_format,
     _ensure_named_graph,
     _find_registry_key_for_import_iri,
-    _import_with_rdflib_fallback,
+    _materialize_rdf_graph,
     _sniff_format_from_content,
     _tag_documents_with_ontology_id,
     import_from_file,
@@ -149,7 +150,7 @@ class TestSniffFormatFromContent:
 
 
 class TestTagDocuments:
-    @patch("app.services.arangordf_bridge.run_aql")
+    @patch("app.services.ontology_import.run_aql")
     def test_tags_existing_collections(self, mock_aql):
         db = MagicMock()
         db.has_collection.return_value = True
@@ -163,7 +164,7 @@ class TestTagDocuments:
         assert count == 15
         assert mock_aql.call_count == 5
 
-    @patch("app.services.arangordf_bridge.run_aql")
+    @patch("app.services.ontology_import.run_aql")
     def test_skips_missing_collections(self, mock_aql):
         db = MagicMock()
         db.has_collection.return_value = False
@@ -175,7 +176,7 @@ class TestTagDocuments:
         assert count == 0
         mock_aql.assert_not_called()
 
-    @patch("app.services.arangordf_bridge.run_aql")
+    @patch("app.services.ontology_import.run_aql")
     def test_uri_prefix_filter_added(self, mock_aql):
         db = MagicMock()
         db.has_collection.side_effect = lambda name: name == "ontology_classes"
@@ -250,13 +251,11 @@ class TestEnsureNamedGraph:
 
 
 class TestImportOwlToGraph:
-    @patch("app.services.arangordf_bridge._ensure_named_graph")
-    @patch("app.services.arangordf_bridge._tag_documents_with_ontology_id")
-    @patch("app.services.arangordf_bridge._ensure_arango_rdf")
-    def test_full_pipeline(self, mock_ensure_rdf, mock_tag, mock_ensure_graph):
+    @patch("app.services.ontology_import._ensure_named_graph")
+    @patch("app.services.ontology_import._tag_documents_with_ontology_id")
+    @patch("app.services.ontology_import._materialize_rdf_graph")
+    def test_full_pipeline(self, mock_materialize, mock_tag, mock_ensure_graph):
         db = MagicMock()
-        mock_arango_rdf_cls = MagicMock()
-        mock_ensure_rdf.return_value = mock_arango_rdf_cls
         mock_tag.return_value = 5
 
         ttl = """
@@ -273,10 +272,9 @@ class TestImportOwlToGraph:
             ontology_id="onto1",
         )
 
-        mock_arango_rdf_cls.assert_called_once_with(db)
-        adb_rdf = mock_arango_rdf_cls.return_value
-        adb_rdf.init_rdf_collections.assert_called_once()
-        adb_rdf.rdf_to_arangodb_by_pgt.assert_called_once()
+        # There is one import path. It runs, then tagging, then the named graph.
+        mock_materialize.assert_called_once()
+        assert mock_materialize.call_args.kwargs["ontology_id"] == "onto1"
         mock_tag.assert_called_once()
         mock_ensure_graph.assert_called_once()
 
@@ -285,55 +283,44 @@ class TestImportOwlToGraph:
         assert result["imported"] is True
         assert result["triple_count"] > 0
 
-    @patch("app.services.arangordf_bridge._ensure_named_graph")
-    @patch("app.services.arangordf_bridge._tag_documents_with_ontology_id")
-    @patch("app.services.arangordf_bridge._ensure_arango_rdf")
-    def test_uses_get_db_when_none(self, mock_ensure_rdf, mock_tag, mock_ensure_graph):
-        mock_ensure_rdf.return_value = MagicMock()
+    @patch("app.services.ontology_import._ensure_named_graph")
+    @patch("app.services.ontology_import._tag_documents_with_ontology_id")
+    @patch("app.services.ontology_import._materialize_rdf_graph")
+    def test_uses_get_db_when_none(self, mock_materialize, mock_tag, mock_ensure_graph):
         mock_tag.return_value = 0
 
         ttl = "@prefix owl: <http://www.w3.org/2002/07/owl#> . <http://x> a owl:Class ."
 
-        with patch("app.services.arangordf_bridge.get_db") as mock_get_db:
+        with patch("app.services.ontology_import.get_db") as mock_get_db:
             mock_get_db.return_value = MagicMock()
             import_owl_to_graph(ttl_content=ttl, graph_name="g", ontology_id="o")
 
         mock_get_db.assert_called_once()
 
-    @patch("app.services.arangordf_bridge._ensure_named_graph")
-    @patch("app.services.arangordf_bridge._tag_documents_with_ontology_id")
-    @patch("app.services.arangordf_bridge._import_with_rdflib_fallback")
-    @patch("app.services.arangordf_bridge._ensure_arango_rdf")
-    def test_falls_back_when_arango_rdf_missing(
-        self,
-        mock_ensure_rdf,
-        mock_fallback,
-        mock_tag,
-        mock_ensure_graph,
-    ):
-        db = MagicMock()
-        mock_ensure_rdf.side_effect = ImportError("missing")
-        mock_tag.return_value = 0
+    def test_no_arangordf_indirection_remains(self):
+        """The module once branched on whether ``arango_rdf`` could be imported.
 
-        ttl = "@prefix owl: <http://www.w3.org/2002/07/owl#> . <http://x> a owl:Class ."
+        It never could: the dependency was never declared or installed, so the
+        branch was dead in every deployment while the docstring told readers
+        otherwise. Two real defects hid in the "fallback" for exactly that
+        reason. If someone reintroduces the indirection, they must also decide
+        what it means for a store whose documents carry ``ontology_id`` and the
+        temporal ``created``/``expired`` pair that ArangoRDF's writer does not
+        produce -- see the module docstring.
+        """
+        import app.services.ontology_import as mod
 
-        result = import_owl_to_graph(
-            db,
-            ttl_content=ttl,
-            graph_name="fallback_graph",
-            ontology_id="onto_fallback",
-        )
-
-        mock_fallback.assert_called_once()
-        mock_tag.assert_called_once()
-        mock_ensure_graph.assert_called_once()
-        assert result["imported"] is True
+        assert not hasattr(mod, "_ensure_arango_rdf")
+        source = pathlib.Path(mod.__file__).read_text()
+        code = source.split('"""', 2)[2]  # skip the module docstring
+        assert "arango_rdf" not in code
+        assert "rdf_to_arangodb_by_pgt" not in code
 
 
 class TestFallbackImporter:
-    @patch("app.services.arangordf_bridge.create_edge")
-    @patch("app.services.arangordf_bridge.create_property")
-    @patch("app.services.arangordf_bridge.create_class")
+    @patch("app.services.ontology_import.create_edge")
+    @patch("app.services.ontology_import.create_property")
+    @patch("app.services.ontology_import.create_class")
     def test_creates_classes_properties_and_edges(
         self,
         mock_create_class,
@@ -372,7 +359,7 @@ class TestFallbackImporter:
         graph = RDFGraph()
         graph.parse(data=ttl, format="turtle")
 
-        _import_with_rdflib_fallback(db, rdf_graph=graph, ontology_id="onto1")
+        _materialize_rdf_graph(db, rdf_graph=graph, ontology_id="onto1")
 
         assert db.create_collection.call_count >= 4
         assert mock_create_class.call_count == 2
@@ -414,8 +401,8 @@ class TestSyncOwlImportsEdges:
         db.has_collection.return_value = True
 
         with (
-            patch("app.services.arangordf_bridge.run_aql") as mock_aql,
-            patch("app.services.arangordf_bridge.create_edge") as mock_edge,
+            patch("app.services.ontology_import.run_aql") as mock_aql,
+            patch("app.services.ontology_import.create_edge") as mock_edge,
         ):
             mock_aql.side_effect = [
                 ["dep_onto"],
@@ -439,7 +426,7 @@ class TestSyncOwlImportsEdges:
         db = MagicMock()
         db.has_collection.return_value = True
 
-        with patch("app.services.arangordf_bridge.run_aql", return_value=[]):
+        with patch("app.services.ontology_import.run_aql", return_value=[]):
             out = sync_owl_imports_edges(db, g, "importer_onto")
 
         assert out["created"] == 0
@@ -459,9 +446,9 @@ class TestFindRegistryKeyForImportIri:
 
 
 class TestImportFromFile:
-    @patch("app.services.arangordf_bridge.sync_owl_imports_edges")
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.sync_owl_imports_edges")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_imports_turtle_file(self, mock_import, mock_registry, mock_sync_imports):
         db = MagicMock()
         mock_import.return_value = {
@@ -503,8 +490,8 @@ class TestImportFromFile:
         assert reg_payload["tier"] == "local"
         assert "Imported from" in reg_payload["description"]
 
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_import_from_file_calls_sync_owl_imports(self, mock_import, mock_registry):
         """After registry entry, owl:imports is synced against ontology_registry."""
         db = MagicMock()
@@ -518,7 +505,7 @@ class TestImportFromFile:
             "ex:OtherOnto a owl:Ontology .\n"
         )
 
-        with patch("app.services.arangordf_bridge.sync_owl_imports_edges") as mock_sync:
+        with patch("app.services.ontology_import.sync_owl_imports_edges") as mock_sync:
             mock_sync.return_value = {"created": 1, "skipped": 0, "warnings": []}
             result = import_from_file(
                 file_content=ttl.encode("utf-8"),
@@ -530,8 +517,8 @@ class TestImportFromFile:
         assert result["imports_sync"]["created"] == 1
         mock_sync.assert_called_once()
 
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_empty_file_raises(self, mock_import, mock_registry):
         db = MagicMock()
         # Empty turtle file produces 0 triples
@@ -553,9 +540,9 @@ class TestImportFromFile:
                 db=db,
             )
 
-    @patch("app.services.arangordf_bridge.sync_owl_imports_edges")
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.sync_owl_imports_edges")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_owl_extension_with_turtle_content_imports_successfully(
         self, mock_import, mock_registry, mock_sync_imports
     ):
@@ -598,8 +585,8 @@ class TestImportFromFile:
         # invoked with Turtle-shaped content.
         mock_import.assert_called_once()
 
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_parse_failure_suggests_renaming_when_owl_holds_turtle_garbage(
         self, mock_import, mock_registry
     ):
@@ -626,8 +613,8 @@ class TestImportFromFile:
         # offending content.
         assert "First bytes" in msg
 
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_parse_failure_suggests_renaming_when_extension_truly_mismatched(
         self, mock_import, mock_registry
     ):
@@ -655,9 +642,9 @@ class TestImportFromFile:
         assert "looks like Turtle" in msg
         assert ".ttl" in msg
 
-    @patch("app.services.arangordf_bridge.sync_owl_imports_edges")
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.sync_owl_imports_edges")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_import_does_not_collide_with_reserved_logrecord_keys(
         self,
         mock_import,
@@ -681,7 +668,7 @@ class TestImportFromFile:
             "<http://example.org/Person> a owl:Class .\n"
         )
 
-        with caplog.at_level(logging.INFO, logger="app.services.arangordf_bridge"):
+        with caplog.at_level(logging.INFO, logger="app.services.ontology_import"):
             import_from_file(
                 file_content=ttl.encode("utf-8"),
                 filename="schema.ttl",
@@ -689,9 +676,9 @@ class TestImportFromFile:
                 db=db,
             )
 
-    @patch("app.services.arangordf_bridge.sync_owl_imports_edges")
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.sync_owl_imports_edges")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_import_uses_owl_ontology_rdfs_label_when_no_param_label(
         self,
         mock_import,
@@ -723,9 +710,9 @@ class TestImportFromFile:
         assert reg_payload["name"] == "Finance Schema"
         assert reg_payload["label"] == "Finance Schema"
 
-    @patch("app.services.arangordf_bridge.sync_owl_imports_edges")
-    @patch("app.services.arangordf_bridge.create_registry_entry")
-    @patch("app.services.arangordf_bridge.import_owl_to_graph")
+    @patch("app.services.ontology_import.sync_owl_imports_edges")
+    @patch("app.services.ontology_import.create_registry_entry")
+    @patch("app.services.ontology_import.import_owl_to_graph")
     def test_import_title_from_filename_when_no_ontology_label(
         self,
         mock_import,
@@ -760,8 +747,8 @@ class TestImportFromFile:
 
 
 class TestImportFromUrl:
-    @patch("app.services.arangordf_bridge.import_from_file")
-    @patch("app.services.arangordf_bridge.httpx")
+    @patch("app.services.ontology_import.import_from_file")
+    @patch("app.services.ontology_import.httpx")
     def test_downloads_and_delegates(self, mock_httpx, mock_import_file):
         db = MagicMock()
         response = MagicMock()
@@ -787,8 +774,8 @@ class TestImportFromUrl:
         assert result["source"] == "url_import"
         assert result["source_url"] == "http://example.org/schema.ttl"
 
-    @patch("app.services.arangordf_bridge.import_from_file")
-    @patch("app.services.arangordf_bridge.httpx")
+    @patch("app.services.ontology_import.import_from_file")
+    @patch("app.services.ontology_import.httpx")
     def test_url_without_extension_defaults_to_ttl(self, mock_httpx, mock_import_file):
         db = MagicMock()
         response = MagicMock()
@@ -801,17 +788,3 @@ class TestImportFromUrl:
         # The filename parameter passed to import_from_file should be "ontology.ttl"
         call_kwargs = mock_import_file.call_args
         assert call_kwargs.kwargs.get("filename") == "ontology.ttl"
-
-
-# ---------------------------------------------------------------------------
-# _ensure_arango_rdf
-# ---------------------------------------------------------------------------
-
-
-class TestEnsureArangoRdf:
-    def test_raises_import_error_when_missing(self):
-        with patch.dict("sys.modules", {"arango_rdf": None}):
-            from app.services.arangordf_bridge import _ensure_arango_rdf
-
-            with pytest.raises(ImportError, match="arango_rdf is required"):
-                _ensure_arango_rdf()

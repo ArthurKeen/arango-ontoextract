@@ -21,7 +21,7 @@ class TestArangoRDFImport:
     def test_import_sample_ontology(self, test_db):
         """Import sample OWL file and verify collections are populated."""
         try:
-            from app.services.arangordf_bridge import import_owl_to_graph
+            from app.services.ontology_import import import_owl_to_graph
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -42,7 +42,7 @@ class TestArangoRDFImport:
     def test_import_tags_documents_with_ontology_id(self, test_db):
         """After import, all documents should be tagged with ontology_id."""
         try:
-            from app.services.arangordf_bridge import import_owl_to_graph
+            from app.services.ontology_import import import_owl_to_graph
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -70,7 +70,7 @@ class TestArangoRDFImport:
     def test_import_creates_named_graph(self, test_db):
         """Import should create a per-ontology named graph."""
         try:
-            from app.services.arangordf_bridge import import_owl_to_graph
+            from app.services.ontology_import import import_owl_to_graph
         except ImportError:
             pytest.skip("arango_rdf not installed")
 
@@ -88,7 +88,7 @@ class TestArangoRDFImport:
     def test_import_is_idempotent(self, test_db):
         """Importing the same ontology twice should not fail."""
         try:
-            from app.services.arangordf_bridge import import_owl_to_graph
+            from app.services.ontology_import import import_owl_to_graph
         except ImportError:
             pytest.skip("arango_rdf not installed")
 

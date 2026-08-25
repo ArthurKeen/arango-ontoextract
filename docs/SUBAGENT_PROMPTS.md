@@ -395,7 +395,7 @@ YOUR TASKS (IMPLEMENTATION_PLAN.md Weeks 4-6, tasks 4.1–4.7, 5.1–5.7, 6.1–
    per agent step. Tracks token usage and cost.
 
 9. ArangoRDF bridge service:
-   - backend/app/services/arangordf_bridge.py
+   - backend/app/services/ontology_import.py
    Wraps arango_rdf.rdf_to_arangodb_by_pgt(). Post-import ontology_id tagging.
    Per-ontology named graph creation.
 
@@ -433,7 +433,7 @@ YOUR TASKS (IMPLEMENTATION_PLAN.md Weeks 4-6, tasks 4.1–4.7, 5.1–5.7, 6.1–
 FILES YOU OWN:
 - backend/app/extraction/ (entire directory)
 - backend/app/services/extraction.py
-- backend/app/services/arangordf_bridge.py
+- backend/app/services/ontology_import.py
 - backend/app/services/temporal.py
 - backend/app/services/ontology.py
 - backend/app/db/ontology_repo.py

@@ -49,7 +49,7 @@ from pydantic import BaseModel, Field
 from app.db.client import get_db
 from app.db.temporal_constants import NEVER_EXPIRES
 from app.db.utils import run_aql
-from app.services.arangordf_bridge import import_from_file
+from app.services.ontology_import import import_from_file
 
 log = logging.getLogger(__name__)
 

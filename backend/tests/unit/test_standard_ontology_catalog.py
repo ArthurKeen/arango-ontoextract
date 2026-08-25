@@ -5,7 +5,7 @@ and the error-translation contract for the ``GET /catalog`` /
 ``POST /catalog/{id}/import`` endpoints. They do **not** spin up
 ArangoDB: ``import_from_file`` / ``import_from_url`` are mocked at the
 module boundary because their own logic is exercised by
-``test_arangordf_bridge.py``.
+``test_ontology_import.py``.
 
 The shipped catalog JSON is also smoke-tested for structural validity
 so a malformed entry never escapes ``main``.

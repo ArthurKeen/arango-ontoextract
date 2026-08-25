@@ -35,7 +35,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.db.client import get_db
-from app.services.arangordf_bridge import import_from_file
+from app.services.ontology_import import import_from_file
 from app.services.schema_extraction import _stamp_per_class_provenance
 
 log = logging.getLogger(__name__)

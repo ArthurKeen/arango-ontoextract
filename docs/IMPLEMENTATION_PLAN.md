@@ -117,7 +117,7 @@
 
 | # | Task | Files | Depends On | Acceptance Criteria |
 |---|------|-------|------------|---------------------|
-| 6.1 | ArangoRDF bridge service | `backend/app/services/arangordf_bridge.py` | — | Wraps `arango_rdf.rdf_to_arangodb_by_pgt()`; adds post-import `ontology_id` tagging; creates per-ontology named graph |
+| 6.1 | ArangoRDF bridge service | `backend/app/services/ontology_import.py` | — | Wraps `arango_rdf.rdf_to_arangodb_by_pgt()`; adds post-import `ontology_id` tagging; creates per-ontology named graph | **[superseded 2026-08-25: `arango_rdf` was never declared or installed, so this wrapper never ran; the module now documents the rdflib importer it actually uses, and why ArangoRDF was evaluated and rejected.]**
 | 6.2 | Extraction → OWL serialization | `backend/app/services/extraction.py` | 5.1 | Converts `ExtractionResult` (Pydantic) → rdflib Graph (OWL/TTL) |
 | 6.3 | Staging graph creation | `backend/app/services/ontology.py` | 6.1, 6.2, W1 | Extraction output imported via PGT into `staging_{run_id}` named graph; all entities tagged with `ontology_id` |
 | 6.4 | Temporal versioning service | `backend/app/services/temporal.py` | W1 | `create_version()`, `expire_entity()`, `re_create_edges()` — core edge-interval time travel operations |
@@ -308,7 +308,7 @@
 
 | # | Task | Files | Depends On | Acceptance Criteria |
 |---|------|-------|------------|---------------------|
-| 20.1 | OWL/TTL import service | `backend/app/services/arangordf_bridge.py` | 6.1 | Import via UI or API; creates registry entry; per-ontology named graph; `ontology_id` tagging |
+| 20.1 | OWL/TTL import service | `backend/app/services/ontology_import.py` | 6.1 | Import via UI or API; creates registry entry; per-ontology named graph; `ontology_id` tagging |
 | 20.2 | OWL/TTL/JSON-LD export service | `backend/app/services/export.py` | 6.5 | Export any ontology graph as valid OWL 2 Turtle, JSON-LD, or CSV |
 | 20.3 | Import/export API endpoints | `backend/app/api/ontology.py` | 20.1, 20.2 | `POST /import` (file upload), `GET /export?format=ttl` |
 | 20.4 | Schema extraction service | `backend/app/services/schema_extraction.py` | — | Wraps `arango-schema-mapper`; connects to external ArangoDB; extracts → OWL → AOE import pipeline |
@@ -579,7 +579,7 @@ Each gap is classified by severity:
 
 | # | Task | Files | Description |
 |---|------|-------|-------------|
-| H.1 | Imports edge creation on OWL import | `backend/app/services/arangordf_bridge.py` | After PGT import, parse the source graph for `owl:imports` triples. For each imported IRI, look up the matching `ontology_registry` entry and create an `imports` edge. Warn if imported ontology not in library. |
+| H.1 | Imports edge creation on OWL import | `backend/app/services/ontology_import.py` | After PGT import, parse the source graph for `owl:imports` triples. For each imported IRI, look up the matching `ontology_registry` entry and create an `imports` edge. Warn if imported ontology not in library. |
 | H.2 | Imports graph named graph | `backend/migrations/014_imports_graph.py` (new) | Create `ontology_imports` named graph with `ontology_registry` as vertex collection and `imports` as edge collection. |
 | H.3 | Imports API endpoints | `backend/app/api/ontology.py` | `GET /library/{id}/imports`, `GET /library/{id}/imported-by`, `GET /imports-graph`. |
 | H.4 | Cascade analysis on delete | `backend/app/services/ontology_graphs.py` | Before deprecating an ontology, traverse `imports` graph to find dependents. Return list of affected ontologies. Frontend shows confirmation dialog. |
@@ -601,7 +601,7 @@ Each gap is classified by severity:
 |---|------|-------|-------------|
 | I.1 | Constraint extraction prompts | `backend/app/extraction/prompts/` | Extend extraction prompts to ask LLM for constraints: "For each class, identify cardinality constraints, value restrictions, and data validation rules." Add `constraints` field to `ExtractedClass` Pydantic model. |
 | I.2 | Constraint materialization | `backend/app/services/extraction.py` | `_materialize_to_graph` writes extracted constraints to `ontology_constraints` collection with temporal fields. |
-| I.3 | OWL restriction import via ArangoRDF | `backend/app/services/arangordf_bridge.py` | After PGT import, parse `owl:Restriction` blank nodes from the source rdflib graph. Create `ontology_constraints` documents linked to their target class and property. |
+| I.3 | OWL restriction import via ArangoRDF | `backend/app/services/ontology_import.py` | After PGT import, parse `owl:Restriction` blank nodes from the source rdflib graph. Create `ontology_constraints` documents linked to their target class and property. |
 | I.4 | SHACL shapes import | `backend/app/services/shacl_import.py` (new) | Parse SHACL shapes graphs (Turtle files). Create `ontology_constraints` documents with `constraint_type: "sh:NodeShape"` or `"sh:PropertyShape"`. Link to target classes via `target_class`. |
 | I.5 | Constraints API endpoint | `backend/app/api/ontology.py` | `GET /library/{ontology_id}/constraints` returns all OWL restrictions and SHACL shapes for an ontology. |
 | I.6 | Constraints display in Library UI | `frontend/src/app/library/page.tsx` | Class detail panel shows associated constraints: cardinality badges (e.g., "1..* holders"), value restrictions (e.g., "allValuesFrom: Currency"), SHACL rules with severity icons. |
@@ -824,7 +824,7 @@ Consult `docs/REMAINING_WORK_PLAN.md` for which of these are open. Do not re-der
 | PGT.4 | Update consistency checker | `backend/app/extraction/agents/consistency.py` | Merge attributes and relationships separately across passes. Property agreement computed per type. |
 | PGT.5 | Update materialization | `backend/app/services/extraction.py` | Write to `ontology_object_properties` + `ontology_datatype_properties`. Create `rdfs_domain` + `rdfs_range_class` edges. Remove `has_property` + `related_to` creation. |
 | PGT.6 | Update quality metrics | `backend/app/services/quality_metrics.py`, `confidence.py` | Connectivity queries use `rdfs_range_class`. Completeness uses `rdfs_domain`. OntoQA metrics updated. |
-| PGT.7 | Update import bridge | `backend/app/services/arangordf_bridge.py` | Map PGT collections (`owl_ObjectProperty` → `ontology_object_properties`). Post-import creates `rdfs_domain`/`rdfs_range_class` edges. |
+| PGT.7 | Update import bridge | `backend/app/services/ontology_import.py` | Map PGT collections (`owl_ObjectProperty` → `ontology_object_properties`). Post-import creates `rdfs_domain`/`rdfs_range_class` edges. |
 | PGT.8 | Data migration script | `backend/migrations/018_migrate_properties.py` | Migrate existing `ontology_properties` → split collections. Convert `has_property` → `rdfs_domain`. Convert `related_to` → `rdfs_range_class`. |
 | PGT.9 | Update graph visualization | `frontend/src/components/graph/GraphCanvas.tsx` | Render object properties as labeled edges via `rdfs_domain`→`rdfs_range_class` traversal. Update edge type handling. |
 | PGT.10 | Update API endpoints | `backend/app/api/ontology.py` | Class detail returns attributes + relationships separately. Edge listing uses new collections. Export uses new collections. |

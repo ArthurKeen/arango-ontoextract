@@ -10,7 +10,7 @@ Why a service module instead of inline AQL in the route:
 
 * The catalog import path delegates to the existing
   ``import_from_file`` / ``import_from_url`` helpers in
-  ``arangordf_bridge``. Keeping the resolver here means the route
+  ``ontology_import``. Keeping the resolver here means the route
   stays a thin HTTP wrapper, the resolver is unit-testable without a
   TestClient, and the (already-real) catalog JSON shape is owned by
   one place.
@@ -29,7 +29,7 @@ from typing import Any
 from arango.database import StandardDatabase
 
 from app.db import registry_repo
-from app.services.arangordf_bridge import import_from_file, import_from_url
+from app.services.ontology_import import import_from_file, import_from_url
 
 log = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ def import_catalog_entry(
     ontology_id:
         Optional override for the new registry ``_key``. Defaults to
         the catalog id (with characters that ArangoDB rejects sanitized
-        out by ``arangordf_bridge``).
+        out by ``ontology_import``).
 
     Raises
     ------

@@ -9,7 +9,7 @@ constraints.
 
 Design choices (locked):
 
-* **Module placement**: separate from ``arangordf_bridge.py`` because
+* **Module placement**: separate from ``ontology_import.py`` because
   the bridge file would otherwise breach the 1500-line cap from
   ``modularity-and-structure.mdc``. The hook into the OWL import
   pipeline is added in the bridge; the parsing + materialization
@@ -44,7 +44,7 @@ from arango.database import StandardDatabase
 from rdflib import RDF, RDFS, BNode, Literal, Namespace, URIRef
 from rdflib import Graph as RDFGraph
 
-from app.services.arangordf_bridge import _resolve_class_ids, _resolve_property_ids
+from app.services.ontology_import import _resolve_class_ids, _resolve_property_ids
 from app.services.temporal import NEVER_EXPIRES
 
 log = logging.getLogger(__name__)

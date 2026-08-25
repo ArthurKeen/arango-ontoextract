@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 from rdflib import Graph as RDFGraph
 
 from app.db.temporal_constants import NEVER_EXPIRES
-from app.services.arangordf_bridge import import_owl_to_graph
+from app.services.ontology_import import import_owl_to_graph
 from app.services.shacl_import import (
     _coerce_count_int,
     _extract_shacl_property_constraints,
@@ -497,7 +497,7 @@ class TestImportShaclShapes:
         def fake_run_aql(_db, _query, bind_vars):  # type: ignore[no-untyped-def]
             return responses.pop(0)
 
-        with patch("app.services.arangordf_bridge.run_aql", side_effect=fake_run_aql):
+        with patch("app.services.ontology_import.run_aql", side_effect=fake_run_aql):
             written = import_shacl_shapes(db, rdf_graph=rdf_graph, ontology_id="onto_1", now=1234.0)
 
         assert written == 1
@@ -542,7 +542,7 @@ class TestImportShaclShapes:
 
         with (
             patch(
-                "app.services.arangordf_bridge.run_aql",
+                "app.services.ontology_import.run_aql",
                 side_effect=lambda *a, **k: iter([]),
             ),
             caplog.at_level("WARNING"),
@@ -583,7 +583,7 @@ class TestImportShaclShapes:
         def fake_run_aql(_db, _query, bind_vars):  # type: ignore[no-untyped-def]
             return responses.pop(0)
 
-        with patch("app.services.arangordf_bridge.run_aql", side_effect=fake_run_aql):
+        with patch("app.services.ontology_import.run_aql", side_effect=fake_run_aql):
             written = import_shacl_shapes(db, rdf_graph=rdf_graph, ontology_id="onto_1", now=1.0)
 
         assert written == 1
@@ -630,7 +630,7 @@ class TestImportShaclShapes:
         ]
 
         with patch(
-            "app.services.arangordf_bridge.run_aql",
+            "app.services.ontology_import.run_aql",
             side_effect=lambda *a, **k: responses.pop(0),
         ):
             import_shacl_shapes(db, rdf_graph=rdf_graph, ontology_id="onto_1", now=1.0)
@@ -646,20 +646,19 @@ class TestImportShaclShapes:
 
 
 class TestImportOwlToGraphSurfacesShaclCount:
-    @patch("app.services.arangordf_bridge._ensure_named_graph")
+    @patch("app.services.ontology_import._ensure_named_graph")
     @patch("app.services.shacl_import.import_shacl_shapes")
-    @patch("app.services.arangordf_bridge._import_owl_restrictions")
-    @patch("app.services.arangordf_bridge._tag_documents_with_ontology_id")
-    @patch("app.services.arangordf_bridge._ensure_arango_rdf")
+    @patch("app.services.ontology_import._import_owl_restrictions")
+    @patch("app.services.ontology_import._tag_documents_with_ontology_id")
+    @patch("app.services.ontology_import._materialize_rdf_graph")
     def test_stats_carries_shacl_constraints_imported(
         self,
-        mock_ensure_rdf,
+        mock_materialize,
         mock_tag,
         mock_import_restrictions,
         mock_import_shacl,
         mock_ensure_graph,
     ):
-        mock_ensure_rdf.return_value = MagicMock()
         mock_tag.return_value = 0
         mock_import_restrictions.return_value = 0
         mock_import_shacl.return_value = 7

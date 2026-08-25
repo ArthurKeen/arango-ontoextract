@@ -1,8 +1,23 @@
 # Turning Documents and Databases into Living Ontologies: Inside Arango-OntoExtract
 
-*How we built an LLM-driven ontology platform on a single multi-model database — where human oversight is a dial that runs from expert sign-off to agent-reviewed auto-release — and why "extract once" is the wrong mental model.*
+*We built an open-source platform that uses LLMs to extract formal ontologies from your documents and your live database schemas — then versions them, revises them as new evidence arrives, and repairs them without a human. Here's the architecture, and the measurement that changed how we spend our engineering effort.*
 
-> **Draft v1** — a first pass for a Medium long-read. Concept figures are Mermaid diagrams (render natively on GitHub and most Markdown import tools); product figures are `![...](images/…)` **screenshot placeholders** — drop the PNGs into `docs/images/` (capture checklist in `docs/images/README.md`). Each placeholder carries a hidden `CAPTURE:` comment telling you what to grab. Delete any placeholders you don't use before publishing. Section lengths are tuned for a 5–10 page read.
+**⭐ [github.com/arango-solutions/arango-ontoextract](https://github.com/arango-solutions/arango-ontoextract)** — MIT licensed. Everything in this article is in the repo, and there's a [runnable quick start](#try-it) at the end. No prior knowledge of ontologies or ArangoDB assumed; every term is defined as it appears.
+
+<!--
+  MAINTAINER NOTE — not part of the published article. Delete this block, or leave it:
+  HTML comments don't render on Medium or GitHub either way.
+
+  Draft v2. Concept figures are Mermaid diagrams (render natively on GitHub and most
+  Markdown import tools); product figures are ![...](images/…) SCREENSHOT PLACEHOLDERS —
+  drop the PNGs into docs/images/ (capture checklist in docs/images/README.md). Each
+  placeholder carries a hidden CAPTURE: comment saying what to grab. Delete any
+  placeholders you don't use before publishing. Tuned for a 5–10 page read.
+
+  Changes since v1: promotional lede + Try it CTA; a plain-language primer on the
+  database layer (§3); a new §13 on curated names and the re-extraction bug that made
+  them survivable; A-box canvas rendering; reverse time-travel playback.
+-->
 
 ---
 
@@ -14,9 +29,11 @@ The first pile is **documents** — PDFs, slide decks, Word files, wikis. They d
 
 The second pile is **databases** — the relational tables and graph collections that already encode a working model of the domain, but only *physically*. A `customers` table and a `places_order` foreign key imply concepts and relationships, yet nothing says "a Customer is a kind of Party" or "an Order must have at least one line item."
 
-A **formal ontology** — classes, properties, hierarchies, and constraints expressed in OWL 2 / RDFS — is the bridge between those piles and machine reasoning. The catch: authoring ontologies by hand is slow, expensive, and requires rare expertise. And once authored, they rot — the sources they were derived from keep changing, but the ontology doesn't.
+A **formal ontology** is the bridge between those piles and machine reasoning. If the word is new to you, the short version: an ontology is a machine-readable model of what exists in a domain and how it relates — the **classes** (Customer, Order, Loan Product), the **properties** that connect and describe them (an Order *has* line items; a Customer *has* a credit rating), the **hierarchy** (a Retail Mortgage is a kind of Loan Product), and the **constraints** (an Order must have at least one line item). Think of it as a database schema that carries meaning instead of just storage layout — one that software can traverse, validate against, and reason over. The standards for writing them down are called **OWL 2** and **RDFS**, and they're what most of the tooling in this space speaks.
 
-**Arango-OntoExtract (AOE)** is our answer. It uses LLMs to *propose* ontologies — from unstructured documents and from live database schemas — then puts a domain expert in the loop to curate them, all on one multi-model database that holds the documents, the graph, the vectors, and the search index together.
+The catch: authoring ontologies by hand is slow, expensive, and requires rare expertise. And once authored, they rot — the sources they were derived from keep changing, but the ontology doesn't.
+
+**Arango-OntoExtract (AOE)** is our answer, and it's **open source under the MIT licence** — [github.com/arango-solutions/arango-ontoextract](https://github.com/arango-solutions/arango-ontoextract). It uses LLMs to *propose* ontologies — from unstructured documents and from live database schemas — then puts a domain expert in the loop to curate them, all on one multi-model database that holds the documents, the graph, the vectors, and the search index together. Everything described in this article is in that repository; there's a runnable quick start at the end.
 
 The idea that shaped everything: an ontology isn't a build artifact you produce once. It's a **living knowledge graph** that gets revised, time-travelled, and self-repaired.
 
@@ -65,7 +82,7 @@ This is what makes the library *compose* rather than sprawl. Cross-tier links ar
 
 ## 3. The system at a glance
 
-AOE is three layers: a Next.js workspace, a Python/FastAPI backend with agentic orchestration, and a multi-model ArangoDB instance underneath. External AI agents can drive it all through the Model Context Protocol (MCP).
+AOE is three layers: a Next.js workspace, a Python/FastAPI backend with agentic orchestration, and a multi-model ArangoDB instance underneath. External AI agents can drive the whole thing through the **Model Context Protocol (MCP)** — the emerging standard for exposing an application's capabilities as tools an LLM agent can call, so a coding assistant or a chat agent can extract, query, and curate ontologies without a human touching the UI.
 
 ```mermaid
 flowchart TB
@@ -88,11 +105,30 @@ flowchart TB
 
 *Figure 2 — High-level architecture. One database engine holds documents, the OWL graph, vectors, and search; the backend orchestrates LLM agents; the frontend is a single persistent workspace.*
 
-A few choices in that diagram are load-bearing:
+### A two-minute primer on the database layer
 
-- **ArangoDB as the single store.** Document + graph + vector + search in one engine: chunk embeddings, the ontology graph, and full-text search live side by side. No syncing three databases.
-- **ArangoRDF's PGT transformation.** OWL/RDFS imports into ArangoDB via Property Graph Transformation, preserving the OWL metamodel (class hierarchy, property domains/ranges, restrictions) while staying a native, queryable property graph.
-- **LangGraph for orchestration.** Extraction isn't a single prompt; it's a stateful, multi-agent pipeline with retries, parallel branches, and a human-in-the-loop breakpoint — a compiled state machine.
+Almost everything that follows leans on one choice, so it's worth unpacking before we go further — especially if you've never used ArangoDB.
+
+A system like this normally needs **four different kinds of storage** at once:
+
+| What it stores | Why we need it here | The usual tool |
+|---|---|---|
+| **Documents** — JSON records | Uploaded files, text chunks, run metadata | MongoDB, Postgres JSONB |
+| **A graph** — nodes and edges | The ontology itself: classes linked to classes | Neo4j |
+| **Vectors** — embeddings | Semantic search over chunks; finding near-duplicate concepts | Pinecone, pgvector |
+| **A search index** — full text | "Find every class mentioning *mortgage*" | Elasticsearch |
+
+The conventional answer is to run three or four separate systems and write glue code to keep them in sync. That glue is where the bugs live: a concept exists in the graph store but its embedding never made it to the vector store; a document was deleted here but not there.
+
+**ArangoDB is a *multi-model* database** — one engine that does all four natively, in one query language, in one transaction. That's the whole reason it's here. It means a single query can start from a document chunk, hop across the ontology graph, filter by a vector-similarity score, and rank by full-text relevance — without leaving the database or joining across systems. Its query language, **AQL**, is roughly "SQL that also knows how to walk a graph"; you'll see it referred to a few times below, and you don't need to read any.
+
+Two more pieces of vocabulary, because ArangoDB names things slightly differently than you might expect: a **collection** is what other databases call a table (there are two flavours — *document* collections for nodes, *edge* collections for relationships), and a **named graph** is a declared bundle of those collections that the engine will traverse as a unit.
+
+With that, the load-bearing choices in the diagram above:
+
+- **One store instead of four.** Chunk embeddings, the ontology graph, and the full-text index live side by side. Provenance ("which slide produced this class?"), semantic retrieval, and graph traversal are all the *same* query engine. No syncing, no drift between systems.
+- **ArangoRDF's PGT bridge.** Ontologies are written in OWL/RDFS, which is a *triple* format — everything is (subject, predicate, object). Property graphs are a different shape — nodes with attributes, edges with attributes. **Property Graph Transformation (PGT)** is the mapping between them: it imports OWL into ArangoDB while preserving the OWL structure (class hierarchy, which classes a property connects, cardinality restrictions), so the result is both a valid ontology *and* an ordinary, queryable graph. We get standards compliance without giving up graph performance.
+- **LangGraph for orchestration.** Extraction isn't a single prompt; it's a stateful, multi-agent pipeline with retries, parallel branches, and a human-in-the-loop breakpoint — a compiled state machine, not a script.
 
 ---
 
@@ -190,7 +226,7 @@ So "given a class, which document produced it and which chunks contributed?" is 
 
 Curated knowledge changes — a class gets renamed, a definition gets refined, a relationship gets retracted. Most systems overwrite. AOE *versions*.
 
-Every versioned vertex and edge carries a `created` and `expired` interval; "current" means `expired` equals a sentinel (`NEVER_EXPIRES`). Editing a class doesn't destroy the old one — it expires that version and creates a new one. The whole history is queryable, and the workspace exposes a **VCR-style timeline** to scrub through it.
+Every versioned node and edge carries a `created` and `expired` timestamp pair; "current" simply means `expired` is set to a far-future sentinel value (`NEVER_EXPIRES`). Editing a class doesn't destroy the old one — it expires that version and creates a new one, and every read quietly filters to "the versions that were live at time T," where T defaults to now. The whole history is therefore queryable by construction, and the workspace exposes a **VCR-style timeline** to scrub through it: play forward, play *backward*, step, or drag to any past moment and watch the graph redraw itself as it stood that day.
 
 ```mermaid
 flowchart LR
@@ -271,7 +307,9 @@ The non-negotiable constraint: because the repairs only rewrite relationship *ta
 
 ## 9. Bootstrapping from a database you already have
 
-Not every ontology should start from documents. If you already run ArangoDB, your *schema* is an ontology waiting to be reverse-engineered. AOE can connect to any ArangoDB instance and walk its named graphs and collections to emit OWL directly.
+Not every ontology should start from documents. If you already run a database — any database — your *schema* is an ontology waiting to be reverse-engineered. Tables (or collections) are already classes; foreign keys (or edges) are already relationships; columns are already attributes. Nobody wrote that down as a formal model, but the model is *there*, and unlike an LLM's reading of a PDF, it's exactly right, because it's the structure the business actually runs on.
+
+So AOE can connect to a live database and walk it, emitting OWL directly — no LLM in the loop, and therefore nothing to hallucinate. The diagram below shows the ArangoDB path (walking its *named graphs* — the declared bundles of collections introduced in §3 — plus any collections not in one); the relational path is the same shape and is covered just below.
 
 ```mermaid
 flowchart TB
@@ -349,6 +387,8 @@ flowchart TB
 
 The same principles that make the T-box trustworthy carry over. Extraction is **schema-guided** — an individual whose type isn't a class in the retrieved slice is dropped rather than invented. Coreferent mentions across chunks are **canonicalized** by (class, normalized label), so "Acme" and "Acme Corp" become one individual, not two. Every individual and every assertion carries **char-span provenance** back to the exact sentence it came from. Validation flags ungrounded individuals, dangling types, and cardinality violations; grounding and merge metrics quantify how much of the A-box is actually anchored. And curation is **temporal** like everything else: rejecting an individual is a soft-delete — it leaves the live graph but stays queryable as-of a past time — and the A-box exports alongside the T-box as `owl:NamedIndividual` declarations with their types and assertions.
 
+Individuals now also render **on the canvas**, drawn beside the classes that type them, so you can see the schema and the facts that populate it in one picture. That sounds trivial and isn't: a schema has dozens of classes, but an A-box can have hundreds of thousands of individuals, and naively drawing them turns a legible diagram into a hairball and a fast page into a slow one. So instances are **opt-in and expanded one class at a time** — you ask to see the individuals of `Company`, not of everything — and they're served by a separate read path, leaving the latency-sensitive schema projection untouched. (One small correctness detail worth the mention: individual node IDs are namespaced `ind:<key>` on the way to the canvas, because an individual and a class could otherwise share an identifier and one would silently overwrite the other — a class of bug that produces no error, just a missing node.)
+
 ---
 
 ## 12. Extraction driven by the questions it must answer
@@ -380,7 +420,76 @@ The payoff closes the loop with the two capabilities above. The **CQ term set** 
 
 ---
 
-## 13. The workspace: one stage, not a maze of pages
+## 13. What a thing is *called* is a domain judgement
+
+Those same competency questions turned up something we didn't expect, and it's the most useful result in this article.
+
+Here's the setup. Two different classes in the catalog each have an attribute labelled `role`. On `Document`, it means the document's kind — *contract*, *invoice*, *QBR deck*. On `Contact`, it means the person's job — *champion*, *exec sponsor*. A machine can detect that collision trivially: same label, two different concepts. What a machine *cannot* do is resolve it, because the right answer isn't a renaming rule — it's a domain judgement. And frequently the right answer is **neither existing name**: `Contact.role` reads far better as **job title**, which no algorithm was ever going to propose.
+
+We only noticed because we were measuring. Running a 71-question natural-language benchmark against the catalog, we tried four increasingly clever algorithmic fixes in the consuming translator — better candidate ranking, smarter join assembly, embedding-based concept resolution, clause pruning. Two of them moved the score *not at all*.
+
+Then we renamed six labels by hand.
+
+| | Before | After |
+|---|---|---|
+| Overall accuracy (71 questions) | 60% | **69%** |
+| Questions spanning three sources | 15% | **25%** |
+
+Identical across five runs. Six human judgements about *what things are called* beat four rounds of algorithm work — and the honest caveat belongs right here: only 8 of the 71 questions span three sources, so "15% → 25%" is two additional questions. Small sample. But the direction of the finding is the actionable part, and it's not "build a cleverer translator." It's **make curation cheap**, because a human resolving a name is worth more than another retrieval heuristic.
+
+So AOE grew a **curated lexicon**.
+
+```mermaid
+flowchart TB
+    Det["Local detection<br/>same normalized label,<br/>two distinct concepts"] --> Q["Collision queue"]
+    Ing["Ingested report<br/>(source system + sample values)"] --> Q
+    Q --> Cur{{"Curator decides<br/>per concept"}}
+    Cur -->|"rename one side"| D["label_decisions<br/>(who · when · why)"]
+    Cur -->|"rename both"| D
+    Cur -->|"dismiss as acceptable"| D
+    D --> Ov["Read-time overlay"]
+    Ov --> Lists["entity lists"]
+    Ov --> Detail["class detail"]
+    Ov --> Canvas["graph canvas"]
+    Ov --> Export["RDF export"]
+    Re["Re-extraction from<br/>the live sources"] -.->|"cannot touch"| D
+```
+
+*Figure 13 — The curated lexicon. Collisions arrive from two producers, a curator resolves them per concept, and the decision is stored in its own place — merged over the extracted label on every read path, and structurally out of reach of the next extraction.*
+
+Three design choices carry the weight:
+
+**A resolution is a decision, not an edit.** Renaming only one side of a collision is often the correct outcome, so partial resolution is first-class. Re-deciding *expires* the previous decision rather than overwriting it, which means the trail stays queryable — and in this feature the audit trail is as much of the value as the string. Six months later, "why is this called job title?" has an answer with a name and a date on it.
+
+**The decision is merged in at read time.** Curated labels live in their own store, joined to concepts by URI, and are overlaid on the extracted label wherever a label is displayed or exported — entity lists, the detail panel, the canvas, RDF export. Any read path that skips the overlay serves a stale, pre-curation name; that's a hard rule, not a nicety.
+
+**And the decision has to survive the next extraction.** Which brings us to the bug.
+
+### The trap this had to be designed around
+
+The obvious implementation is to write the curated label onto the concept. Rename `Contact.role` to *job title*, save. Done.
+
+That implementation is quietly broken, and the reason is a collision between two mechanisms that are each individually reasonable.
+
+Extraction rebuilds a concept's database key *from the LLM's label* and re-inserts with `overwrite=True` — replace whatever is already at that key. Meanwhile, a curator edit goes through the temporal layer: it expires the original row and writes a new row under a fresh key. Nothing wrong with either half.
+
+Now refresh the catalog from live sources. Extraction reclaims the key it used last time — the key of the *expired* row — and `overwrite=True` replaces that document wholesale, including its `expired` timestamp. The retired version comes back to life.
+
+The result isn't that your curated label reverts. It's worse and much harder to spot: you get **two live rows for one attribute** — the curated *job title* and a resurrected *role* — and nothing anywhere reports an error.
+
+We argued this out from reading the code, and then, because reading code is not evidence, wrote an integration test against a real ArangoDB 3.12 container to settle it. It confirmed all of it: one live row after the curator edit under a new key; **two** live rows after a single re-extraction; and — the reassuring half — the read-time overlay collapses both back to the curated label, because they share a URI. A decision survives two consecutive re-extractions untouched.
+
+That test could not have been a unit test. The whole failure mode lives in how one database's `overwrite=True` replace semantics interact with a sentinel timestamp — precisely the thing a mock is happy to lie to you about.
+
+It also killed the obvious mitigation. A "locked" flag on the concept, checked at write time? `overwrite=True` replaces the entire document, lock included.
+
+So the architecture follows from the failure: **store the decision where extraction never writes.** Survival stops being a convention that every future write path has to remember, and becomes structural — the property holds because of where the data lives, not because everyone stayed disciplined. (Wiring the overlay into export surfaced one more trap on the way: A-box assertions resolve their predicate by *label* lookup, so a renamed property would have matched no assertions at all and quietly minted a parallel predicate. The lookup index is now built from curated **and** pre-curation labels.)
+
+There's a general lesson buried in this one, and it's the reason it's in this article. A curated label that a refresh silently discards is **worse than no curation at all** — the human's work disappears, the metric quietly regresses, and nobody is told. Any system that mixes automated regeneration with human judgement has to answer one question explicitly: *what happens to the human's decision the next time the machine runs?* Get that wrong and every other guarantee in the product is decoration.
+
+---
+
+## 14. The workspace: one stage, not a maze of pages
 
 A tool that produces graphs is only as good as the surface you curate them on. AOE deliberately rejects the "wizard with twelve pages" pattern. The entire experience is **one persistent stage** built around objects, with a single interaction contract.
 
@@ -396,18 +505,20 @@ flowchart LR
     Left -.->|drag document onto canvas| Center
 ```
 
-*Figure 13 — The object-centric workspace. Left-click selects and opens a read-only detail panel; right-click acts; drag-and-drop initiates extraction or composition. Swapping what the canvas shows is an object swap, not navigation.*
+*Figure 14 — The object-centric workspace. Left-click selects and opens a read-only detail panel; right-click acts; drag-and-drop initiates extraction or composition. Swapping what the canvas shows is an object swap, not navigation.*
 
 ![Right-click context menu on a class node](images/context-menu.png)
 *Screenshot — the interaction contract in action: right-clicking a class surfaces its actions (approve/reject, view history, provenance, delete) — no separate page required.*
 <!-- CAPTURE: Right-click a class node on the canvas to open its context menu; show the action list. Optionally show the lens legend (bottom-left) in the same frame. -->
 
 
-The rules are strict on purpose: **left-click selects, right-click acts**, and read-only selection is always safe (no "click to delete"). Destructive actions never use native browser dialogs — reversible ones act immediately with an undo toast, irreversible ones use a typed-confirmation overlay. The canvas renders whatever matches the selected object — pick an ontology, you get the graph; pick a run, the pipeline DAG — with no global "edit mode." The WebGL canvas (Sigma.js + graphology) handles large graphs without melting the browser, and lenses repaint attributes onto a *stable* layout instead of re-running it, so changing your view never disorients you.
+The rules are strict on purpose: **left-click selects, right-click acts**, and read-only selection is always safe (no "click to delete"). Destructive actions never use native browser dialogs — reversible ones act immediately with an undo toast, irreversible ones use a typed-confirmation overlay. The canvas renders whatever matches the selected object — pick an ontology, you get the graph; pick a run, the pipeline DAG — with no global "edit mode." The canvas is GPU-rendered in the browser (WebGL, via Sigma.js and graphology) so a few thousand nodes pan and zoom smoothly instead of freezing the tab, and **lenses** — colour-by-confidence, colour-by-source, show-instances — repaint attributes onto a *stable* layout rather than re-running it, so changing your view never rearranges the picture under you.
+
+Everything in the article shows up here, because there is nowhere else for it to show up: the timeline scrubs history, the instance lens overlays the A-box on the schema, the lexicon queue is where colliding names get resolved, and structural editing — renaming a class, or reparenting one subtree onto another — happens as a single atomic operation on the graph rather than a delete-then-recreate that would break every edge pointing at it.
 
 ---
 
-## 14. Trust, measured: quality metrics
+## 15. Trust, measured: quality metrics
 
 Because the system is automated, it has to be *legible*. AOE scores every extraction along multiple signals and rolls them into an ontology health score (0–100) with a traffic-light display:
 
@@ -426,7 +537,7 @@ These aren't vanity numbers. The connectivity and structural-integrity metrics a
 
 ---
 
-## 15. When one document spans many domains: domain detection
+## 16. When one document spans many domains: domain detection
 
 Real documents — a strategy deck, a regulatory filing — often span *several* domains at once, and a single topic can run across many slides, yet today's pipeline assumes one ontology per run. The roadmap adds **domain detection**: a pre-extraction step that clusters chunks by topic and routes them.
 
@@ -438,13 +549,13 @@ flowchart TB
     Sig --> C["Phase 2 (curator opt-in)<br/>split into per-domain ontologies<br/>+ umbrella that owl:imports them"]
 ```
 
-*Figure 14 — Domain detection roadmap. Detection is shared infrastructure; the default keeps everything in one tagged ontology, while a curator can opt into splitting into clean, reusable per-domain ontologies under an umbrella — reusing the imports machinery that already exists.*
+*Figure 15 — Domain detection roadmap. Detection is shared infrastructure; the default keeps everything in one tagged ontology, while a curator can opt into splitting into clean, reusable per-domain ontologies under an umbrella — reusing the imports machinery that already exists.*
 
 Paired with it is **structure-aware chunking**: slide boundaries never merged, speaker notes kept distinct, and cross-slide topics grouped into one "topic unit" so the extractor reasons over coherent chunks, not arbitrary token windows. Domain splitting and slide grouping are the *same capability at two scales* — segmenting a document into coherent units.
 
 ---
 
-## 16. Governing the release: agents that critique before publish
+## 17. Governing the release: agents that critique before publish
 
 Curation during extraction is one gate. The other — building out next — is the **release** boundary. Ontologies that downstream systems import via `owl:imports` or query over MCP need stable, governed versions, and hand-inspecting every concept before each release doesn't scale. So it gets its own agentic review.
 
@@ -462,7 +573,7 @@ flowchart LR
     Policy -->|"blocking finding"| Esc["Escalate to a human"]
 ```
 
-*Figure 15 — Release governance. Deterministic signals plus an LLM critic produce a findings report; a configurable autonomy policy decides whether a clean candidate auto-publishes or escalates to a person.*
+*Figure 16 — Release governance. Deterministic signals plus an LLM critic produce a findings report; a configurable autonomy policy decides whether a clean candidate auto-publishes or escalates to a person.*
 
 The point is that **autonomy is a dial, not a default**:
 
@@ -474,7 +585,7 @@ Two invariants keep the higher settings honest: **faithfulness is a floor the re
 
 ---
 
-## 17. Closing: ontologies as living systems
+## 18. Closing: ontologies as living systems
 
 The thread running through Arango-OntoExtract is a rejection of the "extract once" mental model. An ontology in AOE is:
 
@@ -487,12 +598,50 @@ The thread running through Arango-OntoExtract is a rejection of the "extract onc
 - **Reconciled** across many independent sources into one coherent, hallucination-controlled master.
 - **Populated** with grounded individuals (the A-box), not just a schema.
 - **Requirements-driven** — the competency questions it must answer scope what gets aligned and kept.
+- **Named** by people, in decisions that outlive the next extraction rather than being overwritten by it.
 
 One multi-model database is what makes that economical: the provenance chain, the embeddings, and the graph traversals all live in the same engine. The LLMs do the heavy lifting of *proposing* structure; the architecture does the heavier lifting of making it *trustworthy enough to keep*.
+
+And the measurement worth leaving you with is the one that shaped the product. We benchmarked the algorithmic route against the human one — and six curated decisions beat it. The scarce resource in this kind of system isn't model capability — it's human judgement, and the engineering that decides whether that judgement is captured cheaply and then *kept*.
 
 That's the bet: the future of ontology engineering isn't a better one-shot extractor. It's a living system that proposes, grounds, versions, and revises — with a human holding the pen.
 
 Much of that thread is already woven in: relational databases and labeled property graphs are first-class sources alongside prose; multi-source alignment reconciles independently-built ontologies into a governed master; the A-box populates the schema with grounded facts; and competency questions shape what gets built. Where we take it next follows the same line: domain-aware segmentation that fans a mixed document out into clean, reusable per-domain ontologies, and a release-governance dial that turns up as the signals prove themselves — more candidates auto-publishing on policy, fewer waiting on a person. The faithfulness floor and reversibility never move. The destination is the same: not less human judgment, but human judgment spent where it moves the needle.
+
+---
+
+## Try it
+
+Arango-OntoExtract is open source under the MIT licence:
+
+### 👉 **[github.com/arango-solutions/arango-ontoextract](https://github.com/arango-solutions/arango-ontoextract)**
+
+It's a web application, not a CLI. You'll need Docker, Python 3.11+, Node 18+, and two API keys (one LLM, one for embeddings):
+
+```bash
+git clone https://github.com/arango-solutions/arango-ontoextract
+cd arango-ontoextract
+cp .env.example .env      # set ANTHROPIC_API_KEY + OPENAI_API_KEY
+
+make setup                # Python venv + npm deps
+make infra                # ArangoDB + Redis in Docker — no manual DB install
+make migrate              # collections, indexes, graphs
+make doctor               # preflight: verifies your keys, models and DB are live
+make backend              # leave running
+
+# second terminal
+make frontend
+```
+
+Then open **http://localhost:3000** — that's the workspace: upload, extract, curate, scrub the timeline.
+
+**Three things worth doing first**, roughly in increasing order of "huh, that's interesting":
+
+1. **Point it at a database you already run.** No LLM, no keys needed for this path, and no hallucination risk — it's a deterministic walk of a live schema. It's the fastest way to a defensible first ontology, and it takes about a minute.
+2. **Upload a slide deck, then upload a second one on the same subject.** The second extraction won't start over; watch the belief-revision verdicts land, and see which contradictions get routed to the inbox instead of being silently resolved.
+3. **Curate something, then re-extract.** Rename a class, then run extraction again over the same source. That's the mechanism §13 is about, and watching a decision survive a regeneration is more convincing than reading about it.
+
+If you find something broken or want a capability that isn't there, issues and PRs are welcome — the [PRD](https://github.com/arango-solutions/arango-ontoextract/blob/main/PRD.md) is in the repo and is the actual source of truth for what the system is supposed to do, so it's an unusually easy codebase to propose against.
 
 ---
 

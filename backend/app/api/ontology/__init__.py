@@ -59,6 +59,7 @@ from app.api.ontology.entities_read import (  # noqa: E402,F401
 )
 from app.api.ontology.imports_io import _import_jobs  # noqa: E402,F401
 from app.api.ontology.library import (  # noqa: E402,F401
+    _batch_class_counts_for_ontology_ids,
     _batch_edge_counts_for_ontology_ids,
     approve_constraint_endpoint,
     list_ontology_constraints,

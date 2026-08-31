@@ -79,6 +79,65 @@ def _batch_edge_counts_for_ontology_ids(
     return counts
 
 
+def _batch_class_counts_for_ontology_ids(
+    db: Any, ontology_ids: list[str], *, existing: set[str] | None = None
+) -> dict[str, int]:
+    """Live class counts per ontology in a SINGLE AQL round-trip.
+
+    Derived, never read from ``ontology_registry.class_count`` -- that stored
+    field cannot be trusted:
+
+    * Only the EXTRACTION path ever wrote it. Imports (catalog, file, URL) left
+      it null, so every imported ontology rendered as "( classes)" in the
+      target-ontology picker -- SOSA/SSN, VSSo, BFO and AWS all showed a blank
+      where the number belongs.
+    * Where it was written, it is a snapshot taken once at extraction time and
+      never revised, so it drifts with every curation decision that expires a
+      class. Measured 2026-08-31: WTW Ontology stored 667 against 645 live,
+      Lrl100268261 stored 1694 against 1688, Best Practices stored 23 against 19.
+
+    A count that two write paths must both remember to maintain will be wrong
+    in one of them; deriving it at read time removes the class of bug rather
+    than fixing this instance. ``GET /library/{id}`` already derives it the
+    same way, so the list and the detail view now agree by construction.
+
+    Mirrors ``_batch_edge_counts_for_ontology_ids``: one grouped server-side
+    ``COLLECT ... WITH COUNT`` rather than a query per ontology, because the
+    picker lists every ontology at once and this runs on every page load.
+    """
+    if not ontology_ids:
+        return {}
+    counts: dict[str, int] = {oid: 0 for oid in ontology_ids}
+
+    if existing is None:
+        existing = {c["name"] for c in (db.collections() or []) if isinstance(c, dict)}
+    if "ontology_classes" not in existing:
+        return counts
+
+    query = (
+        "FOR c IN ontology_classes\n"
+        "  FILTER c.ontology_id IN @oids AND c.expired == @never\n"
+        "  COLLECT oid = c.ontology_id WITH COUNT INTO cnt\n"
+        "  RETURN { oid: oid, cnt: cnt }"
+    )
+    try:
+        rows = list(
+            _shared.run_aql(
+                db, query, bind_vars={"oids": sorted(set(ontology_ids)), "never": NEVER_EXPIRES}
+            )
+        )
+    except Exception:
+        # Same posture as the edge counts: a counting failure must not take the
+        # library listing down with it. Zero is visibly wrong; a 500 is worse.
+        log.debug("batch class count failed", exc_info=True)
+        return counts
+    for row in rows:
+        oid = row.get("oid")
+        if oid in counts:
+            counts[oid] = int(row.get("cnt") or 0)
+    return counts
+
+
 # ---------------------------------------------------------------------------
 # Ontology Library endpoints (PRD 7.3)
 # ---------------------------------------------------------------------------
@@ -110,6 +169,7 @@ async def list_ontology_library(
 
         oids = [str(e.get("_key", "")) for e in entries if e.get("_key")]
         batch_counts = _batch_edge_counts_for_ontology_ids(db, oids, existing=existing)
+        class_counts = _batch_class_counts_for_ontology_ids(db, oids, existing=existing)
 
         for entry in entries:
             entry.setdefault("tags", [])
@@ -119,6 +179,9 @@ async def list_ontology_library(
             entry.setdefault("last_updated", entry.get("updated_at") or entry.get("created_at"))
             if oid:
                 entry["edge_count"] = batch_counts.get(oid, 0)
+                # Overwrite, not setdefault: the stored value is the thing
+                # being corrected, so a stale or null one must not survive.
+                entry["class_count"] = class_counts.get(oid, 0)
             # File imports historically stored only ``label``; UI and APIs expect ``name``.
             raw_name = entry.get("name")
             if raw_name is None or (isinstance(raw_name, str) and not raw_name.strip()):

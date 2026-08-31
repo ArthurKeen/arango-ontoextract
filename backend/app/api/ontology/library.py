@@ -16,6 +16,7 @@ from app.models.ontology import (
     UpdateConstraintRequest,
 )
 from app.services import ontology_context as ctx_svc
+from app.services.ontology_effective import DEFAULT_MAX_DEPTH as EFFECTIVE_MAX_DEPTH
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -138,6 +139,72 @@ def _batch_class_counts_for_ontology_ids(
     return counts
 
 
+def _batch_imported_class_counts(
+    db: Any, ontology_ids: list[str], *, existing: set[str] | None = None
+) -> dict[str, int]:
+    """Live classes reachable through each ontology's ``imports`` closure.
+
+    An ontology's OWN classes and its IMPORTED ones are different things and
+    must stay distinguishable: a curator edits the former and reads the latter.
+    But reporting only the former made "Vehicle Ontology (0 classes)" — created
+    empty and importing VSSo, so the picker said 0 while opening it on the
+    canvas showed 516, because the canvas loads ``/effective`` and resolves the
+    closure. Same ontology, two numbers, and the Create dialog had promised
+    "imported classes will be available as foundations".
+
+    Mirrors ``compute_effective_ontology``'s walk exactly -- OUTBOUND (the
+    ontologies this one imports, not who imports it), live edges only,
+    ``uniqueVertices: global`` so a diamond import is counted once -- but
+    counts in one batched round-trip instead of building each payload, since
+    the picker lists every ontology and the effective view does conflict
+    grouping this does not need.
+    """
+    if not ontology_ids:
+        return {}
+    counts: dict[str, int] = {oid: 0 for oid in ontology_ids}
+
+    if existing is None:
+        existing = {c["name"] for c in (db.collections() or []) if isinstance(c, dict)}
+    if not {"imports", "ontology_classes"} <= existing:
+        return counts
+
+    query = """
+    FOR oid IN @oids
+      LET imported = (
+        FOR v, e IN 1..@max_depth OUTBOUND CONCAT('ontology_registry/', oid) imports
+          OPTIONS { uniqueVertices: 'global', bfs: true }
+          FILTER e.expired == @never
+          RETURN DISTINCT v._key
+      )
+      LET cnt = LENGTH(
+        FOR c IN ontology_classes
+          FILTER c.ontology_id IN imported AND c.expired == @never
+          RETURN 1
+      )
+      RETURN { oid: oid, cnt: cnt }
+    """
+    try:
+        rows = list(
+            _shared.run_aql(
+                db,
+                query,
+                bind_vars={
+                    "oids": sorted(set(ontology_ids)),
+                    "never": NEVER_EXPIRES,
+                    "max_depth": EFFECTIVE_MAX_DEPTH,
+                },
+            )
+        )
+    except Exception:
+        log.debug("batch imported class count failed", exc_info=True)
+        return counts
+    for row in rows:
+        oid = row.get("oid")
+        if oid in counts:
+            counts[oid] = int(row.get("cnt") or 0)
+    return counts
+
+
 # ---------------------------------------------------------------------------
 # Ontology Library endpoints (PRD 7.3)
 # ---------------------------------------------------------------------------
@@ -170,6 +237,7 @@ async def list_ontology_library(
         oids = [str(e.get("_key", "")) for e in entries if e.get("_key")]
         batch_counts = _batch_edge_counts_for_ontology_ids(db, oids, existing=existing)
         class_counts = _batch_class_counts_for_ontology_ids(db, oids, existing=existing)
+        imported_counts = _batch_imported_class_counts(db, oids, existing=existing)
 
         for entry in entries:
             entry.setdefault("tags", [])
@@ -182,6 +250,10 @@ async def list_ontology_library(
                 # Overwrite, not setdefault: the stored value is the thing
                 # being corrected, so a stale or null one must not survive.
                 entry["class_count"] = class_counts.get(oid, 0)
+                # Reported separately, never folded into class_count: an
+                # imported class is read-only here and belongs to the ontology
+                # that defines it.
+                entry["imported_class_count"] = imported_counts.get(oid, 0)
             # File imports historically stored only ``label``; UI and APIs expect ``name``.
             raw_name = entry.get("name")
             if raw_name is None or (isinstance(raw_name, str) and not raw_name.strip()):

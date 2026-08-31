@@ -46,3 +46,26 @@ describe("classCountPhrase", () => {
     expect(classCountPhrase(NaN)).toBeNull();
   });
 });
+
+describe("formatClassCount with imports", () => {
+  it("names borrowed classes separately from owned ones", () => {
+    // "Vehicle Ontology" owns nothing and imports VSSo. Saying "0 classes"
+    // contradicted the canvas, which resolves the closure and draws 516.
+    expect(formatClassCount(0, 516)).toBe(" (0 classes, 516 imported)");
+  });
+
+  it("keeps the common case short when nothing is imported", () => {
+    expect(formatClassCount(516, 0)).toBe(" (516 classes)");
+    expect(formatClassCount(516)).toBe(" (516 classes)");
+    expect(formatClassCount(516, null)).toBe(" (516 classes)");
+  });
+
+  it("shows both when an ontology owns and borrows", () => {
+    expect(formatClassCount(12, 36)).toBe(" (12 classes, 36 imported)");
+  });
+
+  it("never implies a count it does not have", () => {
+    // Unknown own-count wins: without it there is no honest total to show.
+    expect(formatClassCount(null, 516)).toBe("");
+  });
+});

@@ -34,6 +34,9 @@ interface OntologyOption {
    *  just moved the failure to render time, where `{o.class_count} classes`
    *  printed "( classes)" with an empty slot. */
   class_count?: number | null;
+  /** Classes reachable through this ontology's `owl:imports` closure.
+   *  Kept separate from `class_count`: imported classes are read-only here. */
+  imported_class_count?: number | null;
   tier: string;
 }
 
@@ -552,7 +555,7 @@ export default function UploadPage() {
                 {ontologyOptions.map((o) => (
                   <option key={o._key} value={o._key}>
                     {o.name}
-                    {formatClassCount(o.class_count)}
+                    {formatClassCount(o.class_count, o.imported_class_count)}
                   </option>
                 ))}
               </select>

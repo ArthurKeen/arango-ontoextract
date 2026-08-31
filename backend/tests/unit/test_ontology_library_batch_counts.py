@@ -176,3 +176,78 @@ def test_listing_overwrites_the_stored_class_count() -> None:
     by_key = {row["_key"]: row for row in resp.json()["data"]}
     assert by_key["wtw"]["class_count"] == 645, "stale stored value must not survive"
     assert by_key["sosa-ssn"]["class_count"] == 22, "null stored value must be replaced"
+
+
+# ---------------------------------------------------------------------------
+# Imported classes are counted separately, never folded in
+# ---------------------------------------------------------------------------
+
+
+def test_imported_counts_walk_the_import_closure_outbound_and_live() -> None:
+    """Must mirror ``compute_effective_ontology``'s walk, or the picker and the
+    canvas will disagree about the same ontology — which is the bug being fixed."""
+    from app.api.ontology import _batch_imported_class_counts
+
+    db = MagicMock()
+
+    def fake_run_aql(_db, query, bind_vars=None, **kwargs):
+        # Ancestors (what this imports), not "who imports me".
+        assert "OUTBOUND" in query and "INBOUND" not in query
+        # Expired import edges are not part of the closure.
+        assert "e.expired == @never" in query
+        # A diamond import must be counted once.
+        assert "uniqueVertices: 'global'" in query
+        # And expired classes in an imported ontology do not count either.
+        assert "c.expired == @never" in query
+        return iter([{"oid": "vehicle", "cnt": 516}])
+
+    with patch("app.api.ontology._shared.run_aql", side_effect=fake_run_aql):
+        counts = _batch_imported_class_counts(
+            db, ["vehicle", "standalone"], existing={"imports", "ontology_classes"}
+        )
+
+    assert counts == {"vehicle": 516, "standalone": 0}
+
+
+def test_imported_count_is_reported_beside_the_owned_count_not_merged() -> None:
+    """An imported class is read-only and belongs to the ontology that defines
+    it. Merging the two numbers would tell a curator they can edit 516 classes
+    they cannot touch."""
+    from fastapi.testclient import TestClient
+
+    from app.api.ontology import _shared
+    from app.main import app
+
+    entries = [{"_key": "vehicle", "name": "Vehicle Ontology", "tier": "domain"}]
+    db = MagicMock()
+    db.collections.return_value = [{"name": "ontology_registry"}]
+    db.collection.return_value.count.return_value = 1
+
+    with (
+        patch.object(_shared, "get_db", return_value=db),
+        patch.object(_shared.registry_repo, "list_registry_entries", return_value=(entries, None)),
+        patch("app.api.ontology.library._batch_edge_counts_for_ontology_ids", return_value={}),
+        patch(
+            "app.api.ontology.library._batch_class_counts_for_ontology_ids",
+            return_value={"vehicle": 0},
+        ),
+        patch(
+            "app.api.ontology.library._batch_imported_class_counts",
+            return_value={"vehicle": 516},
+        ),
+    ):
+        resp = TestClient(app).get("/api/v1/ontology/library")
+
+    row = resp.json()["data"][0]
+    assert row["class_count"] == 0
+    assert row["imported_class_count"] == 516
+
+
+def test_imported_counts_survive_a_missing_imports_collection() -> None:
+    from app.api.ontology import _batch_imported_class_counts
+
+    db = MagicMock()
+    counts = _batch_imported_class_counts(db, ["a"], existing={"ontology_classes"})
+
+    assert counts == {"a": 0}
+    db.collections.assert_not_called()

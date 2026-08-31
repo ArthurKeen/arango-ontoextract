@@ -6,7 +6,7 @@
  * is ever absent again.
  */
 
-import { formatClassCount } from "../formatClassCount";
+import { classCountPhrase, formatClassCount } from "../formatClassCount";
 
 describe("formatClassCount", () => {
   it("renders a plain count", () => {
@@ -29,4 +29,20 @@ describe("formatClassCount", () => {
       expect(formatClassCount(value as number | null | undefined)).toBe("");
     },
   );
+});
+
+describe("classCountPhrase", () => {
+  it("returns the bare phrase for embedding in a longer label", () => {
+    // The Base Ontologies picker reads "Name (516 classes, local)" — it needs
+    // the phrase without brackets, and must not slice up the formatted string.
+    expect(classCountPhrase(516)).toBe("516 classes");
+    expect(classCountPhrase(1)).toBe("1 class");
+    expect(classCountPhrase(0)).toBe("0 classes");
+  });
+
+  it("returns null when unknown, so callers can say so in their own words", () => {
+    expect(classCountPhrase(null)).toBeNull();
+    expect(classCountPhrase(undefined)).toBeNull();
+    expect(classCountPhrase(NaN)).toBeNull();
+  });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { formatClassCount } from "./formatClassCount";
+import { classCountPhrase, formatClassCount } from "./formatClassCount";
 import Link from "next/link";
 import { api, backendUrl } from "@/lib/api-client";
 import { withBasePath } from "@/lib/base-path";
@@ -11,6 +11,9 @@ interface UploadResult {
   doc_id: string;
   filename: string;
   status: string;
+  /** True when this content was already ingested and the existing document was
+   *  reused rather than a second copy created. Absent on older backends. */
+  reused?: boolean;
 }
 
 interface DocumentEntry {
@@ -591,7 +594,9 @@ export default function UploadPage() {
                     .filter((o) => o._key !== targetOntologyId)
                     .map((o) => (
                       <option key={o._key} value={o._key}>
-                        {o.name} ({o.class_count} classes, {o.tier})
+                        {o.name} (
+                        {classCountPhrase(o.class_count) ?? "count unavailable"}
+                        , {o.tier})
                       </option>
                     ))}
                 </select>
@@ -661,9 +666,18 @@ export default function UploadPage() {
             {uploadState === "success" && result && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <p className="text-green-700 font-medium">
-                  Upload successful — extraction{" "}
+                  {result.reused
+                    ? "Already uploaded — reusing the existing document"
+                    : "Upload successful"}
+                  {" — extraction "}
                   {extractionRunId ? "started" : "queued"}
                 </p>
+                {result.reused && (
+                  <p className="mt-1 text-sm text-green-600">
+                    This file was ingested before, so it was not parsed again.
+                    The extraction below runs against the ontology you chose.
+                  </p>
+                )}
                 <div className="mt-2 text-sm text-green-600 space-y-1">
                   <p>
                     <span className="font-mono">doc_id:</span> {result.doc_id}

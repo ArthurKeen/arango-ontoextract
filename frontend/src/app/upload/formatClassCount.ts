@@ -1,6 +1,22 @@
 /**
- * Render an ontology's class count for the target-ontology picker.
+ * Rendering an ontology's class count in the upload pickers.
  *
+ * The count can legitimately be unknown. `ontology_registry.class_count` was
+ * only ever written by the extraction path, so every IMPORTED ontology carried
+ * a null and `{o.class_count} classes` rendered "( classes)" — an empty slot
+ * where the number belongs. The backend now derives the count, but the UI
+ * should not depend on that to stay readable.
+ */
+
+/** `"516 classes"` / `"1 class"`, or `null` when the count is unknown. */
+export function classCountPhrase(
+  count: number | null | undefined,
+): string | null {
+  if (typeof count !== "number" || Number.isNaN(count)) return null;
+  return `${count} ${count === 1 ? "class" : "classes"}`;
+}
+
+/**
  * `" (12 classes)"` / `" (1 class)"` / `""` when the count is unknown.
  *
  * An absent count renders as nothing rather than an empty pair of brackets:
@@ -10,6 +26,6 @@
  * for a pending extraction identifies itself.
  */
 export function formatClassCount(count: number | null | undefined): string {
-  if (typeof count !== "number" || Number.isNaN(count)) return "";
-  return ` (${count} ${count === 1 ? "class" : "classes"})`;
+  const phrase = classCountPhrase(count);
+  return phrase ? ` (${phrase})` : "";
 }

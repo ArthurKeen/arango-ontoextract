@@ -146,15 +146,46 @@ async def upload_document(
                 chunks_removed,
                 file_hash,
             )
-        else:
+        elif prior_status == DocumentStatus.DELETED:
+            # Soft-deleted on purpose. Silently resurrecting it would undo a
+            # deliberate act, so this one still refuses -- but says why, and
+            # names the record to restore.
             raise ConflictError(
-                "Duplicate document — a file with identical content already exists",
+                "This content was uploaded before and then deleted. "
+                "Restore that document, or delete it permanently before re-uploading.",
                 details={
                     "existing_doc_id": existing["_key"],
                     "existing_status": prior_status,
                     "file_hash": file_hash,
                 },
             )
+        else:
+            # READY, or still ingesting. A document is not owned by an
+            # ontology: the same manual legitimately feeds several, and
+            # "extract this into a different ontology" is a normal request,
+            # not a mistake. Refusing it forced the curator to either delete
+            # the original or keep a byte-identical copy, and threw away
+            # parsing, chunking and embedding that were already paid for.
+            #
+            # So reuse the record. The caller's next steps are unchanged --
+            # it waits for READY (already true, or shortly will be) and runs
+            # the extraction against whichever ontology it chose. ``reused``
+            # tells it no ingestion was started, so it can say so rather than
+            # implying a fresh upload.
+            log.info(
+                "reusing document %s (status=%s) for identical content "
+                "(hash=%s, offered_filename=%s)",
+                existing["_key"],
+                prior_status,
+                file_hash,
+                file.filename,
+            )
+            return {
+                "doc_id": existing["_key"],
+                "filename": existing.get("filename") or file.filename or "untitled",
+                "status": prior_status,
+                "reused": True,
+            }
 
     doc = documents_repo.create_document(
         filename=file.filename or "untitled",
@@ -170,6 +201,7 @@ async def upload_document(
         "doc_id": doc["_key"],
         "filename": doc["filename"],
         "status": doc["status"],
+        "reused": False,
     }
 
 

@@ -80,26 +80,63 @@ class TestDocumentHelpers:
 
 class TestUploadDocument:
     @pytest.mark.asyncio
-    async def test_upload_document_raises_on_duplicate_hash_when_prior_is_ready(self):
-        # A duplicate of a fully-ingested doc (status=ready) should still
-        # 409 -- we don't want users to accidentally clobber a working doc
-        # by re-uploading identical content.
+    async def test_upload_reuses_a_ready_document_instead_of_refusing(self):
+        """A document is not owned by an ontology.
+
+        The same JLR manual legitimately feeds several ontologies, so
+        "extract this into a different ontology" is a normal request. This
+        used to 409, which forced the curator to delete the original or keep
+        a byte-identical copy, and threw away parsing, chunking and embedding
+        already paid for.
+        """
+        file = _upload_file()
+        mock_create_task = MagicMock()
+
+        with (
+            patch("app.api.documents.compute_file_hash", return_value="hash"),
+            patch(
+                "app.api.documents.documents_repo.find_document_by_hash",
+                return_value={"_key": "d0", "status": "ready", "filename": "manual.pdf"},
+            ),
+            patch("app.api.documents.documents_repo.create_document") as mock_create,
+            patch("app.api.documents.asyncio.create_task", mock_create_task),
+        ):
+            result = await upload_document(file)
+
+        assert result == {
+            "doc_id": "d0",
+            "filename": "manual.pdf",
+            "status": "ready",
+            "reused": True,
+        }
+        # No second copy, and no second trip through the ingestion pipeline.
+        mock_create.assert_not_called()
+        mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_upload_reuses_a_document_that_is_still_ingesting(self):
+        """Uploading again while the first pass is mid-flight is the same
+        request, arriving early. The caller already waits for READY, so
+        handing back the in-flight record is what it needs."""
         file = _upload_file()
         with (
             patch("app.api.documents.compute_file_hash", return_value="hash"),
             patch(
                 "app.api.documents.documents_repo.find_document_by_hash",
-                return_value={"_key": "d0", "status": "ready"},
+                return_value={"_key": "d0", "status": "chunking", "filename": "m.pdf"},
             ),
-            pytest.raises(ConflictError),
+            patch("app.api.documents.documents_repo.create_document") as mock_create,
         ):
-            await upload_document(file)
+            result = await upload_document(file)
+
+        assert result["reused"] is True
+        assert result["status"] == "chunking"
+        mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_upload_document_raises_on_duplicate_hash_when_status_unknown(self):
-        # Defensive: a record without an explicit status (legacy / partial
-        # write) is treated as a duplicate, not a retry. We only allow the
-        # retry path when status is explicitly FAILED.
+    async def test_upload_reuses_when_the_prior_record_has_no_status(self):
+        """Legacy / partially-written record. Reuse is still the safe answer:
+        it neither duplicates content nor destroys anything."""
         file = _upload_file()
         with (
             patch("app.api.documents.compute_file_hash", return_value="hash"),
@@ -107,9 +144,45 @@ class TestUploadDocument:
                 "app.api.documents.documents_repo.find_document_by_hash",
                 return_value={"_key": "d0"},  # no status field
             ),
-            pytest.raises(ConflictError),
+            patch("app.api.documents.documents_repo.create_document") as mock_create,
+        ):
+            result = await upload_document(file)
+
+        assert result["doc_id"] == "d0"
+        assert result["reused"] is True
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_upload_keeps_the_offered_filename_when_the_record_has_none(self):
+        file = _upload_file()
+        with (
+            patch("app.api.documents.compute_file_hash", return_value="hash"),
+            patch(
+                "app.api.documents.documents_repo.find_document_by_hash",
+                return_value={"_key": "d0", "status": "ready"},
+            ),
+            patch("app.api.documents.documents_repo.create_document"),
+        ):
+            result = await upload_document(file)
+
+        assert result["filename"] == "doc.pdf"
+
+    @pytest.mark.asyncio
+    async def test_upload_still_refuses_content_that_was_deliberately_deleted(self):
+        """Deletion was an explicit act; silently resurrecting it would undo
+        the user's decision. This one keeps the 409 -- but names the record."""
+        file = _upload_file()
+        with (
+            patch("app.api.documents.compute_file_hash", return_value="hash"),
+            patch(
+                "app.api.documents.documents_repo.find_document_by_hash",
+                return_value={"_key": "d0", "status": "deleted"},
+            ),
+            pytest.raises(ConflictError) as exc,
         ):
             await upload_document(file)
+
+        assert "deleted" in str(exc.value).lower()
 
     @pytest.mark.asyncio
     async def test_upload_replaces_prior_failed_document(self):
@@ -149,7 +222,14 @@ class TestUploadDocument:
         mock_delete_chunks.assert_called_once_with("old_doc")
         mock_hard_delete.assert_called_once_with("old_doc")
         mock_create_task.assert_called_once()
-        assert result == {"doc_id": "new_doc", "filename": "doc.pdf", "status": "uploading"}
+        # ``reused: False`` states plainly that a fresh ingestion ran, so a
+        # caller never has to infer it from the field's absence.
+        assert result == {
+            "doc_id": "new_doc",
+            "filename": "doc.pdf",
+            "status": "uploading",
+            "reused": False,
+        }
 
     @pytest.mark.asyncio
     async def test_upload_document_creates_record_and_task(self):
@@ -170,7 +250,12 @@ class TestUploadDocument:
 
         mock_create_task.assert_called_once()
         task.add_done_callback.assert_called_once()
-        assert result == {"doc_id": "d1", "filename": "doc.pdf", "status": "uploading"}
+        assert result == {
+            "doc_id": "d1",
+            "filename": "doc.pdf",
+            "status": "uploading",
+            "reused": False,
+        }
 
 
 class TestDocumentRoutes:

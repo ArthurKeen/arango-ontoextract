@@ -118,20 +118,37 @@ class TestImportCatalogEntry:
         assert result["catalog_name"] == "DCMI Metadata Terms"
 
     def test_url_entry_delegates_to_import_from_url(self, _fake_db, _patch_registry_repo) -> None:
-        with patch.object(svc, "import_from_url") as mock_url:
-            mock_url.return_value = {
-                "registry_key": "foaf",
-                "triple_count": 200,
-                "source": "url_import",
-            }
+        """The url source kind is still supported for ad-hoc imports.
 
-            result = svc.import_catalog_entry("foaf", db=_fake_db)
+        Uses a synthetic entry rather than a real catalog id: every shipped
+        entry is now bundled, and this test previously rode on ``foaf`` being
+        URL-sourced, so it broke the moment that changed. What is under test is
+        the dispatch, not which entries happen to use it.
+        """
+        with patch.object(svc, "load_catalog") as mock_load:
+            mock_load.return_value = [
+                {
+                    "id": "ghost-url-ok",
+                    "name": "Phantom",
+                    "description": "",
+                    "uri": "http://example.org/ghost",
+                    "tier": "core",
+                    "source": {"kind": "url", "url": "http://example.org/ghost.ttl"},
+                }
+            ]
+            with patch.object(svc, "import_from_url") as mock_url:
+                mock_url.return_value = {
+                    "registry_key": "ghost-url-ok",
+                    "triple_count": 200,
+                    "source": "url_import",
+                }
+                result = svc.import_catalog_entry("ghost-url-ok", db=_fake_db)
 
         kwargs = mock_url.call_args.kwargs
-        assert kwargs["ontology_id"] == "foaf"
-        assert kwargs["url"].startswith("http")
+        assert kwargs["ontology_id"] == "ghost-url-ok"
+        assert kwargs["url"] == "http://example.org/ghost.ttl"
         assert result["source"] == "catalog_import"
-        assert result["catalog_id"] == "foaf"
+        assert result["catalog_id"] == "ghost-url-ok"
 
     def test_custom_ontology_id_overrides_catalog_id(self, _fake_db, _patch_registry_repo) -> None:
         with patch.object(svc, "import_from_file") as mock_import:
@@ -234,7 +251,7 @@ class TestUpperAndDomainBundles:
     a document that parses, declaring the concepts the entry advertises.
     """
 
-    ENTRIES = ("bfo", "sosa-ssn", "vsso")
+    ENTRIES = ("bfo", "sosa-ssn", "vsso", "foaf", "skos", "prov-o", "owl-time")
 
     def _graph(self, path: str):
         import importlib.resources as _resources
@@ -309,6 +326,51 @@ class TestUpperAndDomainBundles:
         assert actual == entry["class_count"], (
             f"{catalog_id} advertises {entry['class_count']} classes, bundle has {actual}"
         )
+
+
+class TestEveryShippedEntryIsBundled:
+    """The catalog fetched half its entries over the network at import time.
+
+    Two of those had drifted: prov-o and owl-time declared ``xml`` and their
+    servers had started serving Turtle, so importing them failed. A declared
+    format cannot go stale against a file that ships with the code.
+    """
+
+    def test_no_entry_depends_on_the_network(self) -> None:
+        url_backed = [e["id"] for e in svc.load_catalog() if e["source"]["kind"] != "bundled"]
+        assert url_backed == [], f"still fetched at import time: {url_backed}"
+
+    def test_every_bundle_exists_parses_and_records_provenance(self) -> None:
+        import importlib.resources as _resources
+
+        from rdflib import Graph as RDFGraph
+
+        for entry in svc.load_catalog():
+            source = entry["source"]
+            raw = _resources.files("app.data.ontologies").joinpath(source["path"]).read_bytes()
+            RDFGraph().parse(data=raw.decode("utf-8"), format=source["format"])
+            for field in ("upstream_url", "license", "retrieved"):
+                assert source.get(field), f"{entry['id']} bundle is missing {field}"
+
+    def test_advertised_counts_match_every_bundle(self) -> None:
+        """A catalog that overstates its size sends a curator into an import
+        expecting classes that are not there. schema.org advertised 800 and
+        delivered zero for as long as the importer read only owl:Class."""
+        import importlib.resources as _resources
+
+        from rdflib import Graph as RDFGraph
+
+        from app.services.ontology_import import declared_class_uris
+
+        for entry in svc.load_catalog():
+            raw = (
+                _resources.files("app.data.ontologies")
+                .joinpath(entry["source"]["path"])
+                .read_bytes()
+            )
+            g = RDFGraph()
+            g.parse(data=raw.decode("utf-8"), format=entry["source"]["format"])
+            assert len(declared_class_uris(g)) == entry["class_count"], entry["id"]
 
 
 # --- HTTP layer ------------------------------------------------------------

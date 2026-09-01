@@ -964,3 +964,54 @@ class TestReferenceOnlyClassesAreNotMinted:
             "http://xmlns.com/foaf/0.1/Agent",
             "http://purl.org/vocommons/voaf#Vocabulary",
         }
+
+
+class TestRdfsClassIsRead:
+    """Reading only ``owl:Class`` silently lost whole vocabularies.
+
+    schema.org declares every one of its ~1,000 types as ``rdfs:Class``. The
+    catalog entry advertised 800 classes and imported ZERO — no error, no
+    warning, just an empty ontology.
+    """
+
+    def _classes(self, ttl: str) -> set[str]:
+        from app.services.ontology_import import declared_class_uris
+
+        return declared_class_uris(_parse(ttl))
+
+    def test_rdfs_class_is_a_class(self):
+        ttl = _PREFIXES + ':Thing a rdfs:Class ; rdfs:label "Thing" .\n'
+        assert self._classes(ttl) == {"http://example.org/onto#Thing"}
+
+    def test_owl_class_still_is(self):
+        ttl = _PREFIXES + ':Thing a owl:Class ; rdfs:label "Thing" .\n'
+        assert self._classes(ttl) == {"http://example.org/onto#Thing"}
+
+    def test_declaring_both_yields_one_class(self):
+        """owl:Class is itself a subclass of rdfs:Class and most OWL files
+        assert both; the union must not double-count."""
+        ttl = _PREFIXES + ':Thing a owl:Class, rdfs:Class ; rdfs:label "Thing" .\n'
+        assert self._classes(ttl) == {"http://example.org/onto#Thing"}
+
+    def test_blank_nodes_are_excluded_from_both(self):
+        ttl = (
+            _PREFIXES
+            + """
+        :Tyre a rdfs:Class ; rdfs:label "Tyre" ;
+            rdfs:subClassOf [ a owl:Restriction ;
+                              owl:onProperty :p ; owl:minCardinality "1"^^xsd:nonNegativeInteger ] .
+        :p a owl:DatatypeProperty .
+        """
+        )
+        assert self._classes(ttl) == {"http://example.org/onto#Tyre"}
+
+    def test_the_real_schema_org_bundle_now_yields_its_classes(self):
+        import importlib.resources as _resources
+
+        from app.services.ontology_import import declared_class_uris
+
+        raw = _resources.files("app.data.ontologies").joinpath("schema_org.ttl").read_bytes()
+        found = declared_class_uris(_parse(raw.decode("utf-8")))
+
+        assert len(found) > 900, f"schema.org yielded only {len(found)} classes"
+        assert "https://schema.org/Vehicle" in found

@@ -20,7 +20,10 @@
         "kind": "bundled",
         "path": "dcterms_minimal.ttl",
         "format": "turtle",
-        "upstream_url": "https://www.dublincore.org/specifications/dublin-core/dcmi-terms/dublin_core_terms.ttl"
+        "upstream_url": "https://www.dublincore.org/specifications/dublin-core/dcmi-terms/dublin_core_terms.ttl",
+        "license": "Creative Commons Attribution 4.0 International",
+        "retrieved": "2026-05-17",
+        "note": "Hand-reduced subset of DCMI Metadata Terms — the 15 legacy elements plus the most commonly used terms — not the full upstream vocabulary."
       }
     },
     {
@@ -35,12 +38,15 @@
         "social",
         "identity"
       ],
-      "class_count": 16,
-      "property_count": 67,
+      "class_count": 15,
+      "property_count": 60,
       "source": {
-        "kind": "url",
-        "url": "http://xmlns.com/foaf/spec/index.rdf",
-        "format": "xml"
+        "kind": "bundled",
+        "path": "foaf.ttl",
+        "format": "turtle",
+        "upstream_url": "http://xmlns.com/foaf/spec/index.rdf",
+        "license": "CC BY 1.0",
+        "retrieved": "2026-08-31"
       }
     },
     {
@@ -55,12 +61,15 @@
         "thesaurus",
         "w3c"
       ],
-      "class_count": 11,
-      "property_count": 36,
+      "class_count": 4,
+      "property_count": 18,
       "source": {
-        "kind": "url",
-        "url": "http://www.w3.org/2009/08/skos-reference/skos.rdf",
-        "format": "xml"
+        "kind": "bundled",
+        "path": "skos.ttl",
+        "format": "turtle",
+        "upstream_url": "http://www.w3.org/2009/08/skos-reference/skos.rdf",
+        "license": "W3C Software and Document License",
+        "retrieved": "2026-08-31"
       }
     },
     {
@@ -74,12 +83,16 @@
         "provenance",
         "w3c"
       ],
-      "class_count": 30,
-      "property_count": 51,
+      "class_count": 31,
+      "property_count": 50,
       "source": {
-        "kind": "url",
-        "url": "http://www.w3.org/ns/prov-o#",
-        "format": "xml"
+        "kind": "bundled",
+        "path": "prov_o.ttl",
+        "format": "turtle",
+        "upstream_url": "http://www.w3.org/ns/prov-o#",
+        "license": "W3C Software and Document License",
+        "retrieved": "2026-08-31",
+        "note": "Declared format was 'xml'; the server serves Turtle, so the URL import failed. Bundling pins both the bytes and the format."
       }
     },
     {
@@ -94,12 +107,16 @@
         "temporal",
         "w3c"
       ],
-      "class_count": 30,
-      "property_count": 52,
+      "class_count": 20,
+      "property_count": 58,
       "source": {
-        "kind": "url",
-        "url": "https://www.w3.org/2006/time#",
-        "format": "xml"
+        "kind": "bundled",
+        "path": "owl_time.ttl",
+        "format": "turtle",
+        "upstream_url": "https://www.w3.org/2006/time#",
+        "license": "W3C Software and Document License",
+        "retrieved": "2026-08-31",
+        "note": "Declared format was 'xml'; the server serves Turtle, so the URL import failed. Bundling pins both the bytes and the format."
       }
     },
     {
@@ -114,12 +131,16 @@
         "web",
         "structured-data"
       ],
-      "class_count": 800,
-      "property_count": 1500,
+      "class_count": 1010,
+      "property_count": 0,
       "source": {
-        "kind": "url",
-        "url": "https://schema.org/version/latest/schemaorg-current-https.ttl",
-        "format": "turtle"
+        "kind": "bundled",
+        "path": "schema_org.ttl",
+        "format": "turtle",
+        "upstream_url": "https://schema.org/version/latest/schemaorg-current-https.ttl",
+        "license": "CC BY-SA 3.0",
+        "retrieved": "2026-08-31",
+        "note": "Declares its types as rdfs:Class, not owl:Class. The importer read only owl:Class, so this entry imported ZERO of its advertised classes until that was fixed."
       }
     },
     {
@@ -135,12 +156,15 @@
         "agents",
         "edmcouncil"
       ],
-      "class_count": 25,
-      "property_count": 40,
+      "class_count": 1,
+      "property_count": 0,
       "source": {
-        "kind": "url",
-        "url": "https://spec.edmcouncil.org/fibo/ontology/master/latest/FND/AgentsAndPeople/Agents.rdf",
-        "format": "xml"
+        "kind": "bundled",
+        "path": "fibo_fnd_aap_agents.ttl",
+        "format": "turtle",
+        "upstream_url": "https://spec.edmcouncil.org/fibo/ontology/master/latest/FND/AgentsAndPeople/Agents.rdf",
+        "license": "MIT License (EDM Council)",
+        "retrieved": "2026-08-31"
       }
     },
     {
@@ -156,12 +180,15 @@
         "accounting",
         "edmcouncil"
       ],
-      "class_count": 18,
-      "property_count": 30,
+      "class_count": 9,
+      "property_count": 0,
       "source": {
-        "kind": "url",
-        "url": "https://spec.edmcouncil.org/fibo/ontology/master/latest/FND/Accounting/AccountingEquity.rdf",
-        "format": "xml"
+        "kind": "bundled",
+        "path": "fibo_fnd_acc_equity.ttl",
+        "format": "turtle",
+        "upstream_url": "https://spec.edmcouncil.org/fibo/ontology/master/latest/FND/Accounting/AccountingEquity.rdf",
+        "license": "MIT License (EDM Council)",
+        "retrieved": "2026-08-31"
       }
     },
     {

@@ -98,6 +98,26 @@ _DEFINING_PREDICATES: tuple[URIRef, ...] = (
 )
 
 
+def declared_class_uris(rdf_graph: RDFGraph) -> set[str]:
+    """Named classes declared as ``owl:Class`` OR ``rdfs:Class``.
+
+    Reading only ``owl:Class`` silently lost whole vocabularies. schema.org
+    declares every one of its ~900 types as ``rdfs:Class``, so the catalog
+    entry advertising 800 classes imported ZERO -- no error, just an empty
+    ontology. RDFS-era vocabularies do the same.
+
+    ``owl:Class`` is itself a subclass of ``rdfs:Class`` and most OWL files
+    assert both, so the union is deduplicated by URI. Blank nodes are excluded
+    here as everywhere: an anonymous class expression is not a concept.
+    """
+    return {
+        str(s)
+        for class_type in (OWL.Class, RDFS.Class)
+        for s in rdf_graph.subjects(RDF.type, class_type)
+        if isinstance(s, URIRef)
+    }
+
+
 def _is_reference_only(rdf_graph: RDFGraph, class_uri: URIRef) -> bool:
     """True when the document names this class but does not define it.
 
@@ -443,9 +463,7 @@ def _extract_owl_restrictions(
     # but ``g.subjects(RDF.type, OWL.Class)`` returns a generator, and
     # we walk it twice (once for ``rdfs:subClassOf``, once for
     # ``owl:equivalentClass``).
-    class_uris = sorted(
-        {str(s) for s in rdf_graph.subjects(RDF.type, OWL.Class) if isinstance(s, URIRef)}
-    )
+    class_uris = sorted(declared_class_uris(rdf_graph))
 
     for class_uri_str in class_uris:
         class_uri = URIRef(class_uri_str)
@@ -874,9 +892,7 @@ def _materialize_rdf_graph(
     # curator then has to recognise and delete. Matches the filter already
     # applied when collecting class URIs for the hierarchy edges above.
     skipped_references: list[str] = []
-    for class_uri in sorted(
-        {str(s) for s in rdf_graph.subjects(RDF.type, OWL.Class) if isinstance(s, URIRef)}
-    ):
+    for class_uri in sorted(declared_class_uris(rdf_graph)):
         # A class this document only NAMES belongs to whoever defines it. See
         # ``_is_reference_only``: minting a local copy forks the identity and
         # strands a node on the canvas that nothing here can connect.

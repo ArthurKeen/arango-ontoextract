@@ -67,7 +67,7 @@ class ERConfigUpdate(BaseModel):
 
 
 @router.post("/run")
-async def trigger_er_run(body: ERRunRequest) -> dict[str, Any]:
+def trigger_er_run(body: ERRunRequest) -> dict[str, Any]:
     """Trigger entity resolution pipeline for an ontology."""
     config = None
     if body.config:
@@ -85,7 +85,7 @@ async def trigger_er_run(body: ERRunRequest) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}")
-async def get_er_run_status(run_id: str) -> dict[str, Any]:
+def get_er_run_status(run_id: str) -> dict[str, Any]:
     """Get ER pipeline run status."""
     result = er_svc.get_run_status(run_id)
     if result is None:
@@ -101,7 +101,7 @@ async def get_er_run_status(run_id: str) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/candidates")
-async def list_candidates(
+def list_candidates(
     run_id: str,
     min_score: float = Query(0.0, ge=0.0, le=1.0),
     limit: int = Query(50, ge=1, le=200),
@@ -152,7 +152,7 @@ class ERCandidateAcceptRequest(BaseModel):
 
 
 @router.post("/candidates/{pair_id}/accept")
-async def accept_candidate(
+def accept_candidate(
     pair_id: str,
     body: ERCandidateAcceptRequest | None = None,
 ) -> dict[str, Any]:
@@ -178,7 +178,7 @@ async def accept_candidate(
 
 
 @router.post("/candidates/{pair_id}/reject")
-async def reject_candidate(pair_id: str) -> dict[str, Any]:
+def reject_candidate(pair_id: str) -> dict[str, Any]:
     """Reject a merge candidate by ``pair_id``.
 
     Soft-marks the ``similarTo`` edge with ``rejected_at`` so it does
@@ -194,7 +194,7 @@ async def reject_candidate(pair_id: str) -> dict[str, Any]:
 
 
 @router.get("/candidates/{pair_id}/explain")
-async def explain_candidate(pair_id: str) -> dict[str, Any]:
+def explain_candidate(pair_id: str) -> dict[str, Any]:
     """Field-by-field similarity breakdown for a candidate ``pair_id``.
 
     Convenience wrapper -- equivalent to looking up the pair's source
@@ -207,7 +207,7 @@ async def explain_candidate(pair_id: str) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/clusters")
-async def list_clusters(run_id: str) -> dict[str, Any]:
+def list_clusters(run_id: str) -> dict[str, Any]:
     """List entity clusters from WCC analysis."""
     run = er_svc.get_run_status(run_id)
     if run is None:
@@ -222,13 +222,13 @@ async def list_clusters(run_id: str) -> dict[str, Any]:
 
 
 @router.post("/explain")
-async def explain_match(body: ERExplainRequest) -> dict[str, Any]:
+def explain_match(body: ERExplainRequest) -> dict[str, Any]:
     """Return detailed field-by-field similarity breakdown for a pair."""
     return er_svc.explain_match(key1=body.key1, key2=body.key2)
 
 
 @router.post("/merge")
-async def execute_merge(body: ERMergeRequest) -> dict[str, Any]:
+def execute_merge(body: ERMergeRequest) -> dict[str, Any]:
     """Execute merge for a candidate pair."""
     try:
         return er_svc.execute_merge(
@@ -241,7 +241,7 @@ async def execute_merge(body: ERMergeRequest) -> dict[str, Any]:
 
 
 @router.post("/cross-tier")
-async def cross_tier_candidates(body: ERCrossTierRequest) -> dict[str, Any]:
+def cross_tier_candidates(body: ERCrossTierRequest) -> dict[str, Any]:
     """Find cross-tier duplicate candidates between local and domain ontologies."""
     candidates = er_svc.get_cross_tier_candidates(
         local_ontology_id=body.local_ontology_id,
@@ -252,14 +252,14 @@ async def cross_tier_candidates(body: ERCrossTierRequest) -> dict[str, Any]:
 
 
 @router.get("/config")
-async def get_er_config() -> dict[str, Any]:
+def get_er_config() -> dict[str, Any]:
     """Get current ER pipeline configuration."""
     config = er_svc.get_config()
     return config.to_dict()
 
 
 @router.put("/config")
-async def update_er_config(body: ERConfigUpdate) -> dict[str, Any]:
+def update_er_config(body: ERConfigUpdate) -> dict[str, Any]:
     """Update ER pipeline configuration."""
     current = er_svc.get_config()
     update_data = current.to_dict()

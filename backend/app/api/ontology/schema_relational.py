@@ -36,7 +36,7 @@ _NOT_INSTALLED_HINT = (
 
 
 @router.post("/schema/relational/tables")
-async def preview_relational_tables(
+def preview_relational_tables(
     config: RelationalSchemaExtractionConfig,
 ) -> dict[str, Any]:
     """Preview a relational source's tables / columns / foreign keys.
@@ -65,7 +65,7 @@ async def preview_relational_tables(
 
 
 @router.post("/schema/relational/extract")
-async def trigger_relational_extraction(
+def trigger_relational_extraction(
     config: RelationalSchemaExtractionConfig,
 ) -> dict[str, Any]:
     """Extract an ontology from a relational database and import it into AOE.

@@ -63,7 +63,7 @@ async def quality_for_ontology(ontology_id: str) -> dict[str, Any]:
 
 
 @router.get("/{ontology_id}/history")
-async def quality_history_for_ontology(
+def quality_history_for_ontology(
     ontology_id: str,
     limit: int = 50,
 ) -> dict[str, Any]:
@@ -77,7 +77,7 @@ async def quality_history_for_ontology(
 
 
 @router.get("/{ontology_id}/evaluation")
-async def qualitative_evaluation(ontology_id: str) -> dict[str, Any]:
+def qualitative_evaluation(ontology_id: str) -> dict[str, Any]:
     """Return the qualitative evaluation (strengths/weaknesses) for an ontology."""
     try:
         db = get_db()
@@ -89,7 +89,7 @@ async def qualitative_evaluation(ontology_id: str) -> dict[str, Any]:
 
 
 @router.get("/{ontology_id}/revisions")
-async def revisions_metrics(
+def revisions_metrics(
     ontology_id: str,
     recent_limit: int = 20,
 ) -> dict[str, Any]:
@@ -109,7 +109,7 @@ async def revisions_metrics(
 
 
 @router.get("/{ontology_id}/class-scores")
-async def class_scores(ontology_id: str) -> dict[str, Any]:
+def class_scores(ontology_id: str) -> dict[str, Any]:
     """Return per-class faithfulness and semantic validity scores for distribution charts."""
     try:
         db = get_db()
@@ -160,7 +160,7 @@ class RecallRequest(BaseModel):
 
 
 @router.post("/recall")
-async def quality_recall(body: RecallRequest) -> dict[str, Any]:
+def quality_recall(body: RecallRequest) -> dict[str, Any]:
     """Q.4 — compute recall (and precision / F1) of an extracted ontology
     against a user-supplied gold-standard OWL/TTL document.
 

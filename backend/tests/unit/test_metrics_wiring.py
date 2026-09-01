@@ -67,7 +67,7 @@ class TestDBConnectionErrorMetric:
             mock_db.version.side_effect = RuntimeError("kaboom")
             mock_get_db.return_value = mock_db
 
-            result = await ready()
+            result = ready()
 
         after = _counter_value(DB_CONNECTION_ERRORS, reason="unknown")
         assert result["status"] == "not_ready"
@@ -87,7 +87,7 @@ class TestDBConnectionErrorMetric:
             mock_db.version.return_value = {"server": "arango", "version": "3.12"}
             mock_get_db.return_value = mock_db
 
-            result = await ready()
+            result = ready()
 
         after = sum(
             _counter_value(DB_CONNECTION_ERRORS, reason=r) for r in ("timeout", "auth", "unknown")

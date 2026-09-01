@@ -10,11 +10,18 @@ router = APIRouter(tags=["system"])
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
+    """Liveness probe.
+
+    Deliberately ``async`` with no I/O: it answers straight off the
+    event loop, so it can never queue behind the worker threads that
+    serve the blocking database handlers. ``/ready`` (which does hit
+    Arango) stays synchronous so it runs in the threadpool.
+    """
     return {"status": "ok"}
 
 
 @router.get("/ready")
-async def ready() -> dict[str, Any]:
+def ready() -> dict[str, Any]:
     """Readiness probe -- checks ArangoDB connectivity.
 
     Stream 7 PR 3 -- E.2: every failure here increments

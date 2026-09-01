@@ -34,7 +34,7 @@ class TestConsolidateOntologyEndpoint:
     @pytest.mark.asyncio
     async def test_passes_through_query_params_to_service(self):
         with patch("app.api.admin.run_consolidation", return_value=_report()) as mock_run:
-            result = await consolidate_ontology(
+            result = consolidate_ontology(
                 ontology_id="onto_1",
                 dry_run=True,
                 job_key="my_key",
@@ -59,7 +59,7 @@ class TestConsolidateOntologyEndpoint:
             ),
             pytest.raises(HTTPException) as exc_info,
         ):
-            await consolidate_ontology(ontology_id="onto_1")
+            consolidate_ontology(ontology_id="onto_1")
         assert exc_info.value.status_code == 500
 
     @pytest.mark.asyncio
@@ -68,7 +68,7 @@ class TestConsolidateOntologyEndpoint:
         # unwrap; here we pass dry_run=False explicitly to verify the
         # service receives a literal False.
         with patch("app.api.admin.run_consolidation", return_value=_report()) as mock_run:
-            await consolidate_ontology(ontology_id="onto_1", dry_run=False)
+            consolidate_ontology(ontology_id="onto_1", dry_run=False)
         assert mock_run.call_args.kwargs["dry_run"] is False
 
 
@@ -79,7 +79,7 @@ class TestListConsolidationJobsEndpoint:
             "app.api.admin.list_recent_jobs",
             return_value=[{"_key": "job_1"}],
         ) as mock_list:
-            result = await list_consolidation_jobs(ontology_id="onto_1", limit=5)
+            result = list_consolidation_jobs(ontology_id="onto_1", limit=5)
         kwargs = mock_list.call_args.kwargs
         assert kwargs["ontology_id"] == "onto_1"
         assert kwargs["limit"] == 5
@@ -92,7 +92,7 @@ class TestListConsolidationJobsEndpoint:
             "app.api.admin.list_recent_jobs",
             return_value=[],
         ) as mock_list:
-            result = await list_consolidation_jobs(ontology_id=None, limit=25)
+            result = list_consolidation_jobs(ontology_id=None, limit=25)
         kwargs = mock_list.call_args.kwargs
         assert kwargs["ontology_id"] is None
         assert result["data"] == []
@@ -105,7 +105,7 @@ class TestGetConsolidationJobEndpoint:
             patch("app.api.admin.load_cursor", return_value=None),
             pytest.raises(HTTPException) as exc_info,
         ):
-            await get_consolidation_job("missing")
+            get_consolidation_job("missing")
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -118,7 +118,7 @@ class TestGetConsolidationJobEndpoint:
             status="completed",
         )
         with patch("app.api.admin.load_cursor", return_value=cursor):
-            doc = await get_consolidation_job("job_1")
+            doc = get_consolidation_job("job_1")
         assert doc["_key"] == "job_1"
         assert doc["status"] == "completed"
         assert doc["processed_count"] == 5
@@ -128,7 +128,7 @@ class TestCircuitBreakerStateEndpoint:
     @pytest.mark.asyncio
     async def test_returns_default_limiter_snapshot(self):
         revision_safety.reset_default_limiter()
-        snap = await get_circuit_breaker_state()
+        snap = get_circuit_breaker_state()
         assert "max_per_window" in snap
         assert "window_seconds" in snap
         assert "tripped" in snap

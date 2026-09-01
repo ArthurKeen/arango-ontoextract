@@ -81,7 +81,7 @@ class ResolveRequest(BaseModel):
 
 
 @router.get("/lexicon/collisions")
-async def list_collisions(
+def list_collisions(
     status: str | None = Query("open", description="open | resolved | dismissed; omit for all."),
     scope: str | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
@@ -95,7 +95,7 @@ async def list_collisions(
 
 
 @router.post("/lexicon/collisions/detect")
-async def detect_collisions(body: DetectRequest) -> dict[str, Any]:
+def detect_collisions(body: DetectRequest) -> dict[str, Any]:
     """Detect colliding labels across the given AOE ontologies."""
     return label_collisions.detect_in_ontologies(
         _shared.get_db(),
@@ -106,7 +106,7 @@ async def detect_collisions(body: DetectRequest) -> dict[str, Any]:
 
 
 @router.post("/lexicon/collisions/ingest")
-async def ingest_collisions(body: IngestRequest) -> dict[str, Any]:
+def ingest_collisions(body: IngestRequest) -> dict[str, Any]:
     """Accept a collision report from an external producer."""
     return label_collisions.ingest_report(
         _shared.get_db(),
@@ -117,21 +117,21 @@ async def ingest_collisions(body: IngestRequest) -> dict[str, Any]:
 
 
 @router.get("/lexicon/decisions")
-async def list_decisions(ontology_id: str | None = Query(None)) -> dict[str, Any]:
+def list_decisions(ontology_id: str | None = Query(None)) -> dict[str, Any]:
     """Live curated labels, as ``{concept_uri: decision}``."""
     decisions = lexicon_repo.live_decisions_by_uri(_shared.get_db(), ontology_id=ontology_id)
     return {"data": decisions, "count": len(decisions)}
 
 
 @router.get("/lexicon/decisions/history")
-async def decision_history(concept_uri: str = Query(...)) -> dict[str, Any]:
+def decision_history(concept_uri: str = Query(...)) -> dict[str, Any]:
     """Every decision recorded for one concept, newest first."""
     rows = lexicon_repo.decision_history(_shared.get_db(), concept_uri=concept_uri)
     return {"concept_uri": concept_uri, "data": rows, "count": len(rows)}
 
 
 @router.get("/lexicon/collisions/{collision_key}")
-async def get_collision(collision_key: str) -> dict[str, Any]:
+def get_collision(collision_key: str) -> dict[str, Any]:
     doc = lexicon_repo.get_collision(_shared.get_db(), key=collision_key)
     if doc is None:
         raise HTTPException(status_code=404, detail=f"collision '{collision_key}' not found")
@@ -139,7 +139,7 @@ async def get_collision(collision_key: str) -> dict[str, Any]:
 
 
 @router.post("/lexicon/collisions/{collision_key}/resolve")
-async def resolve_collision(collision_key: str, body: ResolveRequest) -> dict[str, Any]:
+def resolve_collision(collision_key: str, body: ResolveRequest) -> dict[str, Any]:
     """Record the curator's decision and close the queue item."""
     try:
         return label_collisions.resolve_collision(

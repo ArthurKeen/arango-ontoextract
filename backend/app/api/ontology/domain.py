@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/domain")
-async def get_domain_ontology(
+def get_domain_ontology(
     offset: int = Query(0, ge=0, description="Number of classes to skip"),
     limit: int = Query(100, ge=1, le=500, description="Max classes to return"),
 ) -> dict[str, Any]:
@@ -92,7 +92,7 @@ async def get_domain_ontology(
 
 
 @router.get("/domain/classes")
-async def list_domain_classes(
+def list_domain_classes(
     offset: int = Query(0, ge=0, description="Number of classes to skip"),
     limit: int = Query(100, ge=1, le=500, description="Max classes to return"),
     label: str | None = Query(None, description="Partial match on class label (case-insensitive)"),
@@ -182,7 +182,7 @@ async def list_domain_classes(
 
 
 @router.get("/local/{org_id}")
-async def get_local_ontology(
+def get_local_ontology(
     org_id: str,
     offset: int = Query(0, ge=0, description="Number of classes to skip"),
     limit: int = Query(100, ge=1, le=500, description="Max classes to return"),
@@ -291,7 +291,7 @@ async def get_local_ontology(
 
 
 @router.get("/staging/{run_id}")
-async def get_staging(run_id: str) -> dict[str, Any]:
+def get_staging(run_id: str) -> dict[str, Any]:
     """Get the staging graph for curation.
 
     Resolves the ontology_id from the extraction run, then returns all
@@ -385,7 +385,7 @@ async def get_staging(run_id: str) -> dict[str, Any]:
 
 
 @router.post("/staging/{run_id}/promote")
-async def promote_staging(
+def promote_staging(
     run_id: str,
     ontology_id: str | None = Query(
         None,

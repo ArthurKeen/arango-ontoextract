@@ -66,7 +66,7 @@ class TestResetEndpoints:
         ):
             from app.api.admin import reset_ontology_data
 
-            result = await reset_ontology_data()
+            result = reset_ontology_data()
 
         assert result["reset"] is True
         assert len(result["collections_truncated"]) > 0
@@ -87,7 +87,7 @@ class TestResetEndpoints:
         ):
             from app.api.admin import reset_all_data
 
-            result = await reset_all_data()
+            result = reset_all_data()
 
         assert result["reset"] is True
         assert "documents" in result["collections_truncated"]
@@ -104,7 +104,7 @@ class TestResetEndpoints:
         ):
             from app.api.admin import reset_ontology_data
 
-            result = await reset_ontology_data()
+            result = reset_ontology_data()
 
         assert result["reset"] is True
         assert result["collections_truncated"] == []
@@ -147,7 +147,7 @@ class TestFeedbackLearningArtifacts:
         ):
             from app.api.admin import feedback_learning_artifacts
 
-            result = await feedback_learning_artifacts(ontology_id="onto_1", limit=25)
+            result = feedback_learning_artifacts(ontology_id="onto_1", limit=25)
 
         assert result == payload
         mock_build.assert_called_once_with(
@@ -168,7 +168,7 @@ class TestFeedbackLearningArtifacts:
             from app.api.admin import feedback_learning_artifacts
 
             with pytest.raises(HTTPException) as exc:
-                await feedback_learning_artifacts(ontology_id=None, limit=100)
+                feedback_learning_artifacts(ontology_id=None, limit=100)
 
         assert exc.value.status_code == 500
 
@@ -277,7 +277,7 @@ class TestOntologyReflectionReport:
         ):
             from app.api.admin import ontology_reflection_report
 
-            result = await ontology_reflection_report(
+            result = ontology_reflection_report(
                 ontology_id="wtw",
                 half_life_days=None,
                 floor=None,
@@ -311,7 +311,7 @@ class TestOntologyReflectionReport:
         ):
             from app.api.admin import ontology_reflection_report
 
-            result = await ontology_reflection_report(
+            result = ontology_reflection_report(
                 ontology_id="wtw",
                 half_life_days=None,
                 floor=None,
@@ -349,7 +349,7 @@ class TestOntologyReflectionReport:
         ):
             from app.api.admin import ontology_reflection_report
 
-            await ontology_reflection_report(
+            ontology_reflection_report(
                 ontology_id="wtw",
                 half_life_days=30.0,
                 floor=0.10,
@@ -386,7 +386,7 @@ class TestOntologyReflectionReport:
         ):
             from app.api.admin import ontology_reflection_report
 
-            result = await ontology_reflection_report(
+            result = ontology_reflection_report(
                 ontology_id="wtw",
                 half_life_days=None,
                 floor=None,
@@ -413,7 +413,7 @@ class TestOntologyReflectionReport:
             from app.api.admin import ontology_reflection_report
 
             with pytest.raises(HTTPException) as exc:
-                await ontology_reflection_report(
+                ontology_reflection_report(
                     ontology_id="wtw",
                     half_life_days=None,
                     floor=None,

@@ -51,7 +51,7 @@ def _require_ontology(ontology_id: str) -> None:
 
 
 @router.get("/{ontology_id}/requirements")
-async def get_requirements(ontology_id: str) -> dict[str, Any]:
+def get_requirements(ontology_id: str) -> dict[str, Any]:
     spec = requirements_repo.get_requirements(_shared.get_db(), ontology_id)
     if spec is None:
         raise HTTPException(
@@ -61,7 +61,7 @@ async def get_requirements(ontology_id: str) -> dict[str, Any]:
 
 
 @router.put("/{ontology_id}/requirements")
-async def put_requirements(ontology_id: str, body: RequirementsSpec) -> dict[str, Any]:
+def put_requirements(ontology_id: str, body: RequirementsSpec) -> dict[str, Any]:
     """Create or replace the requirements spec for an ontology."""
     _require_ontology(ontology_id)
     return requirements_repo.upsert_requirements(_shared.get_db(), ontology_id, body.model_dump())
@@ -109,14 +109,14 @@ async def suggest_requirements(ontology_id: str, body: SuggestCQRequest) -> dict
 
 
 @router.post("/{ontology_id}/requirements/lint")
-async def lint_requirement(ontology_id: str, body: LintCQRequest) -> dict[str, Any]:
+def lint_requirement(ontology_id: str, body: LintCQRequest) -> dict[str, Any]:
     """Return VSPO-style pitfalls for one competency question (deterministic)."""
     pitfalls = cq_suggest.lint_cq(body.text)
     return {"text": body.text, "pitfalls": pitfalls, "count": len(pitfalls)}
 
 
 @router.post("/{ontology_id}/coverage")
-async def run_coverage(
+def run_coverage(
     ontology_id: str,
     persist_gaps: bool = Query(False),
     gate: bool = Query(False),
@@ -143,7 +143,7 @@ async def run_coverage(
 
 
 @router.get("/{ontology_id}/coverage/gaps")
-async def list_coverage_gaps(
+def list_coverage_gaps(
     ontology_id: str,
     status: str | None = Query("open", pattern="^(open|resolved)$"),
 ) -> dict[str, Any]:
@@ -153,7 +153,7 @@ async def list_coverage_gaps(
 
 
 @router.delete("/{ontology_id}/requirements")
-async def delete_requirements(ontology_id: str) -> dict[str, Any]:
+def delete_requirements(ontology_id: str) -> dict[str, Any]:
     removed = requirements_repo.delete_requirements(_shared.get_db(), ontology_id)
     if not removed:
         raise HTTPException(

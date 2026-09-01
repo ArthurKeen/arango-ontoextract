@@ -21,7 +21,7 @@ router = APIRouter()
 
 
 @router.get("/{ontology_id}/imports")
-async def list_ontology_imports(ontology_id: str) -> dict[str, Any]:
+def list_ontology_imports(ontology_id: str) -> dict[str, Any]:
     """List all ontologies imported by this ontology."""
     db = _shared.get_db()
     entry = _shared.registry_repo.get_registry_entry(ontology_id, db=db)
@@ -59,7 +59,7 @@ async def list_ontology_imports(ontology_id: str) -> dict[str, Any]:
 
 
 @router.get("/{ontology_id}/effective")
-async def get_effective_ontology(
+def get_effective_ontology(
     ontology_id: str,
     request: Request,
     include: str = Query(
@@ -188,7 +188,7 @@ def _etag_matches(client_value: str, server_value: str) -> bool:
 
 
 @router.get("/library/{ontology_id}/deletion-impact")
-async def get_ontology_deletion_impact(ontology_id: str) -> dict[str, Any]:
+def get_ontology_deletion_impact(ontology_id: str) -> dict[str, Any]:
     """Return the cascade-on-delete dependency analysis (Stream 1 H.4).
 
     Read-only, idempotent. The frontend ``OntologyDeleteDialog`` calls
@@ -217,7 +217,7 @@ async def get_ontology_deletion_impact(ontology_id: str) -> dict[str, Any]:
 
 
 @router.get("/{ontology_id}/imported-by")
-async def list_ontology_dependents(ontology_id: str) -> dict[str, Any]:
+def list_ontology_dependents(ontology_id: str) -> dict[str, Any]:
     """List all ontologies that import this ontology."""
     db = _shared.get_db()
     entry = _shared.registry_repo.get_registry_entry(ontology_id, db=db)
@@ -257,7 +257,7 @@ class AddImportRequest(BaseModel):
 
 
 @router.post("/{ontology_id}/imports", status_code=201)
-async def add_ontology_import(ontology_id: str, body: AddImportRequest) -> dict[str, Any]:
+def add_ontology_import(ontology_id: str, body: AddImportRequest) -> dict[str, Any]:
     """Add an import edge from one ontology to another."""
     db = _shared.get_db()
     entry = _shared.registry_repo.get_registry_entry(ontology_id, db=db)
@@ -325,7 +325,7 @@ async def add_ontology_import(ontology_id: str, body: AddImportRequest) -> dict[
 
 
 @router.delete("/{ontology_id}/imports/{target_ontology_id}")
-async def remove_ontology_import(ontology_id: str, target_ontology_id: str) -> dict[str, Any]:
+def remove_ontology_import(ontology_id: str, target_ontology_id: str) -> dict[str, Any]:
     """Remove an import edge (soft-delete via temporal expiry)."""
     db = _shared.get_db()
 
@@ -357,7 +357,7 @@ async def remove_ontology_import(ontology_id: str, target_ontology_id: str) -> d
 
 
 @router.get("/catalog")
-async def list_standard_ontology_catalog() -> dict[str, Any]:
+def list_standard_ontology_catalog() -> dict[str, Any]:
     """Return the bundled standard ontology catalog (Stream 1 H.5).
 
     The catalog is the curated list of well-known ontologies the user
@@ -384,7 +384,7 @@ class CatalogImportRequest(BaseModel):
 
 
 @router.post("/catalog/{catalog_id}/import", status_code=201)
-async def import_from_catalog(
+def import_from_catalog(
     catalog_id: str,
     body: CatalogImportRequest | None = None,
 ) -> dict[str, Any]:
@@ -424,7 +424,7 @@ async def import_from_catalog(
 
 
 @router.get("/imports-graph")
-async def get_imports_graph(
+def get_imports_graph(
     root: str | None = Query(
         None,
         description=(

@@ -91,7 +91,7 @@ def _require_reset_enabled() -> None:
 
 
 @router.post("/reset")
-async def reset_ontology_data() -> dict[str, Any]:
+def reset_ontology_data() -> dict[str, Any]:
     """Purge extracted ontology data while keeping documents and chunks."""
     _require_reset_enabled()
     db = get_db()
@@ -106,7 +106,7 @@ async def reset_ontology_data() -> dict[str, Any]:
 
 
 @router.post("/reset/full")
-async def reset_all_data() -> dict[str, Any]:
+def reset_all_data() -> dict[str, Any]:
     """Full purge including documents and chunks."""
     _require_reset_enabled()
     db = get_db()
@@ -121,7 +121,7 @@ async def reset_all_data() -> dict[str, Any]:
 
 
 @router.post("/ontology/{ontology_id}/repair-edges")
-async def repair_ontology_edges(
+def repair_ontology_edges(
     ontology_id: str,
     dry_run: bool = Query(
         default=False,
@@ -159,7 +159,7 @@ async def repair_ontology_edges(
 
 
 @router.post("/ontology/{ontology_id}/dedupe-edges")
-async def dedupe_ontology_edges(
+def dedupe_ontology_edges(
     ontology_id: str,
     collection: str = Query(
         default="rdfs_domain",
@@ -223,7 +223,7 @@ async def dedupe_ontology_edges(
 
 
 @router.get("/ontology/{ontology_id}/reflection-report")
-async def ontology_reflection_report(
+def ontology_reflection_report(
     ontology_id: str,
     half_life_days: float | None = Query(
         default=None,
@@ -309,7 +309,7 @@ async def ontology_reflection_report(
 
 
 @router.get("/feedback-learning")
-async def feedback_learning_artifacts(
+def feedback_learning_artifacts(
     ontology_id: str | None = Query(
         default=None,
         description="Optional ontology ID used to scope curation feedback.",
@@ -340,7 +340,7 @@ async def feedback_learning_artifacts(
 
 
 @router.post("/ontology/{ontology_id}/consolidate")
-async def consolidate_ontology(
+def consolidate_ontology(
     ontology_id: str,
     dry_run: bool = Query(
         default=False,
@@ -401,7 +401,7 @@ async def consolidate_ontology(
 
 
 @router.get("/consolidation-jobs")
-async def list_consolidation_jobs(
+def list_consolidation_jobs(
     ontology_id: str | None = Query(
         default=None,
         description="Optional ontology filter; omit for global recent runs.",
@@ -424,7 +424,7 @@ async def list_consolidation_jobs(
 
 
 @router.get("/consolidation-jobs/{job_key}")
-async def get_consolidation_job(job_key: str) -> dict[str, Any]:
+def get_consolidation_job(job_key: str) -> dict[str, Any]:
     """Fetch one consolidation job's checkpointed state by ``job_key``."""
     cursor = load_cursor(job_key)
     if cursor is None:
@@ -433,7 +433,7 @@ async def get_consolidation_job(job_key: str) -> dict[str, Any]:
 
 
 @router.get("/belief-revision/circuit-breaker")
-async def get_circuit_breaker_state() -> dict[str, Any]:
+def get_circuit_breaker_state() -> dict[str, Any]:
     """Return a snapshot of the LLM-revision-agent circuit-breaker state.
 
     Powers the dashboard tile that warns operators when the breaker

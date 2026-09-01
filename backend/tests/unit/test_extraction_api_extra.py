@@ -81,7 +81,7 @@ class TestExtractionRoutes:
                 return_value={"_key": "r1", "status": "queued"},
             ) as mock_create,
         ):
-            result = await start_extraction(body, background_tasks)
+            result = start_extraction(body, background_tasks)
         mock_create.assert_called_once()
         assert result.run_id == "r1"
         assert result.doc_id == "d1"
@@ -140,7 +140,7 @@ class TestExtractionRoutes:
                 ],
             ),
         ):
-            result = await list_runs(limit=10)
+            result = list_runs(limit=10)
         run = result["data"][0]
         assert run["document_name"] == "doc.md"
         assert run["chunk_count"] == 4
@@ -202,7 +202,7 @@ class TestExtractionRoutes:
             patch("app.api.extraction.doc_get", return_value=None),
             patch("app.api.extraction.run_aql", side_effect=capture_aql),
         ):
-            result = await list_runs(limit=10)
+            result = list_runs(limit=10)
 
         run = result["data"][0]
         # Per-run stats never overwritten by a "live count" query.
@@ -279,7 +279,7 @@ class TestExtractionRoutes:
             patch("app.api.extraction.doc_get") as mock_doc_get,
             patch("app.api.extraction.run_aql", side_effect=capture_aql),
         ):
-            result = await list_runs(limit=25)
+            result = list_runs(limit=25)
 
         # The invariant.
         assert len(captured_queries) == 2, (
@@ -330,7 +330,7 @@ class TestExtractionRoutes:
             # skipped). Empty cursor -- no registry row exists yet.
             patch("app.api.extraction.run_aql", side_effect=[iter([])]),
         ):
-            result = await list_runs(limit=10)
+            result = list_runs(limit=10)
         assert result["data"][0]["ontology_id"] == "target-onto"
 
     @pytest.mark.asyncio
@@ -340,7 +340,7 @@ class TestExtractionRoutes:
             patch("app.api.extraction.get_db", return_value=MagicMock()),
             patch("app.api.extraction.extraction_service.get_run", return_value=expected),
         ):
-            result = await get_run("r1")
+            result = get_run("r1")
         assert result is expected
 
     @pytest.mark.asyncio
@@ -351,7 +351,7 @@ class TestExtractionRoutes:
         db.collection.return_value = col
         col.has.side_effect = lambda key: True
         with patch("app.api.extraction.get_db", return_value=db):
-            result = await delete_run("r1")
+            result = delete_run("r1")
         assert result == {"deleted": True, "run_id": "r1"}
         assert col.delete.call_count == 2
 
@@ -366,7 +366,7 @@ class TestExtractionRoutes:
             patch("app.api.extraction.get_db", return_value=db),
             pytest.raises(HTTPException) as exc,
         ):
-            await delete_run("r1")
+            delete_run("r1")
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -388,10 +388,10 @@ class TestExtractionRoutes:
             ),
             patch("app.api.extraction.extraction_service.get_run_cost", return_value={"usd": 1.23}),
         ):
-            steps = await get_run_steps("r1")
-            results = await get_run_results("r1")
+            steps = get_run_steps("r1")
+            results = get_run_results("r1")
             retry = await retry_run("r1")
-            cost = await get_run_cost("r1")
+            cost = get_run_cost("r1")
         assert steps == {"run_id": "r1", "steps": [{"step": "extractor"}]}
         assert results == {"classes": []}
         assert retry.new_run_id == "r2"
@@ -407,8 +407,8 @@ class TestExtractionRoutes:
             patch("app.api.extraction.get_db", return_value=db),
             patch("app.api.extraction.extraction_service.get_run_cost", mock_cost),
         ):
-            cached = await get_run_cost("r1")
-            refreshed = await get_run_cost("r1", refresh=True)
+            cached = get_run_cost("r1")
+            refreshed = get_run_cost("r1", refresh=True)
 
         assert cached == {"quality_from_cache": False}
         assert refreshed == {"quality_from_cache": False}

@@ -21,7 +21,7 @@ full end-to-end integration test lives under
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -345,6 +345,9 @@ class TestStartExtractionPassesBaseOntologyIds:
             patch("app.api.extraction._resolve_doc_ids", return_value=["doc-1"]),
         ):
             mock_get_db.return_value = MagicMock()
+            # execute_run is dispatched through run_coroutine_in_thread,
+            # which asyncio.run()s it -- so it must return a coroutine.
+            mock_service.execute_run = AsyncMock()
             mock_service.create_run_record.return_value = {
                 "_key": "run-42",
                 "status": "running",

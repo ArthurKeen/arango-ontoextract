@@ -206,7 +206,7 @@ async def upload_document(
 
 
 @router.get("")
-async def list_documents(
+def list_documents(
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
     sort: str = Query(default="upload_date"),
@@ -231,14 +231,14 @@ async def list_documents(
 
 
 @router.get("/{doc_id}")
-async def get_document(doc_id: str) -> dict[str, Any]:
+def get_document(doc_id: str) -> dict[str, Any]:
     """Get document metadata and processing status."""
     doc = get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
     return _to_doc_response(doc)
 
 
 @router.get("/{doc_id}/chunks")
-async def get_chunks(
+def get_chunks(
     doc_id: str,
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
@@ -292,7 +292,7 @@ async def update_document(
 
 
 @router.get("/{doc_id}/ontologies")
-async def get_document_ontologies(doc_id: str) -> dict[str, Any]:
+def get_document_ontologies(doc_id: str) -> dict[str, Any]:
     """List ontologies extracted from a document (via ``extracted_from`` edges)."""
     get_or_404(documents_repo.get_document(doc_id), "Document", doc_id)
 
@@ -318,7 +318,7 @@ async def get_document_ontologies(doc_id: str) -> dict[str, Any]:
 
 
 @router.delete("/{doc_id}")
-async def delete_document(
+def delete_document(
     doc_id: str,
     confirm: bool = Query(default=False, description="Set to true to actually delete"),
 ) -> dict[str, Any]:

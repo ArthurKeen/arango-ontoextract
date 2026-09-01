@@ -50,10 +50,10 @@ class TestHealthRoutes:
         with patch("app.api.health.get_db") as mock_get_db:
             mock_get_db.return_value.version.return_value = "3.12"
             healthy = await health()
-            ready_result = await ready()
+            ready_result = ready()
 
         with patch("app.api.health.get_db", side_effect=RuntimeError("db down")):
-            not_ready = await ready()
+            not_ready = ready()
 
         assert healthy == {"status": "ok"}
         assert ready_result == {"status": "ready", "database": "connected"}
@@ -72,12 +72,12 @@ class TestNotificationRoutes:
             ),
             patch("app.api.notifications.notif_svc.get_unread_count", return_value=3),
         ):
-            listing = await list_notifications(limit=5, cursor=None, user=user)
-            marked = await mark_notification_read("n1", user=user)
-            unread = await get_unread_count(user=user)
+            listing = list_notifications(limit=5, cursor=None, user=user)
+            marked = mark_notification_read("n1", user=user)
+            unread = get_unread_count(user=user)
 
             with pytest.raises(NotFoundError):
-                await mark_notification_read("missing", user=user)
+                mark_notification_read("missing", user=user)
 
         assert listing == {"data": []}
         assert marked == {"_key": "n1"}
@@ -113,17 +113,17 @@ class TestERRoutes:
             patch("app.api.er.er_svc.get_config", return_value=config),
             patch("app.api.er.er_svc.update_config", return_value=updated),
         ):
-            run_result = await trigger_er_run(ERRunRequest(ontology_id="onto1", config={"x": 1}))
-            status = await get_er_run_status("er1")
-            candidates = await list_candidates("er1", min_score=0.5, limit=10, offset=0)
-            clusters = await list_clusters("er1")
-            explanation = await explain_match(ERExplainRequest(key1="a", key2="b"))
-            merged = await execute_merge(ERMergeRequest(source_key="a", target_key="b"))
-            cross_tier = await cross_tier_candidates(
+            run_result = trigger_er_run(ERRunRequest(ontology_id="onto1", config={"x": 1}))
+            status = get_er_run_status("er1")
+            candidates = list_candidates("er1", min_score=0.5, limit=10, offset=0)
+            clusters = list_clusters("er1")
+            explanation = explain_match(ERExplainRequest(key1="a", key2="b"))
+            merged = execute_merge(ERMergeRequest(source_key="a", target_key="b"))
+            cross_tier = cross_tier_candidates(
                 ERCrossTierRequest(local_ontology_id="l1", domain_ontology_id="d1", min_score=0.7)
             )
-            current_config = await get_er_config()
-            new_config = await update_er_config(ERConfigUpdate(similarity_threshold=0.9))
+            current_config = get_er_config()
+            new_config = update_er_config(ERConfigUpdate(similarity_threshold=0.9))
 
         assert run_result["run_id"] == "er1"
         assert status["candidate_count"] == 4
@@ -143,11 +143,11 @@ class TestERRoutes:
             patch("app.api.er.er_svc.execute_merge", side_effect=ValueError("missing")),
         ):
             with pytest.raises(HTTPException) as exc:
-                await get_er_run_status("missing")
-            empty_candidates = await list_candidates("er1")
-            empty_clusters = await list_clusters("er1")
+                get_er_run_status("missing")
+            empty_candidates = list_candidates("er1")
+            empty_clusters = list_clusters("er1")
             with pytest.raises(HTTPException) as merge_exc:
-                await execute_merge(ERMergeRequest(source_key="a", target_key="b"))
+                execute_merge(ERMergeRequest(source_key="a", target_key="b"))
 
         assert exc.value.status_code == 404
         assert empty_candidates == {"data": [], "total_count": 0}
@@ -196,7 +196,7 @@ class TestAuthRouteHelpers:
 
     @pytest.mark.asyncio
     async def test_login_returns_validation_error_or_token(self):
-        invalid = await login(LoginRequest(email=" ", password=" "))
-        valid = await login(LoginRequest(email="user@example.com", password="secret"))
+        invalid = login(LoginRequest(email=" ", password=" "))
+        valid = login(LoginRequest(email="user@example.com", password="secret"))
         assert invalid.status_code == 422
         assert isinstance(valid, LoginResponse)

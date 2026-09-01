@@ -16,6 +16,7 @@ from app.models.ontology import (
     UpdateConstraintRequest,
 )
 from app.services import ontology_context as ctx_svc
+from app.services.background import run_coroutine_in_thread
 from app.services.ontology_effective import DEFAULT_MAX_DEPTH as EFFECTIVE_MAX_DEPTH
 
 log = logging.getLogger(__name__)
@@ -211,7 +212,7 @@ def _batch_imported_class_counts(
 
 
 @router.get("/library")
-async def list_ontology_library(
+def list_ontology_library(
     cursor: str | None = Query(None, description="Pagination cursor from previous response"),
     limit: int = Query(25, ge=1, le=100, description="Page size"),
     tag: str | None = Query(None, description="Filter by tag"),
@@ -292,7 +293,7 @@ _VALID_STATUS_TRANSITIONS: dict[str, set[str]] = {
 
 
 @router.put("/library/{ontology_id}")
-async def update_ontology_metadata(ontology_id: str, body: UpdateOntologyRequest) -> dict[str, Any]:
+def update_ontology_metadata(ontology_id: str, body: UpdateOntologyRequest) -> dict[str, Any]:
     """Update ontology registry metadata (J.3).
 
     Validates status transitions:
@@ -367,7 +368,7 @@ class CreateOntologyReleaseRequest(BaseModel):
 
 
 @router.post("/library/{ontology_id}/releases")
-async def create_ontology_release(
+def create_ontology_release(
     ontology_id: str,
     body: CreateOntologyReleaseRequest,
     request: Request,
@@ -404,7 +405,7 @@ async def create_ontology_release(
 
 
 @router.get("/library/{ontology_id}/releases")
-async def list_ontology_releases(
+def list_ontology_releases(
     ontology_id: str,
     limit: int = Query(50, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -416,7 +417,7 @@ async def list_ontology_releases(
 
 
 @router.delete("/library/{ontology_id}")
-async def delete_ontology(
+def delete_ontology(
     ontology_id: str,
     confirm: bool = Query(False, description="Set to true to actually delete"),
     hard_delete: bool = Query(
@@ -577,7 +578,7 @@ async def delete_ontology(
 
 
 @router.get("/library/{ontology_id}")
-async def get_ontology_detail(ontology_id: str) -> dict[str, Any]:
+def get_ontology_detail(ontology_id: str) -> dict[str, Any]:
     """Get ontology detail including stats (class count, property count)."""
     entry = _shared.registry_repo.get_registry_entry(ontology_id)
     if entry is None:
@@ -697,7 +698,9 @@ async def add_document_to_ontology(
                 target_ontology_id=oid,
             )
 
-    background_tasks.add_task(_process_then_extract, doc["_key"], content, mime, ontology_id)
+    background_tasks.add_task(
+        run_coroutine_in_thread, _process_then_extract, doc["_key"], content, mime, ontology_id
+    )
 
     return {
         "doc_id": doc["_key"],
@@ -713,7 +716,7 @@ async def add_document_to_ontology(
 
 
 @router.get("/library/{ontology_id}/documents")
-async def list_ontology_documents(ontology_id: str) -> dict[str, Any]:
+def list_ontology_documents(ontology_id: str) -> dict[str, Any]:
     """List source documents linked to an ontology via ``extracted_from`` edges."""
     entry = _shared.registry_repo.get_registry_entry(ontology_id)
     if entry is None:
@@ -743,7 +746,7 @@ async def list_ontology_documents(ontology_id: str) -> dict[str, Any]:
 
 
 @router.get("/library/{ontology_id}/constraints")
-async def list_ontology_constraints(
+def list_ontology_constraints(
     ontology_id: str,
     constraint_type: str | None = Query(
         default=None,
@@ -892,7 +895,7 @@ def _resolve_live_constraint(ontology_id: str, constraint_key: str) -> dict[str,
 
 
 @router.post("/{ontology_id}/constraints/{constraint_key}/approve")
-async def approve_constraint_endpoint(
+def approve_constraint_endpoint(
     ontology_id: str,
     constraint_key: str,
 ) -> dict[str, Any]:
@@ -917,7 +920,7 @@ async def approve_constraint_endpoint(
 
 
 @router.post("/{ontology_id}/constraints/{constraint_key}/reject")
-async def reject_constraint_endpoint(
+def reject_constraint_endpoint(
     ontology_id: str,
     constraint_key: str,
 ) -> dict[str, Any]:
@@ -937,7 +940,7 @@ async def reject_constraint_endpoint(
 
 
 @router.put("/{ontology_id}/constraints/{constraint_key}")
-async def update_constraint_endpoint(
+def update_constraint_endpoint(
     ontology_id: str,
     constraint_key: str,
     body: UpdateConstraintRequest,
@@ -981,7 +984,7 @@ async def update_constraint_endpoint(
 
 
 @router.get("/search")
-async def search_ontology_library(
+def search_ontology_library(
     q: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(20, ge=1, le=100, description="Max results per source type"),
     offset: int = Query(0, ge=0, description="Result offset for pagination"),
@@ -1114,7 +1117,7 @@ class OrgOntologySelectionRequest(BaseModel):
 
 
 @router.put("/orgs/{org_id}/ontologies")
-async def set_org_ontologies(org_id: str, body: OrgOntologySelectionRequest) -> dict[str, Any]:
+def set_org_ontologies(org_id: str, body: OrgOntologySelectionRequest) -> dict[str, Any]:
     """Select base ontologies for an organization.
 
     Tier 2 extraction will use these ontologies as domain context.
@@ -1133,7 +1136,7 @@ async def set_org_ontologies(org_id: str, body: OrgOntologySelectionRequest) -> 
 
 
 @router.get("/orgs/{org_id}/ontologies")
-async def get_org_ontologies(org_id: str) -> dict[str, Any]:
+def get_org_ontologies(org_id: str) -> dict[str, Any]:
     """List selected base ontologies for an organization."""
     ontology_ids = ctx_svc.get_domain_ontology_for_org(org_id=org_id)
     return {"org_id": org_id, "selected_ontologies": ontology_ids}
@@ -1145,7 +1148,7 @@ async def get_org_ontologies(org_id: str) -> dict[str, Any]:
 
 
 @router.get("/graphs")
-async def list_ontology_graphs() -> dict[str, Any]:
+def list_ontology_graphs() -> dict[str, Any]:
     """List all per-ontology named graphs plus the composite graph."""
     from app.services.ontology_graphs import list_ontology_graphs as _list_graphs
 

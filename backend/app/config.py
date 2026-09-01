@@ -157,6 +157,18 @@ class Settings(BaseSettings):
     #: minute. Tune downward in production if your deployment fronts
     #: a cheaper / faster judge model.
     llm_request_timeout_seconds: float = 60.0
+    #: Size of the anyio worker threadpool that serves the *synchronous*
+    #: request handlers. Almost every route in this API is a plain ``def``
+    #: on purpose: it does blocking python-arango I/O, and an ``async def``
+    #: would run that on the event loop and stall every other request (a
+    #: single heavy call measured 5.7s of added latency on ``/health``).
+    #:
+    #: Because the work is I/O-bound against a remote cluster (~520ms per
+    #: round trip) rather than CPU-bound, threads spend their time parked
+    #: in a socket read, so the pool can be far larger than anyio's default
+    #: of 40 without contending for the GIL. 100 keeps the API responsive
+    #: at concurrency levels where the default would queue.
+    thread_pool_size: int = 100
 
     # -- Extraction --------------------------------------------------------
     extraction_passes: int = 3

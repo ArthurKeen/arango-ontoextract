@@ -33,13 +33,13 @@ class CurateIndividualRequest(BaseModel):
 
 
 @router.get("/{ontology_id}/individuals/metrics")
-async def individuals_metrics(ontology_id: str) -> dict[str, Any]:
+def individuals_metrics(ontology_id: str) -> dict[str, Any]:
     """A-box quality metrics: counts + grounding/typed rates (AB-PR6)."""
     return quality_metrics.compute_abox_metrics(_shared.get_db(), ontology_id)
 
 
 @router.post("/{ontology_id}/individuals/canonicalize")
-async def canonicalize_individuals(
+def canonicalize_individuals(
     ontology_id: str,
     min_score: float = Query(0.85, ge=0.0, le=1.0),
     auto_merge: bool = Query(False),
@@ -51,14 +51,14 @@ async def canonicalize_individuals(
 
 
 @router.post("/{ontology_id}/individuals/validate")
-async def validate_individuals(ontology_id: str) -> dict[str, Any]:
+def validate_individuals(ontology_id: str) -> dict[str, Any]:
     """Validate the A-box: flag ungrounded / dangling-type / cardinality violations (AB-PR5)."""
     report = abox_validation.validate_abox(_shared.get_db(), ontology_id)
     return report.to_dict()
 
 
 @router.get("/{ontology_id}/individuals/counts")
-async def individuals_counts_by_class(ontology_id: str) -> dict[str, Any]:
+def individuals_counts_by_class(ontology_id: str) -> dict[str, Any]:
     """Live individual count per T-box class key (FR-18.13).
 
     Lets the canvas show an "Instances (N)" affordance on each class without
@@ -69,7 +69,7 @@ async def individuals_counts_by_class(ontology_id: str) -> dict[str, Any]:
 
 
 @router.get("/{ontology_id}/instance-graph")
-async def instance_graph(
+def instance_graph(
     ontology_id: str,
     class_keys: list[str] = Query(
         default=[], description="T-box class keys to expand instances for."
@@ -91,7 +91,7 @@ async def instance_graph(
 
 
 @router.get("/{ontology_id}/individuals")
-async def list_individuals(
+def list_individuals(
     ontology_id: str,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -104,7 +104,7 @@ async def list_individuals(
 
 
 @router.get("/individuals/{individual_key}")
-async def get_individual(individual_key: str) -> dict[str, Any]:
+def get_individual(individual_key: str) -> dict[str, Any]:
     """Fetch a single individual (with provenance + history-ready fields)."""
     doc = individuals_repo.get_individual(_shared.get_db(), individual_key)
     if doc is None:
@@ -113,7 +113,7 @@ async def get_individual(individual_key: str) -> dict[str, Any]:
 
 
 @router.post("/individuals/{individual_key}/curate")
-async def curate_individual(individual_key: str, body: CurateIndividualRequest) -> dict[str, Any]:
+def curate_individual(individual_key: str, body: CurateIndividualRequest) -> dict[str, Any]:
     """Approve / reject / edit an A-box individual (FR-18.9).
 
     Reject and re-type are temporal (the prior version stays queryable as-of a

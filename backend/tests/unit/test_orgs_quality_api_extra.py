@@ -50,10 +50,10 @@ class TestOrgRoutes:
                 return_value={"_key": "o1", "display_name": "New"},
             ) as mock_update,
         ):
-            created = await create_organization(CreateOrgRequest(name="org"))
-            listing = await list_organizations(limit=5, cursor=None, sort="name", order="asc")
-            current = await get_organization("o1")
-            updated = await update_organization("o1", UpdateOrgRequest(display_name="New"))
+            created = create_organization(CreateOrgRequest(name="org"))
+            listing = list_organizations(limit=5, cursor=None, sort="name", order="asc")
+            current = get_organization("o1")
+            updated = update_organization("o1", UpdateOrgRequest(display_name="New"))
         mock_create.assert_called_once()
         mock_list.assert_called_once_with(limit=5, cursor=None, sort_field="name", sort_order="asc")
         mock_get.assert_called()
@@ -69,7 +69,7 @@ class TestOrgRoutes:
             "app.api.orgs.orgs_repo.get_organization",
             return_value={"_key": "o1", "display_name": "Org"},
         ):
-            result = await update_organization("o1", UpdateOrgRequest())
+            result = update_organization("o1", UpdateOrgRequest())
         assert result["display_name"] == "Org"
 
     @pytest.mark.asyncio
@@ -78,14 +78,14 @@ class TestOrgRoutes:
             patch("app.api.orgs.orgs_repo.get_organization", return_value={"_key": "o1"}),
             pytest.raises(ValidationError),
         ):
-            await add_user_to_org("o1", AddUserRequest(user_id="u1", role="bad"))
+            add_user_to_org("o1", AddUserRequest(user_id="u1", role="bad"))
 
         with (
             patch("app.api.orgs.orgs_repo.get_organization", return_value={"_key": "o1"}),
             patch("app.api.orgs.orgs_repo.get_org_user", return_value={"user_id": "u1"}),
             pytest.raises(ConflictError),
         ):
-            await add_user_to_org("o1", AddUserRequest(user_id="u1", role="viewer"))
+            add_user_to_org("o1", AddUserRequest(user_id="u1", role="viewer"))
 
     @pytest.mark.asyncio
     async def test_add_list_update_and_remove_user(self):
@@ -106,12 +106,12 @@ class TestOrgRoutes:
                 "app.api.orgs.orgs_repo.remove_user_from_org", side_effect=[True, False]
             ) as mock_remove,
         ):
-            added = await add_user_to_org("o1", AddUserRequest(user_id="u1", role="viewer"))
-            listing = await list_org_users("o1", limit=10, cursor="cur")
-            updated = await update_user_role("o1", "u1", UpdateRoleRequest(role="admin"))
-            removed = await remove_user_from_org("o1", "u1")
+            added = add_user_to_org("o1", AddUserRequest(user_id="u1", role="viewer"))
+            listing = list_org_users("o1", limit=10, cursor="cur")
+            updated = update_user_role("o1", "u1", UpdateRoleRequest(role="admin"))
+            removed = remove_user_from_org("o1", "u1")
             with pytest.raises(NotFoundError):
-                await remove_user_from_org("o1", "u2")
+                remove_user_from_org("o1", "u2")
         mock_add.assert_called_once()
         mock_list.assert_called_once_with("o1", limit=10, cursor="cur")
         mock_update_role.assert_called_once_with("o1", "u1", "admin")
@@ -124,13 +124,13 @@ class TestOrgRoutes:
     @pytest.mark.asyncio
     async def test_update_user_role_validation_and_not_found(self):
         with pytest.raises(ValidationError):
-            await update_user_role("o1", "u1", UpdateRoleRequest(role="bad"))
+            update_user_role("o1", "u1", UpdateRoleRequest(role="bad"))
 
         with (
             patch("app.api.orgs.orgs_repo.update_user_role", return_value=None),
             pytest.raises(NotFoundError),
         ):
-            await update_user_role("o1", "u1", UpdateRoleRequest(role="viewer"))
+            update_user_role("o1", "u1", UpdateRoleRequest(role="viewer"))
 
 
 class TestQualityRoutes:
@@ -161,12 +161,12 @@ class TestQualityRoutes:
                 ],
             ) as mock_history,
         ):
-            result = await quality_history_for_ontology("onto1", limit=5)
+            result = quality_history_for_ontology("onto1", limit=5)
             assert result["count"] == 1
             mock_history.assert_called_once()
             assert mock_history.call_args.kwargs["limit"] == 5
             with pytest.raises(HTTPException) as exc:
-                await quality_history_for_ontology("onto1")
+                quality_history_for_ontology("onto1")
         assert exc.value.status_code == 500
 
     @pytest.mark.asyncio
@@ -187,7 +187,7 @@ class TestQualityRoutes:
             patch("app.api.quality.get_db", return_value=MagicMock()),
             patch("app.api.quality.compute_recall", return_value=report) as mock_compute,
         ):
-            result = await quality_recall(body)
+            result = quality_recall(body)
         assert result is report
         kwargs = mock_compute.call_args.kwargs
         assert kwargs["ontology_id"] == "onto1"
@@ -212,7 +212,7 @@ class TestQualityRoutes:
             ),
             pytest.raises(HTTPException) as exc,
         ):
-            await quality_recall(body)
+            quality_recall(body)
         assert exc.value.status_code == 400
         assert "Failed to parse" in str(exc.value.detail)
 
@@ -227,7 +227,7 @@ class TestQualityRoutes:
             patch("app.api.quality.compute_recall", side_effect=RuntimeError("boom")),
             pytest.raises(HTTPException) as exc,
         ):
-            await quality_recall(body)
+            quality_recall(body)
         assert exc.value.status_code == 500
 
     @pytest.mark.asyncio
@@ -245,7 +245,7 @@ class TestQualityRoutes:
             patch("app.api.quality.get_db", return_value=MagicMock()) as mock_db,
             patch("app.api.quality.revisions_dashboard", return_value=payload) as mock_dash,
         ):
-            result = await revisions_metrics("onto1", recent_limit=5)
+            result = revisions_metrics("onto1", recent_limit=5)
         assert result == payload
         assert mock_dash.call_args.kwargs["recent_limit"] == 5
         assert mock_dash.call_args.kwargs["db"] is mock_db.return_value
@@ -257,5 +257,5 @@ class TestQualityRoutes:
             patch("app.api.quality.revisions_dashboard", side_effect=RuntimeError("boom")),
             pytest.raises(HTTPException) as exc,
         ):
-            await revisions_metrics("onto1")
+            revisions_metrics("onto1")
         assert exc.value.status_code == 500

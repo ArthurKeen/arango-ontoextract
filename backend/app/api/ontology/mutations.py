@@ -54,7 +54,7 @@ def _ensure_collection(db: StandardDatabase, name: str, *, edge: bool = False) -
 
 
 @router.post("/{ontology_id}/classes", status_code=201)
-async def create_class(ontology_id: str, body: CreateClassRequest) -> dict[str, Any]:
+def create_class(ontology_id: str, body: CreateClassRequest) -> dict[str, Any]:
     """Create a new ontology class (K.3)."""
     db = _shared.get_db()
     _ensure_collection(db, "ontology_classes")
@@ -122,7 +122,7 @@ async def create_class(ontology_id: str, body: CreateClassRequest) -> dict[str, 
 
 
 @router.post("/{ontology_id}/properties", status_code=201)
-async def create_property(ontology_id: str, body: CreatePropertyRequest) -> dict[str, Any]:
+def create_property(ontology_id: str, body: CreatePropertyRequest) -> dict[str, Any]:
     """Create a new ontology property with PGT-aligned edges (K.4 / ADR-006)."""
     db = _shared.get_db()
     _ensure_collection(db, "ontology_classes")
@@ -204,7 +204,7 @@ async def create_property(ontology_id: str, body: CreatePropertyRequest) -> dict
 
 
 @router.post("/{ontology_id}/edges", status_code=201)
-async def create_or_update_edge(ontology_id: str, body: CreateEdgeRequest) -> dict[str, Any]:
+def create_or_update_edge(ontology_id: str, body: CreateEdgeRequest) -> dict[str, Any]:
     """Create an edge between two classes, or update if one already exists (K.5)."""
     db = _shared.get_db()
     _ensure_collection(db, "ontology_classes")
@@ -256,7 +256,7 @@ async def create_or_update_edge(ontology_id: str, body: CreateEdgeRequest) -> di
 
 
 @router.put("/{ontology_id}/edges/{edge_key}")
-async def update_edge_endpoint(
+def update_edge_endpoint(
     ontology_id: str,
     edge_key: str,
     body: UpdateEdgeRequest,
@@ -283,7 +283,7 @@ async def update_edge_endpoint(
 
 
 @router.put("/{ontology_id}/classes/{class_key}")
-async def update_class_endpoint(
+def update_class_endpoint(
     ontology_id: str,
     class_key: str,
     body: UpdateClassRequest,
@@ -342,7 +342,7 @@ def _reparent_one(
 
 
 @router.post("/{ontology_id}/classes/{class_key}/reparent")
-async def reparent_class_endpoint(
+def reparent_class_endpoint(
     ontology_id: str,
     class_key: str,
     body: ReparentClassRequest,
@@ -455,7 +455,7 @@ def _reparent_impl(
 
 
 @router.put("/{ontology_id}/properties/{prop_key}")
-async def update_property_endpoint(
+def update_property_endpoint(
     ontology_id: str, prop_key: str, body: UpdatePropertyRequest
 ) -> dict[str, Any]:
     """Update an ontology property — expire old version, create new (K.6)."""
@@ -495,7 +495,7 @@ async def update_property_endpoint(
 
 
 @router.delete("/{ontology_id}/classes/{class_key}")
-async def delete_class_endpoint(ontology_id: str, class_key: str) -> dict[str, Any]:
+def delete_class_endpoint(ontology_id: str, class_key: str) -> dict[str, Any]:
     """Soft-delete a class and all connected edges (K.6b)."""
     db = _shared.get_db()
 
@@ -519,7 +519,7 @@ async def delete_class_endpoint(ontology_id: str, class_key: str) -> dict[str, A
 
 
 @router.get("/{ontology_id}/export")
-async def export_ontology_endpoint(
+def export_ontology_endpoint(
     ontology_id: str,
     format: str = Query(
         "turtle",
@@ -577,7 +577,7 @@ async def export_ontology_endpoint(
 
 
 @router.post("/{ontology_id}/classes/bulk-reparent")
-async def bulk_reparent_classes(ontology_id: str, body: BulkReparentRequest) -> dict[str, Any]:
+def bulk_reparent_classes(ontology_id: str, body: BulkReparentRequest) -> dict[str, Any]:
     """Give a whole selection the same parent, optionally creating it (FR-7.8.20).
 
     Two shapes in one endpoint because they are the same operation:
@@ -601,7 +601,7 @@ async def bulk_reparent_classes(ontology_id: str, body: BulkReparentRequest) -> 
     created_parent: dict[str, Any] | None = None
 
     if body.new_parent_label:
-        created_parent = await create_class(
+        created_parent = create_class(
             ontology_id,
             CreateClassRequest(
                 label=body.new_parent_label,
@@ -654,7 +654,7 @@ async def bulk_reparent_classes(ontology_id: str, body: BulkReparentRequest) -> 
 
 
 @router.post("/{ontology_id}/classes/bulk-reparent/undo")
-async def undo_bulk_reparent(ontology_id: str, body: BulkReparentUndoRequest) -> dict[str, Any]:
+def undo_bulk_reparent(ontology_id: str, body: BulkReparentUndoRequest) -> dict[str, Any]:
     """Reverse a bulk reparent by restoring each class's previous parent (FR-7.8.21).
 
     Takes the ``undo`` payload the forward call returned. Restoring goes through
@@ -722,7 +722,7 @@ class ResolveOrphanRequest(BaseModel):
 
 
 @router.post("/{ontology_id}/orphan-properties/{property_key}/resolve")
-async def resolve_orphan_property(
+def resolve_orphan_property(
     ontology_id: str,
     property_key: str,
     body: ResolveOrphanRequest,

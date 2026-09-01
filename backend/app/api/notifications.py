@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
 
 @router.get("")
-async def list_notifications(
+def list_notifications(
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -32,7 +32,7 @@ async def list_notifications(
 
 
 @router.post("/{notification_id}/read")
-async def mark_notification_read(
+def mark_notification_read(
     notification_id: str,
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -47,7 +47,7 @@ async def mark_notification_read(
 
 
 @router.get("/unread-count")
-async def get_unread_count(
+def get_unread_count(
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Get the count of unread notifications for the current user."""

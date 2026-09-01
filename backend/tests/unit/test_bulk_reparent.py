@@ -110,7 +110,7 @@ class TestIntroduceSuperclass:
     def test_creates_the_parent_then_parents_everything_to_it(self) -> None:
         created = {"_key": "VehicleSystem", "label": "Vehicle System"}
 
-        async def fake_create(_oid, _body):
+        def fake_create(_oid, _body):
             return created
 
         with (

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.db.client import get_db
 from app.db.utils import doc_get, run_aql
 from app.services import extraction as extraction_service
+from app.services.background import run_coroutine_in_thread
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class RetryResponse(BaseModel):
 
 
 @router.post("/run")
-async def start_extraction(
+def start_extraction(
     body: StartRunRequest,
     background_tasks: BackgroundTasks,
     extract_abox: bool = Query(
@@ -92,6 +93,7 @@ async def start_extraction(
         base_ontology_ids=body.base_ontology_ids,
     )
     background_tasks.add_task(
+        run_coroutine_in_thread,
         extraction_service.execute_run,
         run_id=run_record["_key"],
         document_ids=doc_ids,
@@ -151,7 +153,7 @@ def _resolve_doc_ids(body: StartRunRequest) -> list[str]:
 
 
 @router.get("/runs")
-async def list_runs(
+def list_runs(
     cursor: str | None = Query(None, description="Pagination cursor"),
     limit: int = Query(25, ge=1, le=100, description="Page size"),
     status: str | None = Query(None, description="Filter by status"),
@@ -284,14 +286,14 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}")
-async def get_run(run_id: str) -> dict[str, Any]:
+def get_run(run_id: str) -> dict[str, Any]:
     """Get extraction run status and stats."""
     db = get_db()
     return extraction_service.get_run(db, run_id=run_id)
 
 
 @router.delete("/runs/{run_id}")
-async def delete_run(run_id: str) -> dict[str, Any]:
+def delete_run(run_id: str) -> dict[str, Any]:
     """Delete an extraction run and its results document."""
     db = get_db()
     if not db.has_collection("extraction_runs"):
@@ -308,7 +310,7 @@ async def delete_run(run_id: str) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/steps")
-async def get_run_steps(run_id: str) -> dict[str, Any]:
+def get_run_steps(run_id: str) -> dict[str, Any]:
     """Get per-agent step detail: inputs, outputs, token usage, errors, duration."""
     db = get_db()
     steps = extraction_service.get_run_steps(db, run_id=run_id)
@@ -316,7 +318,7 @@ async def get_run_steps(run_id: str) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/results")
-async def get_run_results(run_id: str) -> dict[str, Any]:
+def get_run_results(run_id: str) -> dict[str, Any]:
     """Get extracted entities from a run."""
     db = get_db()
     return extraction_service.get_run_results(db, run_id=run_id)
@@ -335,7 +337,7 @@ async def retry_run(run_id: str) -> RetryResponse:
 
 
 @router.get("/runs/{run_id}/cost")
-async def get_run_cost(run_id: str, refresh: bool = False) -> dict[str, Any]:
+def get_run_cost(run_id: str, refresh: bool = False) -> dict[str, Any]:
     """Get LLM cost breakdown: tokens by model, estimated cost.
 
     Pass ``?refresh=true`` to bypass the cached quality snapshot

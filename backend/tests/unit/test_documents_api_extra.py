@@ -265,7 +265,7 @@ class TestDocumentRoutes:
         with patch(
             "app.api.documents.documents_repo.list_documents", return_value=expected
         ) as mock_list:
-            result = await list_documents(
+            result = list_documents(
                 limit=10,
                 cursor=None,
                 sort="filename",
@@ -287,7 +287,7 @@ class TestDocumentRoutes:
     async def test_get_document_maps_repo_result(self):
         doc = {"_key": "d1", "filename": "doc.md", "status": "ready"}
         with patch("app.api.documents.documents_repo.get_document", return_value=doc):
-            result = await get_document("d1")
+            result = get_document("d1")
         assert result["_key"] == "d1"
         assert result["filename"] == "doc.md"
 
@@ -300,7 +300,7 @@ class TestDocumentRoutes:
                 "app.api.documents.documents_repo.get_chunks_for_document", return_value=expected
             ) as mock_chunks,
         ):
-            result = await get_chunks("d1", limit=5, cursor="cur")
+            result = get_chunks("d1", limit=5, cursor="cur")
         mock_chunks.assert_called_once_with("d1", limit=5, cursor="cur")
         assert result is expected
 
@@ -363,7 +363,7 @@ class TestDocumentRoutes:
             patch("app.api.documents.get_db", return_value=db),
             patch("app.api.documents.run_aql", return_value=ontologies),
         ):
-            result = await get_document_ontologies("d1")
+            result = get_document_ontologies("d1")
         assert result == {"doc_id": "d1", "ontologies": ontologies}
 
     @pytest.mark.asyncio
@@ -380,7 +380,7 @@ class TestDocumentRoutes:
                 },
             ) as mock_delete,
         ):
-            result = await delete_document("d1", confirm=False)
+            result = delete_document("d1", confirm=False)
         assert result["status"] == "pending_confirmation"
         assert result["affected_ontologies"] == [{"_key": "onto1"}]
         mock_delete.assert_called_once_with("d1", confirm=False)
@@ -394,7 +394,7 @@ class TestDocumentRoutes:
                 return_value={"doc_id": "d1", "status": "deleted", "chunks_removed": 3},
             ) as mock_delete,
         ):
-            result = await delete_document("d1", confirm=True)
+            result = delete_document("d1", confirm=True)
         assert result["status"] == "deleted"
         assert result["doc_id"] == "d1"
         assert result["chunks_removed"] == 3

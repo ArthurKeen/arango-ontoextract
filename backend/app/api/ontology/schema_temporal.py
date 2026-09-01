@@ -26,8 +26,56 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Error reporting for schema extraction
+# ---------------------------------------------------------------------------
+#
+# Schema extraction takes a host, a database name and credentials the user
+# typed into a form, then runs for ~50s against a remote cluster. Every way
+# it can fail is something the user can fix -- but the endpoint used to
+# collapse all of them into `500 {"detail": "Internal server error"}`, which
+# tells them nothing and leaves the real reason in a backend console they
+# usually cannot see. Classify the common cases instead.
+
+
+def _describe_extraction_failure(exc: Exception, config: SchemaExtractionConfig) -> tuple[int, str]:
+    """Map a target-database failure onto (status_code, actionable message).
+
+    Returns 500 with a generic message for anything unrecognised -- the
+    traceback still goes to the log.
+    """
+    host, dbname = config.target_host, config.target_db
+
+    # python-arango raises ArangoServerError subclasses (e.g. GraphListError)
+    # carrying the upstream HTTP status; connectivity failures surface as
+    # ConnectionAbortedError("Can't connect to host(s) within limit").
+    http_code = getattr(exc, "http_code", None)
+    if http_code in (401, 403):
+        return 400, (
+            f"The target database rejected the credentials for user "
+            f"'{config.target_user}' on {host}. Check the username and password."
+        )
+    if http_code == 404 or "database not found" in str(exc).lower():
+        return 400, f"Database '{dbname}' does not exist on {host}."
+    if isinstance(exc, (ConnectionAbortedError, ConnectionError, OSError)):
+        return 502, (
+            f"Could not connect to {host}. Check the host URL, the port, and "
+            f"whether the cluster is reachable from this server."
+        )
+    if isinstance(exc, TimeoutError) or "timeout" in type(exc).__name__.lower():
+        return 504, (
+            f"Timed out reading from {host}. Large collections can exceed the "
+            f"client timeout; try restricting `graph_names` or setting "
+            f"`include_loose=false`."
+        )
+    return 500, (
+        f"Schema extraction from '{dbname}' on {host} failed: "
+        f"{type(exc).__name__}. See the server log for the traceback."
+    )
+
+
 @router.post("/schema/extract")
-async def trigger_schema_extraction(config: SchemaExtractionConfig) -> dict[str, Any]:
+def trigger_schema_extraction(config: SchemaExtractionConfig) -> dict[str, Any]:
     """Trigger schema extraction from an external ArangoDB database."""
     try:
         result = extract_schema(config)
@@ -35,12 +83,16 @@ async def trigger_schema_extraction(config: SchemaExtractionConfig) -> dict[str,
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        log.exception("Schema extraction failed")
-        raise HTTPException(status_code=500, detail="Internal server error") from exc
+        log.exception(
+            "Schema extraction failed",
+            extra={"target_host": config.target_host, "target_db": config.target_db},
+        )
+        status_code, detail = _describe_extraction_failure(exc, config)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.get("/schema/extract/{run_id}")
-async def get_schema_extraction_status(run_id: str) -> dict[str, Any]:
+def get_schema_extraction_status(run_id: str) -> dict[str, Any]:
     """Get the status of a schema extraction run."""
     try:
         return get_extraction_status(run_id)
@@ -54,7 +106,7 @@ async def get_schema_extraction_status(run_id: str) -> dict[str, Any]:
 # keys; the diff itself is computed entirely from the local AOE
 # database, no upstream Arango is touched.
 @router.get("/schema/diff")
-async def diff_schema_ontologies(
+def diff_schema_ontologies(
     a: str = Query(..., description="First ontology_id (the 'before' side)"),
     b: str = Query(..., description="Second ontology_id (the 'after' side)"),
 ) -> dict[str, Any]:
@@ -93,7 +145,7 @@ async def diff_schema_ontologies(
 # SchemaExtractionConfig so the workspace UI's "extract" overlay can
 # reuse the connection form and just swap the action button.
 @router.post("/schema/graphs")
-async def discover_target_graphs(config: SchemaExtractionConfig) -> dict[str, Any]:
+def discover_target_graphs(config: SchemaExtractionConfig) -> dict[str, Any]:
     """List named graphs + loose collections on an external ArangoDB.
 
     Returns the topology the workspace UI's schema-extraction preview
@@ -125,7 +177,7 @@ async def discover_target_graphs(config: SchemaExtractionConfig) -> dict[str, An
 
 
 @router.get("/{ontology_id}/snapshot", response_model=TemporalSnapshot)
-async def get_snapshot(
+def get_snapshot(
     ontology_id: str,
     at: float = Query(..., description="Unix timestamp for the point-in-time snapshot"),
 ) -> dict[str, Any]:
@@ -239,7 +291,7 @@ def _rank_by_support(
 
 
 @router.get("/class/{class_key}/provenance")
-async def get_class_provenance(class_key: str) -> dict[str, Any]:
+def get_class_provenance(class_key: str) -> dict[str, Any]:
     """Evidence recorded for this class at extraction (FR-4.7).
 
     Reads ``evidence[]`` off the class document — ``source_chunk_ids``,
@@ -295,7 +347,7 @@ async def get_class_provenance(class_key: str) -> dict[str, Any]:
 
 
 @router.get("/class/{class_key}/history")
-async def get_class_history(class_key: str) -> list[dict[str, Any]]:
+def get_class_history(class_key: str) -> list[dict[str, Any]]:
     """All versions of a class sorted by created DESC."""
     history = temporal_svc.get_entity_history(
         collection="ontology_classes",
@@ -307,7 +359,7 @@ async def get_class_history(class_key: str) -> list[dict[str, Any]]:
 
 
 @router.get("/{ontology_id}/diff", response_model=TemporalDiff)
-async def get_diff(
+def get_diff(
     ontology_id: str,
     t1: float = Query(..., description="Start timestamp"),
     t2: float = Query(..., description="End timestamp"),
@@ -319,13 +371,13 @@ async def get_diff(
 
 
 @router.get("/{ontology_id}/timeline")
-async def get_timeline(ontology_id: str) -> list[dict[str, Any]]:
+def get_timeline(ontology_id: str) -> list[dict[str, Any]]:
     """Discrete change events for VCR slider tick marks."""
     return temporal_svc.get_timeline_events(ontology_id=ontology_id)
 
 
 @router.post("/class/{class_key}/revert")
-async def revert_class(
+def revert_class(
     class_key: str,
     to_version: float = Query(..., description="Timestamp of the version to revert to"),
 ) -> dict[str, Any]:

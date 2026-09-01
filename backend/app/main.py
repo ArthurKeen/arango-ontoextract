@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import anyio.to_thread
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,7 +61,13 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    log.info("starting", env=settings.app_env)
+    # Widen the worker threadpool that serves the synchronous handlers.
+    # anyio defaults to 40, which is sized for CPU-bound work; ours is
+    # blocking I/O against a remote Arango cluster, so the threads park
+    # in a socket read rather than fight for the GIL. See
+    # ``Settings.thread_pool_size``.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = settings.thread_pool_size
+    log.info("starting", env=settings.app_env, thread_pool=settings.thread_pool_size)
     yield
     close_db()
     log.info("shutdown_complete")

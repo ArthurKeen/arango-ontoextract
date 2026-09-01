@@ -27,7 +27,7 @@ async def test_returns_404_when_ontology_missing() -> None:
         patch("app.api.ontology._shared.registry_repo.get_registry_entry", return_value=None),
         pytest.raises(HTTPException) as excinfo,
     ):
-        await export_ontology_endpoint("missing", format="turtle")
+        export_ontology_endpoint("missing", format="turtle")
     assert excinfo.value.status_code == 404
 
 
@@ -43,7 +43,7 @@ async def test_turtle_format_calls_export_ontology_with_turtle() -> None:
             return_value="@prefix : <ex#> .",
         ) as mock_owl,
     ):
-        resp = await export_ontology_endpoint("onto_1", format="turtle")
+        resp = export_ontology_endpoint("onto_1", format="turtle")
     mock_owl.assert_called_once_with("onto_1", fmt="turtle")
     assert resp.media_type == "text/turtle"
     assert 'filename="onto_1.ttl"' in resp.headers["Content-Disposition"]
@@ -71,7 +71,7 @@ async def test_shacl_format_calls_export_shacl_with_shapes_filename() -> None:
             side_effect=AssertionError("must not call export_ontology for format=shacl"),
         ),
     ):
-        resp = await export_ontology_endpoint("onto_1", format="shacl")
+        resp = export_ontology_endpoint("onto_1", format="shacl")
     mock_shacl.assert_called_once_with("onto_1")
     assert resp.media_type == "text/turtle"
     assert 'filename="onto_1.shapes.ttl"' in resp.headers["Content-Disposition"]
@@ -92,6 +92,6 @@ async def test_unknown_format_falls_through_to_turtle_default() -> None:
             return_value="@prefix : <ex#> .",
         ) as mock_owl,
     ):
-        resp = await export_ontology_endpoint("onto_1", format="tuttle")  # typo
+        resp = export_ontology_endpoint("onto_1", format="tuttle")  # typo
     mock_owl.assert_called_once()
     assert resp.media_type == "text/turtle"

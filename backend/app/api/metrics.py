@@ -119,7 +119,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 
 
 @router.get("/api/v1/metrics")
-async def metrics() -> Response:
+def metrics() -> Response:
     """Prometheus-format metrics scrape endpoint."""
     return Response(
         content=generate_latest(),

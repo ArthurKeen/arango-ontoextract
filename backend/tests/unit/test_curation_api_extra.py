@@ -61,8 +61,8 @@ class TestCurationRoutes:
                 "app.api.curation.curation_svc.batch_decide", return_value={"processed": 1}
             ) as mock_batch,
         ):
-            result = await record_decision(body)
-            batch_result = await batch_decide(batch)
+            result = record_decision(body)
+            batch_result = batch_decide(batch)
         assert result == {"ok": True}
         assert batch_result == {"processed": 1}
         assert mock_record.call_args.kwargs["entity_type"] == "class"
@@ -78,8 +78,8 @@ class TestCurationRoutes:
             ) as mock_list,
             patch("app.api.curation.curation_svc.get_decision", return_value={"_key": "d1"}),
         ):
-            listing = await list_decisions(run_id="r1", status="approve", cursor="c1", limit=5)
-            decision = await get_decision("d1")
+            listing = list_decisions(run_id="r1", status="approve", cursor="c1", limit=5)
+            decision = get_decision("d1")
         mock_list.assert_called_once_with(run_id="r1", status="approve", cursor="c1", limit=5)
         assert listing == {"data": []}
         assert decision == {"_key": "d1"}
@@ -90,7 +90,7 @@ class TestCurationRoutes:
             patch("app.api.curation.curation_svc.get_decision", return_value=None),
             pytest.raises(NotFoundError),
         ):
-            await get_decision("missing")
+            get_decision("missing")
 
     @pytest.mark.asyncio
     async def test_execute_merge_validates_target(self):
@@ -101,7 +101,7 @@ class TestCurationRoutes:
             curator_id="u1",
         )
         with pytest.raises(ValidationError):
-            await execute_merge(body)
+            execute_merge(body)
 
     @pytest.mark.asyncio
     async def test_execute_merge_and_promote(self):
@@ -120,8 +120,8 @@ class TestCurationRoutes:
                 return_value={"status": "completed"},
             ) as mock_promote,
         ):
-            merge_result = await execute_merge(body)
-            promote_result = await promote_staging("r1", PromotionRequest(ontology_id="onto1"))
+            merge_result = execute_merge(body)
+            promote_result = promote_staging("r1", PromotionRequest(ontology_id="onto1"))
         assert merge_result == {"target_key": "b"}
         assert promote_result == {"status": "completed"}
         assert mock_merge.call_args.kwargs["target_key"] == "b"
@@ -153,7 +153,7 @@ class TestCurationRoutes:
                 ],
             ),
         ):
-            diff = await get_curation_diff("r1", ontology_id="onto1")
+            diff = get_curation_diff("r1", ontology_id="onto1")
         assert len(diff["added"]) == 1
         assert len(diff["removed"]) == 1
         assert len(diff["changed"]) == 1
@@ -173,7 +173,7 @@ class TestCurationRoutes:
             "app.api.curation.curation_svc.record_decision",
             return_value={"ok": True},
         ) as mock_record:
-            await record_decision(body)
+            record_decision(body)
         assert mock_record.call_args.kwargs["decision_latency_ms"] == 2_750
 
     @pytest.mark.asyncio
@@ -194,7 +194,7 @@ class TestCurationRoutes:
             "app.api.curation.curation_svc.batch_decide",
             return_value={"processed": 1},
         ) as mock_batch:
-            await batch_decide(body)
+            batch_decide(body)
         assert mock_batch.call_args.kwargs["decisions"][0]["decision_latency_ms"] == 1_000
 
     @pytest.mark.asyncio
@@ -216,7 +216,7 @@ class TestCurationRoutes:
                 "ontology_id": "onto1",
             },
         ) as mock_compute:
-            payload = await curation_throughput(
+            payload = curation_throughput(
                 run_id="r1",
                 ontology_id="onto1",
                 window_seconds=1800,
@@ -232,7 +232,7 @@ class TestCurationRoutes:
             "app.api.curation.promotion_svc.get_promotion_status",
             side_effect=[None, {"status": "completed"}],
         ):
-            not_started = await get_promotion_status("r1")
-            started = await get_promotion_status("r1")
+            not_started = get_promotion_status("r1")
+            started = get_promotion_status("r1")
         assert not_started["status"] == "not_started"
         assert started["status"] == "completed"

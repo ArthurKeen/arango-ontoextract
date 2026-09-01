@@ -54,7 +54,7 @@ async def test_forwards_query_params_to_service_and_returns_result() -> None:
         "app.api.ontology.schema_diff_svc.diff_ontologies",
         return_value=expected,
     ) as mock_svc:
-        result = await diff_schema_ontologies(a="left", b="right")
+        result = diff_schema_ontologies(a="left", b="right")
 
     mock_svc.assert_called_once_with(ontology_a="left", ontology_b="right")
     assert result == expected
@@ -73,7 +73,7 @@ async def test_self_diff_returns_400() -> None:
         ),
         pytest.raises(HTTPException) as exc_info,
     ):
-        await diff_schema_ontologies(a="same", b="same")
+        diff_schema_ontologies(a="same", b="same")
 
     assert exc_info.value.status_code == 400
     assert "itself" in str(exc_info.value.detail)
@@ -121,7 +121,7 @@ async def test_provenance_warning_passes_through_verbatim() -> None:
         "app.api.ontology.schema_diff_svc.diff_ontologies",
         return_value=service_result,
     ):
-        result = await diff_schema_ontologies(a="x", b="y")
+        result = diff_schema_ontologies(a="x", b="y")
 
     assert result["provenance"]["warning"] == warning
     assert result["provenance"]["compatible"] is False
@@ -138,7 +138,7 @@ async def test_distinct_ids_passed_through_unchanged() -> None:
         "app.api.ontology.schema_diff_svc.diff_ontologies",
         return_value={"ontology_a": "onto_x", "ontology_b": "onto_y"},
     ) as mock_svc:
-        await diff_schema_ontologies(a="onto_x", b="onto_y")
+        diff_schema_ontologies(a="onto_x", b="onto_y")
 
     args, kwargs = mock_svc.call_args
     assert args == ()

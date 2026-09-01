@@ -129,7 +129,7 @@ async def import_ontology_endpoint(
 
 
 @router.get("/import/{ontology_id}/status")
-async def import_status_endpoint(ontology_id: str) -> dict[str, Any]:
+def import_status_endpoint(ontology_id: str) -> dict[str, Any]:
     """Return the state of an ongoing or recently finished import job.
 
     If the job isn't in memory (e.g. process restarted) but the ontology exists
@@ -179,7 +179,7 @@ class CreateOntologyRequest(BaseModel):
 
 
 @router.post("/create", status_code=201)
-async def create_ontology(body: CreateOntologyRequest) -> dict[str, Any]:
+def create_ontology(body: CreateOntologyRequest) -> dict[str, Any]:
     """Create an empty ontology, optionally importing other ontologies into it."""
     import uuid
 

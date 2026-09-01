@@ -37,7 +37,7 @@ router = APIRouter()
 
 
 @router.get("/{ontology_id}/classes")
-async def list_ontology_classes(
+def list_ontology_classes(
     ontology_id: str,
     include: str = Query(
         "full",
@@ -202,7 +202,7 @@ def _list_classes_paginated(
 
 
 @router.get("/{ontology_id}/classes/{class_key}")
-async def get_class_detail(ontology_id: str, class_key: str) -> dict[str, Any]:
+def get_class_detail(ontology_id: str, class_key: str) -> dict[str, Any]:
     """Get class detail with properties resolved via rdfs_domain traversal (ADR-006).
 
     Returns the class document plus ``attributes`` (datatype properties) and
@@ -315,7 +315,7 @@ async def get_class_detail(ontology_id: str, class_key: str) -> dict[str, Any]:
 
 
 @router.get("/{ontology_id}/properties")
-async def list_ontology_properties(
+def list_ontology_properties(
     ontology_id: str,
     keys: str | None = None,
 ) -> dict[str, Any]:
@@ -376,7 +376,7 @@ _EDGE_HISTORY_COLLECTIONS = (
 
 
 @router.get("/{ontology_id}/edges")
-async def list_ontology_edges(
+def list_ontology_edges(
     ontology_id: str,
     include: str = Query(
         "full",
@@ -479,7 +479,7 @@ async def list_ontology_edges(
 
 
 @router.get("/{ontology_id}/edges/{edge_key}")
-async def get_edge_detail(
+def get_edge_detail(
     ontology_id: str,
     edge_key: str,
     include: str = Query(
@@ -564,7 +564,7 @@ async def get_edge_detail(
 
 
 @router.get("/{ontology_id}/properties/{prop_key}")
-async def get_property_detail(ontology_id: str, prop_key: str) -> dict[str, Any]:
+def get_property_detail(ontology_id: str, prop_key: str) -> dict[str, Any]:
     """Get a single live ontology property (object or datatype) by key.
 
     Replaces the N+1 anti-pattern where the workspace ``FloatingDetailPanel``
@@ -818,7 +818,7 @@ def _find_edge_collection_for_key(db: Any, edge_key: str) -> tuple[str, dict[str
 
 
 @router.get("/edge/{edge_key}/history")
-async def get_edge_history(edge_key: str) -> list[dict[str, Any]]:
+def get_edge_history(edge_key: str) -> list[dict[str, Any]]:
     """All versions of an edge sorted by ``created`` DESC.
 
     Mirrors ``GET /class/{class_key}/history`` for first-class edge support
@@ -850,7 +850,7 @@ async def get_edge_history(edge_key: str) -> list[dict[str, Any]]:
 
 
 @router.get("/edge/{edge_key}/provenance")
-async def get_edge_provenance(edge_key: str) -> dict[str, Any]:
+def get_edge_provenance(edge_key: str) -> dict[str, Any]:
     """Source chunks supporting an edge, derived from ``evidence[].source_chunk_ids``.
 
     Unlike the class-level provenance (which links to whole documents via

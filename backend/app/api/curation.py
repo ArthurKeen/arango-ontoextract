@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/v1/curation", tags=["curation"])
 
 
 @router.post("/decide", response_model=CurationDecisionResponse)
-async def record_decision(body: CurationDecisionCreate) -> dict[str, Any]:
+def record_decision(body: CurationDecisionCreate) -> dict[str, Any]:
     """Record a single curation decision (approve/reject/edit/merge)."""
     result = curation_svc.record_decision(
         run_id=body.run_id,
@@ -51,7 +51,7 @@ async def record_decision(body: CurationDecisionCreate) -> dict[str, Any]:
 
 
 @router.post("/batch", response_model=BatchDecisionResponse)
-async def batch_decide(body: BatchDecisionRequest) -> dict[str, Any]:
+def batch_decide(body: BatchDecisionRequest) -> dict[str, Any]:
     """Batch approve/reject/edit multiple entities in one call."""
     decisions = [
         {
@@ -72,7 +72,7 @@ async def batch_decide(body: BatchDecisionRequest) -> dict[str, Any]:
 
 
 @router.get("/throughput")
-async def curation_throughput(
+def curation_throughput(
     run_id: str | None = Query(None, description="Filter by extraction run ID"),
     ontology_id: str | None = Query(None, description="Filter by ontology ID"),
     window_seconds: int = Query(
@@ -97,7 +97,7 @@ async def curation_throughput(
 
 
 @router.get("/decisions")
-async def list_decisions(
+def list_decisions(
     run_id: str | None = Query(None, description="Filter by extraction run ID"),
     status: str | None = Query(None, description="Filter by action (approve|reject|edit|merge)"),
     cursor: str | None = Query(None, description="Pagination cursor"),
@@ -113,7 +113,7 @@ async def list_decisions(
 
 
 @router.get("/decisions/{decision_id}", response_model=CurationDecisionResponse)
-async def get_decision(decision_id: str) -> dict[str, Any]:
+def get_decision(decision_id: str) -> dict[str, Any]:
     """Get a single curation decision by ID."""
     result = curation_svc.get_decision(decision_id=decision_id)
     if result is None:
@@ -125,7 +125,7 @@ async def get_decision(decision_id: str) -> dict[str, Any]:
 
 
 @router.post("/merge", response_model=MergeResponse)
-async def execute_merge(body: MergeRequest) -> dict[str, Any]:
+def execute_merge(body: MergeRequest) -> dict[str, Any]:
     """Merge multiple entities into one target entity."""
     if body.target_key in body.source_keys:
         raise ValidationError(
@@ -144,7 +144,7 @@ async def execute_merge(body: MergeRequest) -> dict[str, Any]:
 
 
 @router.post("/promote/{run_id}", response_model=PromotionReport)
-async def promote_staging(run_id: str, body: PromotionRequest | None = None) -> dict[str, Any]:
+def promote_staging(run_id: str, body: PromotionRequest | None = None) -> dict[str, Any]:
     """Promote approved staging entities to production graph."""
     ontology_id = body.ontology_id if body else None
     report = promotion_svc.promote_staging(
@@ -155,7 +155,7 @@ async def promote_staging(run_id: str, body: PromotionRequest | None = None) -> 
 
 
 @router.get("/diff/{run_id}")
-async def get_curation_diff(
+def get_curation_diff(
     run_id: str,
     ontology_id: str = Query("", description="Ontology to diff against"),
 ) -> dict[str, Any]:
@@ -242,7 +242,7 @@ async def get_curation_diff(
 
 
 @router.get("/promote/{run_id}/status", response_model=PromotionStatusResponse)
-async def get_promotion_status(run_id: str) -> dict[str, Any]:
+def get_promotion_status(run_id: str) -> dict[str, Any]:
     """Get the promotion status for a run."""
     report = promotion_svc.get_promotion_status(run_id)
     if report is None:

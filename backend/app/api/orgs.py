@@ -54,7 +54,7 @@ class UpdateRoleRequest(BaseModel):
 
 
 @router.post("")
-async def create_organization(
+def create_organization(
     body: CreateOrgRequest,
     _user: AuthenticatedUser = Depends(require_role("admin")),
 ) -> dict[str, Any]:
@@ -68,7 +68,7 @@ async def create_organization(
 
 
 @router.get("")
-async def list_organizations(
+def list_organizations(
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
     sort: str = Query(default="created_at"),
@@ -90,7 +90,7 @@ async def list_organizations(
 
 
 @router.get("/{org_id}")
-async def get_organization(
+def get_organization(
     org_id: str,
     _user: AuthenticatedUser = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -99,7 +99,7 @@ async def get_organization(
 
 
 @router.put("/{org_id}")
-async def update_organization(
+def update_organization(
     org_id: str,
     body: UpdateOrgRequest,
     _user: AuthenticatedUser = Depends(require_role("admin")),
@@ -124,7 +124,7 @@ async def update_organization(
 
 
 @router.post("/{org_id}/users")
-async def add_user_to_org(
+def add_user_to_org(
     org_id: str,
     body: AddUserRequest,
     _user: AuthenticatedUser = Depends(require_role("admin")),
@@ -156,7 +156,7 @@ async def add_user_to_org(
 
 
 @router.get("/{org_id}/users")
-async def list_org_users(
+def list_org_users(
     org_id: str,
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
@@ -168,7 +168,7 @@ async def list_org_users(
 
 
 @router.put("/{org_id}/users/{user_id}/role")
-async def update_user_role(
+def update_user_role(
     org_id: str,
     user_id: str,
     body: UpdateRoleRequest,
@@ -191,7 +191,7 @@ async def update_user_role(
 
 
 @router.delete("/{org_id}/users/{user_id}")
-async def remove_user_from_org(
+def remove_user_from_org(
     org_id: str,
     user_id: str,
     _user: AuthenticatedUser = Depends(require_role("admin")),

@@ -103,7 +103,7 @@ class ModifyRevisionRequest(BaseModel):
 
 
 @router.get("/inbox")
-async def get_inbox(
+def get_inbox(
     ontology_id: str = Query(..., description="Ontology to fetch the inbox for"),
     limit: int = Query(100, ge=1, le=500),
 ) -> dict[str, Any]:
@@ -114,7 +114,7 @@ async def get_inbox(
 
 
 @router.get("")
-async def list_revisions(
+def list_revisions(
     ontology_id: str = Query(..., description="Ontology to fetch revisions for"),
     action: str | None = Query(None, description="Filter by action"),
     status: str | None = Query(None, description="Filter by status"),
@@ -145,7 +145,7 @@ async def list_revisions(
 
 
 @router.get("/entity/{entity_id:path}")
-async def list_revisions_for_entity(
+def list_revisions_for_entity(
     entity_id: str = Path(..., description="Full Arango _id (collection/key)"),
     limit: int = Query(100, ge=1, le=500),
 ) -> dict[str, Any]:
@@ -166,7 +166,7 @@ async def list_revisions_for_entity(
 
 
 @router.get("/{revision_key}")
-async def get_revision(revision_key: str) -> dict[str, Any]:
+def get_revision(revision_key: str) -> dict[str, Any]:
     """Fetch one ``revision_meta`` row by ``_key``."""
     db = get_db()
     row = rev_repo.get_revision(revision_key, db=db)
@@ -198,7 +198,7 @@ def _handle_decision_errors(err: Exception, *, revision_key: str) -> None:
 
 
 @router.post("/{revision_key}/accept")
-async def accept_revision(
+def accept_revision(
     body: AcceptRevisionRequest,
     revision_key: str,
 ) -> dict[str, Any]:
@@ -228,7 +228,7 @@ async def accept_revision(
 
 
 @router.post("/{revision_key}/reject")
-async def reject_revision(
+def reject_revision(
     body: RejectRevisionRequest,
     revision_key: str,
 ) -> dict[str, Any]:
@@ -246,7 +246,7 @@ async def reject_revision(
 
 
 @router.post("/{revision_key}/modify")
-async def modify_revision(
+def modify_revision(
     body: ModifyRevisionRequest,
     revision_key: str,
 ) -> dict[str, Any]:

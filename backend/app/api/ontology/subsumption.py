@@ -57,7 +57,7 @@ class ResolveSubsumptionRequest(BaseModel):
 
 
 @router.get("/{ontology_id}/subsumption/flagged")
-async def list_flagged_subsumptions(ontology_id: str) -> dict[str, Any]:
+def list_flagged_subsumptions(ontology_id: str) -> dict[str, Any]:
     """List live subclass edges the judge rejected and no curator has ruled on.
 
     Child and parent labels are joined in, because "Airbag → Supplementary
@@ -100,7 +100,7 @@ async def list_flagged_subsumptions(ontology_id: str) -> dict[str, Any]:
 
 
 @router.post("/{ontology_id}/subsumption/{edge_key}/resolve")
-async def resolve_flagged_subsumption(
+def resolve_flagged_subsumption(
     ontology_id: str,
     edge_key: str,
     body: ResolveSubsumptionRequest,

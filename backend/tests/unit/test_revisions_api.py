@@ -64,7 +64,7 @@ class TestRouteHandlers:
                 return_value=[{"_key": "rev_1"}],
             ) as mock_inbox,
         ):
-            result = await get_inbox(ontology_id="onto_1", limit=25)
+            result = get_inbox(ontology_id="onto_1", limit=25)
         mock_inbox.assert_called_once()
         kwargs = mock_inbox.call_args.kwargs
         assert kwargs["limit"] == 25
@@ -85,7 +85,7 @@ class TestRouteHandlers:
                 return_value=[],
             ) as mock_list,
         ):
-            await list_revisions(
+            list_revisions(
                 ontology_id="onto_1",
                 action=rev_repo.ACTION_REINFORCE,
                 status=rev_repo.STATUS_APPLIED,
@@ -106,7 +106,7 @@ class TestRouteHandlers:
             patch("app.api.revisions.get_db", return_value=object()),
             pytest.raises(ValidationError),
         ):
-            await list_revisions(
+            list_revisions(
                 ontology_id="onto_1",
                 action="NOT_REAL",
                 status=None,
@@ -120,7 +120,7 @@ class TestRouteHandlers:
             patch("app.api.revisions.get_db", return_value=object()),
             pytest.raises(ValidationError),
         ):
-            await list_revisions(
+            list_revisions(
                 ontology_id="onto_1",
                 action=None,
                 status="NOT_REAL",
@@ -135,7 +135,7 @@ class TestRouteHandlers:
             patch.object(rev_repo, "get_revision", return_value=None),
             pytest.raises(NotFoundError),
         ):
-            await get_revision("missing")
+            get_revision("missing")
 
     @pytest.mark.asyncio
     async def test_get_revision_returns_row(self):
@@ -144,14 +144,14 @@ class TestRouteHandlers:
             patch("app.api.revisions.get_db", return_value=object()),
             patch.object(rev_repo, "get_revision", return_value=row),
         ):
-            assert await get_revision("rev_1") == row
+            assert get_revision("rev_1") == row
 
     @pytest.mark.asyncio
     async def test_revisions_for_entity_requires_full_id(self):
         from app.api.errors import ValidationError
 
         with pytest.raises(ValidationError):
-            await list_revisions_for_entity(entity_id="just_a_key", limit=10)
+            list_revisions_for_entity(entity_id="just_a_key", limit=10)
 
     @pytest.mark.asyncio
     async def test_revisions_for_entity_passes_through(self):
@@ -163,7 +163,7 @@ class TestRouteHandlers:
                 return_value=[{"_key": "rev_1"}],
             ) as mock_list,
         ):
-            result = await list_revisions_for_entity(entity_id="ontology_classes/Account", limit=5)
+            result = list_revisions_for_entity(entity_id="ontology_classes/Account", limit=5)
         mock_list.assert_called_once()
         assert result["entity_id"] == "ontology_classes/Account"
         assert result["count"] == 1
@@ -176,7 +176,7 @@ class TestRouteHandlers:
             "accept_revision",
             return_value=_decision_result(),
         ) as mock_accept:
-            response = await accept_revision(body, revision_key="rev_1")
+            response = accept_revision(body, revision_key="rev_1")
         mock_accept.assert_called_once()
         kwargs = mock_accept.call_args.kwargs
         assert kwargs["decided_by"] == "alice"
@@ -196,7 +196,7 @@ class TestRouteHandlers:
             ),
             pytest.raises(NotFoundError),
         ):
-            await accept_revision(body, revision_key="rev_1")
+            accept_revision(body, revision_key="rev_1")
 
     @pytest.mark.asyncio
     async def test_accept_route_translates_action_error_to_400(self):
@@ -211,7 +211,7 @@ class TestRouteHandlers:
             ),
             pytest.raises(ValidationError),
         ):
-            await accept_revision(body, revision_key="rev_1")
+            accept_revision(body, revision_key="rev_1")
 
     @pytest.mark.asyncio
     async def test_reject_route_calls_service(self):
@@ -225,7 +225,7 @@ class TestRouteHandlers:
                 supersede_result=None,
             ),
         ) as mock_reject:
-            response = await reject_revision(body, revision_key="rev_1")
+            response = reject_revision(body, revision_key="rev_1")
         mock_reject.assert_called_once()
         assert response["decision"] == rev_repo.STATUS_REJECTED
         assert response["supersede_result"] is None
@@ -245,7 +245,7 @@ class TestRouteHandlers:
                 status=rev_repo.STATUS_MODIFIED,
             ),
         ) as mock_modify:
-            response = await modify_revision(body, revision_key="rev_1")
+            response = modify_revision(body, revision_key="rev_1")
         kwargs = mock_modify.call_args.kwargs
         assert kwargs["override_action"] == rev_repo.ACTION_RETRACT
         assert response["decision"] == rev_repo.STATUS_MODIFIED

@@ -31,7 +31,7 @@ async def test_returns_404_when_ontology_missing() -> None:
         patch("app.api.ontology._shared.registry_repo.get_registry_entry", return_value=None),
         pytest.raises(NotFoundError),
     ):
-        await list_ontology_constraints("missing")
+        list_ontology_constraints("missing")
 
 
 @pytest.mark.asyncio
@@ -47,7 +47,7 @@ async def test_empty_when_no_constraints() -> None:
             return_value=[],
         ),
     ):
-        out = await list_ontology_constraints("onto_1")
+        out = list_ontology_constraints("onto_1")
 
     assert out == {"ontology_id": "onto_1", "constraints": [], "total": 0}
 
@@ -112,7 +112,7 @@ async def test_enriches_with_class_and_property_labels_and_sorts() -> None:
         ),
         patch("app.api.ontology._shared.run_aql", side_effect=fake_run_aql),
     ):
-        out = await list_ontology_constraints("onto_1")
+        out = list_ontology_constraints("onto_1")
 
     assert out["ontology_id"] == "onto_1"
     assert out["total"] == 3
@@ -161,7 +161,7 @@ async def test_unresolved_property_id_gets_empty_label() -> None:
         ),
         patch("app.api.ontology._shared.run_aql", side_effect=fake_run_aql),
     ):
-        out = await list_ontology_constraints("onto_1")
+        out = list_ontology_constraints("onto_1")
 
     assert out["total"] == 1
     c = out["constraints"][0]
@@ -182,7 +182,7 @@ async def test_forwards_filter_kwargs_to_repo() -> None:
             return_value=[],
         ) as mock_repo,
     ):
-        await list_ontology_constraints(
+        list_ontology_constraints(
             "onto_1",
             constraint_type="owl:Restriction",
             include_unresolved=False,
@@ -210,7 +210,7 @@ async def test_forwards_class_id_query_param_to_repo() -> None:
             return_value=[],
         ) as mock_repo,
     ):
-        await list_ontology_constraints(
+        list_ontology_constraints(
             "onto_1",
             constraint_type=None,
             include_unresolved=True,
@@ -254,7 +254,7 @@ async def test_approve_constraint_sets_status_approved() -> None:
             return_value={"_key": "c2", "status": "approved", "version": 2},
         ) as mock_update,
     ):
-        out = await approve_constraint_endpoint("onto_1", "c1")
+        out = approve_constraint_endpoint("onto_1", "c1")
 
     assert out["status"] == "approved"
     assert mock_update.call_args.kwargs["data"] == {"status": "approved"}
@@ -268,7 +268,7 @@ async def test_approve_constraint_404_when_missing() -> None:
         patch("app.api.ontology._shared.constraints_repo.get_constraint", return_value=None),
         pytest.raises(NotFoundError),
     ):
-        await approve_constraint_endpoint("onto_1", "missing")
+        approve_constraint_endpoint("onto_1", "missing")
 
 
 @pytest.mark.asyncio
@@ -281,7 +281,7 @@ async def test_approve_constraint_rejects_cross_ontology() -> None:
         ),
         pytest.raises(ValidationError),
     ):
-        await approve_constraint_endpoint("onto_1", "c1")
+        approve_constraint_endpoint("onto_1", "c1")
 
 
 @pytest.mark.asyncio
@@ -297,7 +297,7 @@ async def test_reject_constraint_expires_it() -> None:
             return_value={"_key": "c1", "expired": 123.0},
         ) as mock_expire,
     ):
-        out = await reject_constraint_endpoint("onto_1", "c1")
+        out = reject_constraint_endpoint("onto_1", "c1")
 
     assert out == {
         "status": "rejected",
@@ -322,7 +322,7 @@ async def test_reject_constraint_404_when_already_gone() -> None:
         ),
         pytest.raises(NotFoundError),
     ):
-        await reject_constraint_endpoint("onto_1", "c1")
+        reject_constraint_endpoint("onto_1", "c1")
 
 
 @pytest.mark.asyncio
@@ -338,7 +338,7 @@ async def test_update_constraint_edits_value_and_resets_status_to_pending() -> N
             return_value={"_key": "c2", "restriction_value": 5, "status": "pending"},
         ) as mock_update,
     ):
-        out = await update_constraint_endpoint(
+        out = update_constraint_endpoint(
             "onto_1",
             "c1",
             UpdateConstraintRequest(restriction_value=5, description="loosened"),
@@ -362,4 +362,4 @@ async def test_update_constraint_requires_a_field() -> None:
         ),
         pytest.raises(ValidationError),
     ):
-        await update_constraint_endpoint("onto_1", "c1", UpdateConstraintRequest())
+        update_constraint_endpoint("onto_1", "c1", UpdateConstraintRequest())

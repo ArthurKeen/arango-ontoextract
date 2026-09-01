@@ -69,7 +69,7 @@ async def create_session(body: CreateSessionRequest) -> dict[str, Any]:
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str) -> dict[str, Any]:
+def get_session(session_id: str) -> dict[str, Any]:
     session = alignment_svc.get_alignment_session(None, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"alignment session '{session_id}' not found")
@@ -88,7 +88,7 @@ async def adjudicate_session(session_id: str) -> dict[str, Any]:
 
 
 @router.post("/sessions/{session_id}/materialize")
-async def materialize_master(session_id: str, body: MaterializeRequest) -> dict[str, Any]:
+def materialize_master(session_id: str, body: MaterializeRequest) -> dict[str, Any]:
     """Materialize a reconciled master ontology from the session's accepted pairs."""
     try:
         return alignment_svc.materialize_master(session_id=session_id, name=body.name)
@@ -97,7 +97,7 @@ async def materialize_master(session_id: str, body: MaterializeRequest) -> dict[
 
 
 @router.post("/sessions/{session_id}/refresh")
-async def refresh_session(session_id: str, body: RefreshRequest) -> dict[str, Any]:
+def refresh_session(session_id: str, body: RefreshRequest) -> dict[str, Any]:
     """Scoped re-alignment after a source-ontology change (AL-PR10, RE-3)."""
     try:
         return alignment_svc.refresh_alignment(
@@ -110,7 +110,7 @@ async def refresh_session(session_id: str, body: RefreshRequest) -> dict[str, An
 
 
 @router.get("/sessions/{session_id}/candidates")
-async def list_candidates(
+def list_candidates(
     session_id: str,
     status: str | None = Query(None, pattern="^(candidate|accepted|rejected)$"),
     min_confidence: float = Query(0.0, ge=0.0, le=1.0),
@@ -129,7 +129,7 @@ async def list_candidates(
 
 
 @router.post("/candidates/{correspondence_key}/{decision}")
-async def decide_candidate(correspondence_key: str, decision: str) -> dict[str, Any]:
+def decide_candidate(correspondence_key: str, decision: str) -> dict[str, Any]:
     """Accept or reject a candidate correspondence (bounded human confirmation)."""
     if decision not in ("accept", "reject"):
         raise HTTPException(status_code=400, detail="decision must be 'accept' or 'reject'")

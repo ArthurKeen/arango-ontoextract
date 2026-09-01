@@ -205,7 +205,7 @@ class LoginHelpResponse(BaseModel):
 
 
 @router.get("/login", response_model=LoginHelpResponse)
-async def login_get_help() -> LoginHelpResponse:
+def login_get_help() -> LoginHelpResponse:
     """Explain that issuing a JWT requires ``POST`` with JSON body (not GET)."""
     return LoginHelpResponse(
         detail='Send POST with JSON body {"email":"...","password":"..."}',
@@ -215,7 +215,7 @@ async def login_get_help() -> LoginHelpResponse:
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest) -> LoginResponse:
+def login(body: LoginRequest) -> LoginResponse:
     """Issue a JWT for valid credentials.
 
     This is a scaffold endpoint: any non-empty email/password pair is accepted.

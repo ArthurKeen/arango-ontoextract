@@ -128,6 +128,17 @@ EDGE_SUMMARY_FIELDS: Final[tuple[str, ...]] = (
 # ``e`` for edge loops.
 
 
+def aql_object_literal(var: str, fields: tuple[str, ...]) -> str:
+    """Build ``{ _key: c._key, ... }`` for the given fields.
+
+    Exposed separately from :func:`_aql_return_clause` so a caller can compose
+    it -- ``MERGE(<literal>, {...})`` -- rather than only use it as a whole
+    RETURN. The effective-ontology query needs that: it projects to the summary
+    set AND adds a couple of fields the Python stage still consumes.
+    """
+    return "{ " + ", ".join(f"{name}: {var}.{name}" for name in fields) + " }"
+
+
 def _aql_return_clause(var: str, fields: tuple[str, ...]) -> str:
     """Build a ``RETURN { _key: c._key, ... }`` clause for the given fields.
 
@@ -137,7 +148,7 @@ def _aql_return_clause(var: str, fields: tuple[str, ...]) -> str:
     (``tier``, ``status``, ``parent_uri``, ...) come back as ``null`` for
     documents that do not have them.
     """
-    return "RETURN { " + ", ".join(f"{name}: {var}.{name}" for name in fields) + " }"
+    return "RETURN " + aql_object_literal(var, fields)
 
 
 CLASS_SUMMARY_RETURN: Final[str] = _aql_return_clause("c", CLASS_SUMMARY_FIELDS)

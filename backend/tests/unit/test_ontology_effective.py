@@ -1213,3 +1213,61 @@ class TestRoundTripBudget:
         compute_effective_ontology(db, ontology_id="ont-self")
 
         assert db.collections.call_count == 1, "snapshot should be taken once, then cached"
+
+
+class TestSummaryProjectionHappensInTheDatabase:
+    """The projection existed but ran in Python, after full documents had
+    already crossed the wire — so ``evidence[]``, the heaviest field, was
+    fetched only to be discarded.
+
+    Measured on the JLR ontology's 753 subclass edges against the deployment
+    database: full documents 3154ms / 533KB; the same rows projected in AQL
+    515ms / 210KB, which is the round-trip floor. The whole difference was
+    payload.
+    """
+
+    def _query_for(self, profile: str) -> str:
+        db = _make_db(
+            registry_entries={"ont-self": {"_key": "ont-self", "name": "Solo", "updated_at": 1}},
+            aql_responses={},
+        )
+        compute_effective_ontology(db, ontology_id="ont-self", include=profile)
+        return next(
+            c.args[0]
+            for c in db.aql.execute.call_args_list
+            if "LET self = DOCUMENT" not in c.args[0]
+        )
+
+    def test_summary_profile_projects_fields_not_whole_documents(self) -> None:
+        query = self._query_for("summary")
+
+        assert "RETURN c)" not in query, "classes should be projected, not returned whole"
+        assert "c.label" in query and "c.uri" in query
+        # evidence[] is the reason documents are heavy and is not in the
+        # summary set, so it must not be named in the projection.
+        assert "evidence: c.evidence" not in query
+
+    def test_confidence_is_derived_in_aql_when_not_stored(self) -> None:
+        """It was the only reason evidence had to come back at all. Derived
+        with the same clamp-and-skip-non-numbers rule, so the value matches
+        what Python computed."""
+        query = self._query_for("summary")
+
+        assert "IS_NUMBER(x.evidence_confidence)" in query
+        assert "AVERAGE(vs)" in query
+        assert "MIN([MAX([x.evidence_confidence, 0]), 1])" in query
+
+    def test_subsumption_verdict_survives_for_the_flag(self) -> None:
+        """``mark_subsumption_flag`` collapses it to the summary's boolean, so
+        the raw verdict has to reach Python even though it is not a summary
+        field itself."""
+        assert "subsumption_verdict: e.subsumption_verdict" in self._query_for("summary")
+
+    def test_full_profile_still_returns_whole_documents(self) -> None:
+        query = self._query_for("full")
+
+        assert "RETURN c)" in query
+        # ``c.label`` also appears in ``SORT c.label ASC``, which is not a
+        # projection — key off the field-list shape instead.
+        assert "_key: c._key" not in query, "the full profile must not project"
+        assert "_key: e._key" not in query

@@ -72,10 +72,13 @@ from app.services.edge_confidence import (
     mark_subsumption_flag,
 )
 from app.services.ontology_projections import (
+    CLASS_SUMMARY_FIELDS,
+    EDGE_SUMMARY_FIELDS,
     INCLUDE_FULL,
     INCLUDE_SUMMARY,
     LIVE_EDGE_COLLECTIONS,
     LIVE_PROP_COLLECTIONS,
+    aql_object_literal,
     normalize_include,
     summarize_class,
     summarize_edge,
@@ -185,7 +188,7 @@ def compute_effective_ontology(
 
     t = time.perf_counter()
     classes_raw, edges_raw, props_raw = _fetch_entities_for_ontologies(
-        db, source_keys, existing=existing
+        db, source_keys, existing=existing, profile=profile
     )
     if include_restrictions:
         edges_raw = edges_raw + fetch_restriction_edges(db, source_keys, existing=existing)
@@ -387,6 +390,7 @@ def _fetch_entities_for_ontologies(
     ontology_ids: list[str],
     *,
     existing: set[str],
+    profile: str = INCLUDE_FULL,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Pull live classes / edges / properties for all ontologies in one shot.
 
@@ -416,10 +420,62 @@ def _fetch_entities_for_ontologies(
     edge_cols = tuple(c for c in LIVE_EDGE_COLLECTIONS if c in existing)
     prop_cols = tuple(c for c in LIVE_PROP_COLLECTIONS if c in existing)
 
+    # Project in the DATABASE for the summary profile, not in Python afterwards.
+    #
+    # The projection existed but ran after the fetch, so full documents crossed
+    # the wire and their heaviest field -- ``evidence[]`` -- was shipped only to
+    # be discarded. Measured on the JLR ontology's 753 subclass edges against
+    # the deployment database: full documents 3154ms / 533KB, the same rows
+    # projected in AQL 515ms / 210KB. 515ms is the round-trip floor, so the
+    # entire difference was payload.
+    #
+    # Two fields the Python stage still consumes are added back explicitly:
+    # ``confidence`` derived from ``evidence`` (the reason evidence was fetched
+    # at all -- computed here with the same clamp-and-skip-non-numbers rule so
+    # the value is identical), and ``subsumption_verdict``, which
+    # ``mark_subsumption_flag`` collapses into the summary's boolean.
+    summary = profile != INCLUDE_FULL
+    evidence_mean = (
+        "(LET vs = (FOR x IN (@ev_src.evidence || []) "
+        "FILTER IS_NUMBER(x.evidence_confidence) "
+        "RETURN MIN([MAX([x.evidence_confidence, 0]), 1])) "
+        "RETURN LENGTH(vs) == 0 ? null : AVERAGE(vs))[0]"
+    )
+
+    def _with_derived(var: str, literal: str) -> str:
+        mean = evidence_mean.replace("@ev_src", var)
+        return (
+            f"MERGE({literal}, {{ confidence: {var}.confidence != null "
+            f"? {var}.confidence : {mean} }})"
+        )
+
+    # Edges keep ``subsumption_verdict`` (collapsed to a boolean later) and
+    # properties keep the fields the range-edge enrichment lifts onto edges.
+    edge_body = (
+        "MERGE("
+        + _with_derived("e", aql_object_literal("e", EDGE_SUMMARY_FIELDS))
+        + ", { subsumption_verdict: e.subsumption_verdict })"
+        if summary
+        else "e"
+    )
+    prop_body = (
+        _with_derived(
+            "p",
+            aql_object_literal(
+                "p", ("_key", "_id", "uri", "ontology_id", "label", "description", "property_type")
+            ),
+        )
+        if summary
+        else "p"
+    )
+
+    class_body = (
+        _with_derived("c", aql_object_literal("c", CLASS_SUMMARY_FIELDS)) if summary else "c"
+    )
     class_sub = (
-        """(FOR c IN ontology_classes
+        f"""(FOR c IN ontology_classes
               FILTER c.ontology_id IN @oids AND c.expired == @never
-              SORT c.label ASC RETURN c)"""
+              SORT c.label ASC RETURN {class_body})"""
         if "ontology_classes" in existing
         else "[]"
     )
@@ -427,7 +483,7 @@ def _fetch_entities_for_ontologies(
         "FLATTEN([\n"
         + ",\n".join(
             f"(FOR e IN {col} FILTER e.ontology_id IN @oids AND e.expired == @never "
-            f'RETURN MERGE(e, {{edge_type: "{col}"}}))'
+            f'RETURN MERGE({edge_body}, {{edge_type: "{col}"}}))'
             for col in edge_cols
         )
         + "\n], 1)"
@@ -437,7 +493,8 @@ def _fetch_entities_for_ontologies(
     prop_sub = (
         "FLATTEN([\n"
         + ",\n".join(
-            f"(FOR p IN {col} FILTER p.ontology_id IN @oids AND p.expired == @never RETURN p)"
+            f"(FOR p IN {col} "
+            f"FILTER p.ontology_id IN @oids AND p.expired == @never RETURN {prop_body})"
             for col in prop_cols
         )
         + "\n], 1)"

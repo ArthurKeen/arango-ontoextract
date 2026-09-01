@@ -2,7 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { api, ApiError, backendUrl, type PaginatedResponse } from "@/lib/api-client";
+import {
+  api,
+  ApiError,
+  backendUrl,
+  type PaginatedResponse,
+} from "@/lib/api-client";
 import { withBasePath } from "@/lib/base-path";
 import type {
   OntologyRegistryEntry,
@@ -87,7 +92,7 @@ function SearchResultsPanel({
                 const targetKey =
                   item.source === "registry"
                     ? item._key
-                    : item.ontology_id ?? item._key;
+                    : (item.ontology_id ?? item._key);
                 onOntologyClick(targetKey);
               }}
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
@@ -119,6 +124,19 @@ function SearchResultsPanel({
     </div>
   );
 }
+
+/** Export menu labels. `shacl` emits the shapes graph (FR-14.8): constraints
+ *  the source published as SHACL, plus shapes derived from OWL restrictions —
+ *  the derived ones carry sh:Warning and say so (FR-14.9). */
+const EXPORT_FORMAT_LABELS: Record<
+  "turtle" | "jsonld" | "csv" | "shacl",
+  string
+> = {
+  turtle: "OWL / Turtle",
+  jsonld: "JSON-LD",
+  csv: "CSV",
+  shacl: "SHACL shapes",
+};
 
 export default function LibraryPage() {
   const [ontologies, setOntologies] = useState<OntologyRegistryEntry[]>([]);
@@ -236,7 +254,9 @@ export default function LibraryPage() {
         const formData = new FormData();
         formData.append("file", file);
         const res = await fetch(
-          backendUrl(`/api/v1/ontology/library/${selectedOntologyId}/add-document`),
+          backendUrl(
+            `/api/v1/ontology/library/${selectedOntologyId}/add-document`,
+          ),
           { method: "POST", body: formData },
         );
         if (!res.ok) {
@@ -279,8 +299,7 @@ export default function LibraryPage() {
         const propEdges = edgeRes.data.filter((e) => {
           const et = e.edge_type ?? (e as Record<string, unknown>).type;
           return (
-            et === "has_property" &&
-            e._from === `ontology_classes/${classKey}`
+            et === "has_property" && e._from === `ontology_classes/${classKey}`
           );
         });
 
@@ -531,7 +550,9 @@ export default function LibraryPage() {
                   {/* Action buttons */}
                   <div className="flex gap-2 mb-3">
                     <a
-                      href={withBasePath(`/workspace?ontologyId=${selectedOntology._key}`)}
+                      href={withBasePath(
+                        `/workspace?ontologyId=${selectedOntology._key}`,
+                      )}
                       className="flex-1 text-center text-xs px-3 py-2 bg-indigo-600 hover:brightness-90 text-on-accent rounded-lg transition-colors font-medium"
                     >
                       Open in Workspace
@@ -548,7 +569,9 @@ export default function LibraryPage() {
                       Dependencies
                     </a>
                     <a
-                      href={withBasePath(`/ontology/edit?ontologyId=${selectedOntology._key}`)}
+                      href={withBasePath(
+                        `/ontology/edit?ontologyId=${selectedOntology._key}`,
+                      )}
                       className="flex-1 text-center text-xs px-3 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors font-medium"
                     >
                       Edit (Legacy)
@@ -556,29 +579,38 @@ export default function LibraryPage() {
                     <div className="relative">
                       <button
                         onClick={() => setExportOpen((v) => !v)}
-                        onBlur={() => setTimeout(() => setExportOpen(false), 150)}
+                        onBlur={() =>
+                          setTimeout(() => setExportOpen(false), 150)
+                        }
                         className="text-xs px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-medium"
                       >
                         Export ▾
                       </button>
                       {exportOpen && (
                         <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                          {(["turtle", "jsonld", "csv"] as const).map((fmt) => {
-                            const label = fmt === "turtle" ? "OWL / Turtle" : fmt === "jsonld" ? "JSON-LD" : "CSV";
-                            return (
-                              <a
-                                key={fmt}
-                                href={backendUrl(`/api/v1/ontology/${selectedOntology._key}/export?format=${fmt}`)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => setExportOpen(false)}
-                                className="block px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
-                              >
-                                {label}
-                              </a>
-                            );
-                          })}
+                          {/* FR-14.10 — `shacl` was implemented in the backend and
+                              missing here, so the only way to obtain a shapes graph
+                              was to type the URL. */}
+                          {(["turtle", "jsonld", "csv", "shacl"] as const).map(
+                            (fmt) => {
+                              const label = EXPORT_FORMAT_LABELS[fmt];
+                              return (
+                                <a
+                                  key={fmt}
+                                  href={backendUrl(
+                                    `/api/v1/ontology/${selectedOntology._key}/export?format=${fmt}`,
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => setExportOpen(false)}
+                                  className="block px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
+                                >
+                                  {label}
+                                </a>
+                              );
+                            },
+                          )}
                         </div>
                       )}
                     </div>
@@ -723,7 +755,9 @@ export default function LibraryPage() {
 
                     {/* Class-level actions */}
                     <a
-                      href={withBasePath(`/workspace?ontologyId=${selectedOntology._key}`)}
+                      href={withBasePath(
+                        `/workspace?ontologyId=${selectedOntology._key}`,
+                      )}
                       className="block w-full text-center text-xs px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors font-medium"
                     >
                       View in Workspace

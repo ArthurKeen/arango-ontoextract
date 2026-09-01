@@ -596,6 +596,104 @@ _SHACL_INTEGER_KINDS = {"sh:minCount", "sh:maxCount"}
 _SHACL_URI_KINDS = {"sh:datatype", "sh:class", "sh:nodeKind"}
 
 
+#: OWL restriction kind -> the SHACL constraint(s) that express the same shape
+#: of rule. ``cardinality N`` is exact, so it becomes a min AND a max.
+#:
+#: ``someValuesFrom`` maps to ``sh:class`` alone, NOT ``sh:class`` plus
+#: ``sh:minCount 1``. The existential says "at least one value is a C"; adding a
+#: minCount would additionally require the property to be present, and require
+#: EVERY value to be a C via sh:class -- two claims the axiom does not make.
+#: Expressing it exactly needs sh:qualifiedValueShape, which the wire shape
+#: here cannot carry; understating it is the safer error.
+_OWL_TO_SHACL_KINDS: dict[str, tuple[str, ...]] = {
+    "minCardinality": ("sh:minCount",),
+    "maxCardinality": ("sh:maxCount",),
+    "cardinality": ("sh:minCount", "sh:maxCount"),
+    "allValuesFrom": ("sh:class",),
+    "someValuesFrom": ("sh:class",),
+    "hasValue": ("sh:hasValue",),
+}
+
+#: FR-14.9. A derived shape is a WARNING, never a violation.
+#:
+#: OWL is open-world: ``owl:minCardinality 1`` licenses the inference that an
+#: instance has one, it does not say an instance lacking one is wrong. SHACL is
+#: closed-world: ``sh:minCount 1`` says exactly that. Deriving the second from
+#: the first manufactures a claim the source never made, so the derived shape
+#: reports rather than fails, and says where it came from. A curator promotes
+#: it to sh:Violation deliberately, and that promotion is a recorded decision.
+_DERIVED_SEVERITY = "sh:Warning"
+
+
+#: Severity is stored as a short string ("sh:Warning") by both the SHACL
+#: importer and the derivation above. ``URIRef("sh:Warning")`` is NOT that
+#: term -- it is a relative reference that serialises as <sh:Warning> and means
+#: nothing to a SHACL processor. Resolve the prefix properly.
+_SHACL_SEVERITIES: dict[str, URIRef] = {
+    "sh:violation": SH.Violation,
+    "violation": SH.Violation,
+    "sh:warning": SH.Warning,
+    "warning": SH.Warning,
+    "sh:info": SH.Info,
+    "info": SH.Info,
+}
+
+
+def shacl_severity_iri(raw: object) -> URIRef | None:
+    """Resolve a stored severity to its SHACL term, or ``None`` if unusable."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    known = _SHACL_SEVERITIES.get(text.lower())
+    if known is not None:
+        return known
+    # An absolute IRI the importer captured verbatim is passed through; a bare
+    # relative token is dropped rather than emitted as a broken reference.
+    if text.startswith(("http://", "https://")):
+        return URIRef(text)
+    return None
+
+
+def derive_shacl_rows(owl_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn ``owl:Restriction`` constraint rows into SHACL-shaped rows (FR-14.8).
+
+    Returns rows in the same wire shape the imported-SHACL path already uses,
+    so both go through one grouping and one emitter. Rows that carry no usable
+    mapping are dropped rather than guessed at.
+
+    Shapes that ARRIVED as SHACL are not passed through here: they were
+    published as validation by their author and keep the severity that author
+    chose. Only derivation needs the warning.
+    """
+    derived: list[dict[str, Any]] = []
+    for row in owl_rows:
+        kinds = _OWL_TO_SHACL_KINDS.get(str(row.get("restriction_type") or ""))
+        if not kinds:
+            continue
+        value = row.get("restriction_value")
+        confidence = row.get("confidence")
+        note = (
+            f"Derived by arango-ontoextract from an owl:{row.get('restriction_type')} "
+            "restriction. The source did not publish this as a SHACL constraint; it "
+            "reports rather than fails until a curator promotes it."
+        )
+        if isinstance(confidence, int | float) and confidence < 1:
+            note += f" Extraction confidence {confidence:.2f}."
+        for kind in kinds:
+            derived.append(
+                {
+                    **row,
+                    "constraint_type": "sh:PropertyShape",
+                    "restriction_type": kind,
+                    "restriction_value": value,
+                    "severity": _DERIVED_SEVERITY,
+                    "message": note,
+                    "derived_from_owl": True,
+                }
+            )
+    return derived
+
+
 def _emit_shacl_value(g: Graph, shape: BNode, kind: str, value: Any) -> bool:
     """Add the value triple for one SHACL constraint to the property shape.
 
@@ -691,11 +789,16 @@ def _build_shacl_graph(ontology_id: str) -> Graph:
     g.add((ont_node, RDF.type, OWL.Ontology))
     g.add((ont_node, RDFS.label, Literal(f"SHACL shapes for {ontology_id}")))
 
-    rows = [
-        row
-        for row in list_constraints_for_ontology(db, ontology_id=ontology_id)
-        if row.get("constraint_type") in {"sh:NodeShape", "sh:PropertyShape"}
-    ]
+    all_rows = list_constraints_for_ontology(db, ontology_id=ontology_id)
+    # Shapes the source published, kept exactly as authored...
+    rows = [r for r in all_rows if r.get("constraint_type") in {"sh:NodeShape", "sh:PropertyShape"}]
+    # ...plus shapes derived from OWL restrictions (FR-14.8), which carry a
+    # warning severity and say so (FR-14.9). Without this the export was empty
+    # for every ontology that never imported a shapes graph -- which, measured
+    # across this workspace, was all of them.
+    rows = rows + derive_shacl_rows(
+        [r for r in all_rows if r.get("constraint_type") == "owl:Restriction"]
+    )
     if not rows:
         log.info(
             "no SHACL constraints to export",
@@ -767,11 +870,15 @@ def _build_shacl_graph(ontology_id: str) -> Graph:
                     skipped_value += 1
                 if severity_iri is None and r.get("severity"):
                     severity_iri = r["severity"]
-                if message_text is None and r.get("description"):
-                    message_text = r["description"]
+                # ``message`` is what a derived shape uses to explain itself;
+                # ``description`` is the imported row's own text. Prefer the
+                # explicit message so provenance is not lost behind it.
+                if message_text is None and (r.get("message") or r.get("description")):
+                    message_text = r.get("message") or r.get("description")
 
-            if severity_iri:
-                g.add((pshape, SH.severity, URIRef(severity_iri)))
+            resolved_severity = shacl_severity_iri(severity_iri)
+            if resolved_severity is not None:
+                g.add((pshape, SH.severity, resolved_severity))
             if message_text:
                 g.add((pshape, SH.message, Literal(message_text)))
             properties_emitted += 1

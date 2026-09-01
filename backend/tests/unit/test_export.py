@@ -944,10 +944,20 @@ class TestExportShacl:
         assert (URIRef("http://example.org/test#CustomerShape"), SH.targetClass, None) in g
         assert (URIRef("http://example.org/test#OrderShape"), SH.targetClass, None) in g
 
-    def test_owl_typed_rows_excluded_from_shacl_export(self):
-        """The cross-vocabulary firewall in reverse: OWL rows MUST NOT
-        leak into the SHACL graph. Pinned so a future filter loosening
-        doesn't quietly produce a bogus shapes file."""
+    def test_owl_rows_now_produce_derived_shapes(self):
+        """Superseded by FR-14.8.
+
+        This used to assert OWL rows must NOT reach the SHACL graph, on the
+        reasoning that mixing vocabularies produces a bogus shapes file. The
+        firewall was real but drawn in the wrong place: it left the export
+        empty for every ontology that never imported a shapes graph, which
+        across the whole workspace was all of them, while the system held
+        1,327 OWL restrictions it could have expressed.
+
+        What actually must not happen is a derived shape passing itself off as
+        one the source published. That is now prevented by severity and
+        provenance (FR-14.9), asserted below, rather than by refusing to emit.
+        """
         ttl = self._ttl_for_shacl(
             [
                 _constraint(
@@ -959,7 +969,14 @@ class TestExportShacl:
         )
         g = Graph()
         g.parse(data=ttl, format="turtle")
-        assert (None, None, SH.NodeShape) not in g
+
+        assert (None, None, SH.NodeShape) in g, "the restriction should now be expressed"
+        severities = {str(o) for o in g.objects(None, SH.severity)}
+        assert severities == {"http://www.w3.org/ns/shacl#Warning"}, (
+            "a derived shape reports; it never fails"
+        )
+        messages = " ".join(str(o) for o in g.objects(None, SH.message))
+        assert "Derived by arango-ontoextract" in messages
 
 
 class TestAboxExport:
@@ -1059,3 +1076,138 @@ class TestAboxExport:
         )
         assert n == 0
         assert len(g) == 0
+
+
+# ---------------------------------------------------------------------------
+# SHACL derived from OWL restrictions (FR-14.8 / FR-14.9)
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveShaclRows:
+    """The exporter used to emit shapes only for constraints that ARRIVED as
+    SHACL, so an ontology that never imported a shapes graph exported a header
+    and nothing else — which, measured across the workspace, was all of them.
+    """
+
+    def _owl_row(self, **over):
+        row = {
+            "on_class": "ontology_classes/Observation",
+            "property_uri": "http://x/hasResult",
+            "constraint_type": "owl:Restriction",
+            "restriction_type": "minCardinality",
+            "restriction_value": 1,
+            "confidence": 1.0,
+            "description": "Imported from OWL (subClassOf)",
+        }
+        row.update(over)
+        return row
+
+    def test_cardinality_bounds_map_to_counts(self):
+        from app.services.export import derive_shacl_rows
+
+        rows = derive_shacl_rows([self._owl_row(restriction_type="minCardinality")])
+        assert [r["restriction_type"] for r in rows] == ["sh:minCount"]
+
+        rows = derive_shacl_rows([self._owl_row(restriction_type="maxCardinality")])
+        assert [r["restriction_type"] for r in rows] == ["sh:maxCount"]
+
+    def test_exact_cardinality_becomes_a_min_and_a_max(self):
+        from app.services.export import derive_shacl_rows
+
+        rows = derive_shacl_rows(
+            [self._owl_row(restriction_type="cardinality", restriction_value=2)]
+        )
+
+        assert sorted(r["restriction_type"] for r in rows) == ["sh:maxCount", "sh:minCount"]
+        assert {r["restriction_value"] for r in rows} == {2}
+
+    def test_value_restrictions_map_to_class(self):
+        from app.services.export import derive_shacl_rows
+
+        for kind in ("allValuesFrom", "someValuesFrom"):
+            rows = derive_shacl_rows(
+                [self._owl_row(restriction_type=kind, restriction_value="http://x/Result")]
+            )
+            assert [r["restriction_type"] for r in rows] == ["sh:class"]
+
+    def test_somevaluesfrom_does_not_also_assert_mincount(self):
+        """The existential says "at least one value is a C". Adding minCount
+        would additionally require the property to be present — a claim the
+        axiom does not make. Understating is the safer error."""
+        from app.services.export import derive_shacl_rows
+
+        rows = derive_shacl_rows(
+            [self._owl_row(restriction_type="someValuesFrom", restriction_value="http://x/R")]
+        )
+
+        assert "sh:minCount" not in {r["restriction_type"] for r in rows}
+
+    def test_unmappable_restrictions_are_dropped_not_guessed(self):
+        from app.services.export import derive_shacl_rows
+
+        assert derive_shacl_rows([self._owl_row(restriction_type="minQualifiedCardinality")]) == []
+
+    def test_every_derived_shape_is_a_warning_never_a_violation(self):
+        """FR-14.9. OWL is open-world: minCardinality 1 licenses an inference,
+        it does not say an instance lacking the value is wrong. SHACL's
+        minCount says exactly that. The derived shape must report, not fail."""
+        from app.services.export import derive_shacl_rows
+
+        rows = derive_shacl_rows(
+            [self._owl_row(restriction_type=k) for k in ("minCardinality", "cardinality")]
+        )
+
+        assert rows
+        assert {r["severity"] for r in rows} == {"sh:Warning"}
+
+    def test_every_derived_shape_says_where_it_came_from(self):
+        from app.services.export import derive_shacl_rows
+
+        row = derive_shacl_rows([self._owl_row()])[0]
+
+        assert "Derived by arango-ontoextract" in row["message"]
+        assert "owl:minCardinality" in row["message"]
+        assert row["derived_from_owl"] is True
+
+    def test_llm_confidence_is_carried_into_the_message(self):
+        """ "The manual says SHALL" is a model reading prose, not an axiom."""
+        from app.services.export import derive_shacl_rows
+
+        row = derive_shacl_rows([self._owl_row(confidence=0.62)])[0]
+
+        assert "0.62" in row["message"]
+
+    def test_full_confidence_is_not_mentioned(self):
+        from app.services.export import derive_shacl_rows
+
+        row = derive_shacl_rows([self._owl_row(confidence=1.0)])[0]
+
+        assert "confidence" not in row["message"].lower()
+
+
+class TestShaclSeverityResolution:
+    """``URIRef("sh:Warning")`` is not the SHACL term — it is a relative
+    reference that serialises as <sh:Warning> and means nothing to a
+    processor. This affected imported shapes too, not just derived ones.
+    """
+
+    def test_short_forms_resolve_to_the_shacl_namespace(self):
+        from app.services.export import shacl_severity_iri
+
+        for raw in ("sh:Warning", "warning", "WARNING"):
+            assert str(shacl_severity_iri(raw)) == "http://www.w3.org/ns/shacl#Warning"
+        assert str(shacl_severity_iri("sh:Violation")).endswith("#Violation")
+        assert str(shacl_severity_iri("sh:Info")).endswith("#Info")
+
+    def test_absolute_iri_passes_through(self):
+        from app.services.export import shacl_severity_iri
+
+        got = shacl_severity_iri("http://example.org/custom#Severe")
+        assert str(got) == "http://example.org/custom#Severe"
+
+    def test_unrecognised_token_is_dropped_not_emitted_broken(self):
+        from app.services.export import shacl_severity_iri
+
+        assert shacl_severity_iri("ex:Whatever") is None
+        assert shacl_severity_iri("") is None
+        assert shacl_severity_iri(None) is None

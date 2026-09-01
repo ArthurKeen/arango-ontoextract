@@ -66,7 +66,7 @@
 
 ## 1. Executive Summary
 
-Arango-OntoExtract (AOE) is an LLM-driven ontology extraction and curation platform built on ArangoDB. The system ingests unstructured documents (PDF, DOCX, PPTX, Markdown) including embedded visual evidence such as slide diagrams, screenshots, and scanned pages; it automatically generates formal domain ontologies expressed in OWL 2 / RDFS (with optional SKOS vocabulary support), and provides a visual curation interface for domain experts to review, refine, and promote extracted knowledge. Ontologies are stored in ArangoDB via ArangoRDF's PGT transformation, which preserves OWL metamodel semantics while leveraging ArangoDB's multi-model capabilities.
+Arango-OntoExtract (AOE) is an LLM-driven ontology extraction and curation platform built on ArangoDB. The system ingests unstructured documents (PDF, DOCX, PPTX, Markdown) including embedded visual evidence such as slide diagrams, screenshots, and scanned pages; it automatically generates formal domain ontologies expressed in OWL 2 / RDFS (with optional SKOS vocabulary support), and provides a visual curation interface for domain experts to review, refine, and promote extracted knowledge. Ontologies are parsed with `rdflib` and materialised into property-graph-aligned collections in ArangoDB (ADR-006), preserving OWL metamodel semantics while leveraging ArangoDB's multi-model capabilities.
 
 The platform supports a **two-tier architecture**:
 
@@ -281,7 +281,7 @@ This section defines the end-to-end workflows performed by each role. These work
 1. User navigates to `/library` or `/upload`
 2. User clicks "Import Standard Ontology" → catalog browser opens
 3. User selects FIBO Financial Instruments module → clicks "Import"
-4. System downloads OWL file, imports via ArangoRDF PGT transformation
+4. System downloads OWL file (or reads the bundled copy) and imports it via the in-tree OWL importer
 5. New ontology appears in library with `source_type: "import"`, `status: "active"`
 6. Per-ontology named graph created with visualizer assets (themes, queries, actions)
 7. `owl:imports` edges created linking to any dependencies already in the library
@@ -585,7 +585,7 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 │  │ Service  │  │ Service      │  │ Resol.  │  │ Service     │  │
 │  └──────────┘  └──────────────┘  └─────────┘  └─────────────┘  │
 │  ┌──────────────────────┐  ┌────────────────────────────────┐   │
-│  │ ArangoRDF Bridge     │  │ MCP Server (dev + runtime)     │   │
+│  │ OWL Importer (rdflib)│  │ MCP Server (dev + runtime)     │   │
 │  └──────────────────────┘  └────────────────────────────────┘   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ ArangoDB Python Driver
@@ -603,7 +603,7 @@ This matrix maps each use case to testable steps for E2E test scenarios:
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
 | Database | ArangoDB 3.12+ | Multi-model (document + graph + vector + search) in single engine |
-| Ontology Bridge | `ArangoRDF` | Stores OWL/RDFS ontologies in ArangoDB via PGT, preserving OWL metamodel semantics |
+| Ontology import | `rdflib` (in-tree importer) | Parses OWL/RDFS/SKOS and materialises it into the PGT-aligned collections, preserving OWL metamodel semantics. **Not** `arango-rdf` — see FR-2.5. |
 | LLM Orchestration | LangChain (individual LLM calls with structured output) + LangGraph (multi-step agent orchestration) | Complementary: LangChain for single calls, LangGraph for pipeline |
 | LLM Provider | Claude 3.5 Sonnet (primary), GPT-4o (fallback) | Best-in-class structured extraction |
 | Backend Framework | FastAPI (Python 3.11+) | Async, Pydantic-native, OpenAPI auto-docs |
@@ -722,7 +722,7 @@ The Domain Ontology Library is not a single monolithic graph — it is a **manag
 
 **Multi-Ontology Isolation Strategy:**
 
-ArangoRDF's PGT transformation stores OWL/RDFS/SKOS ontologies in ArangoDB using an **OWL metamodel strategy**: `owl:Class` instances become documents in vertex collections, OWL predicates (`rdfs:subClassOf`, `owl:ObjectProperty`, etc.) become edges, and OWL axioms are preserved as document properties. Multiple ontologies share the same collections, distinguished by IRI namespace. Since IRI namespaces alone are insufficient for reliable isolation (ontologies may reference each other's IRIs), AOE adds an explicit **application-level isolation layer**:
+AOE's importer stores OWL/RDFS/SKOS ontologies in ArangoDB using an **OWL metamodel strategy** (the layout ADR-006 calls PGT-aligned): `owl:Class` instances become documents in vertex collections, OWL predicates (`rdfs:subClassOf`, `owl:ObjectProperty`, etc.) become edges, and OWL axioms are preserved as document properties. Multiple ontologies share the same collections, distinguished by IRI namespace. Since IRI namespaces alone are insufficient for reliable isolation (ontologies may reference each other's IRIs), AOE adds an explicit **application-level isolation layer**:
 
 | Mechanism | How It Works |
 |-----------|-------------|
@@ -730,7 +730,7 @@ ArangoRDF's PGT transformation stores OWL/RDFS/SKOS ontologies in ArangoDB using
 | **Per-ontology named graph** | Each ontology gets its own ArangoDB named graph with a human-readable slug name derived from the ontology's `name` field (e.g., `ontology_financial_services_domain`). This enables graph traversals scoped to a single ontology and provides clear identification in the ArangoDB UI. |
 | **Combined domain graph** | The `domain_ontology` graph is the single composite view across all active library ontologies, used when Tier 2 extraction needs full domain context. There is no separate "all ontologies" graph — `domain_ontology` serves this purpose. |
 | **IRI prefix tracking** | Each registry entry records its `iri_prefix` (e.g., `http://xmlns.com/foaf/0.1/`). Cross-ontology references are detectable by IRI prefix mismatch. |
-| **ArangoRDF `uri_map_collection_name`** | Used during import to enable incremental multi-file imports and track URI-to-collection mappings across ontologies. |
+| **URI-keyed upsert** | The importer keys every class and property by `uri`, so re-importing a file or importing a second file that references the same IRIs updates rather than duplicates. |
 
 **Ontology Lifecycle:**
 
@@ -959,7 +959,7 @@ RETURN { before, after }
 | FR-2.2 | Extraction schema supports OWL 2 / RDFS / SKOS constructs and constraints | `owl:Class`, `rdfs:subClassOf`, `owl:equivalentClass`, `owl:ObjectProperty`, `owl:DatatypeProperty`, OWL restrictions (`owl:Restriction`, cardinality, `owl:allValuesFrom`, `owl:someValuesFrom`), and optionally `skos:Concept`, `skos:broader`, `skos:prefLabel` for taxonomy-style ontologies. SHACL shapes (`sh:NodeShape`, `sh:PropertyShape`) are also extractable when the source document describes validation rules or data constraints (see §6.14). |
 | FR-2.3 | Multi-pass extraction with self-consistency check | LLM runs N passes; only concepts appearing in ≥ M passes are included (configurable) |
 | FR-2.4 | RAG-augmented extraction | LLM prompt includes relevant chunks retrieved via vector similarity for context |
-| FR-2.5 | Import via ArangoRDF PGT transformation | Generated OWL/RDFS → ArangoDB via `ArangoRDF.rdf_to_arangodb_by_pgt()`, preserving OWL class hierarchy, property domains/ranges, and constraints |
+| FR-2.5 | Import into PGT-aligned collections | Generated OWL/RDFS → ArangoDB via the in-tree `rdflib` importer (`backend/app/services/ontology_import.py`), preserving OWL class hierarchy, property domains/ranges, restrictions and SHACL shapes. AOE does **not** depend on `arango_rdf`: the dependency was never declared or installed, and `rdf_to_arangodb_by_pgt()` is not part of arango-rdf 2.0.0's API. "PGT-aligned" denotes the ADR-006 collection layout, not a third-party transformation. |
 | FR-2.6 | Extraction results land in staging graph | Never written directly to production; always to `staging_{run_id}` first |
 | FR-2.7 | Each extracted ontology registered in library | New `ontology_registry` entry created with source metadata; all classes/properties tagged with `ontology_id` |
 | FR-2.8 | Extraction results materialized into graph collections | After successful extraction, classes are written to `ontology_classes`, properties to `ontology_properties`, and edges (`has_property`, `subclass_of`, `extracted_from`) are created to form a traversable graph. The `aoe_process` graph edges (`has_chunk`, `produced_by`) are also populated to maintain the full pipeline lineage. |
@@ -976,21 +976,21 @@ RETURN { before, after }
 | FR-2.19 | Ontology base namespace and absolute IRIs | Every extracted class and property MUST carry an **absolute** IRI built from a per-ontology base namespace (default `http://<configured-host>/ontology/<ontology_id>#`, overridable per ontology and shown in the ontology's info panel). The extraction prompt MUST NOT present a placeholder the model can copy verbatim: the observed failure is a schema line reading `"uri": "string (namespace#ClassName)"` with the real instruction 97 lines later as a soft example, which produced literal `namespace#Vehicle` IRIs throughout a 667-class ontology. Any URI that is relative, or whose authority is a placeholder (`namespace`, `example.org`), is rewritten onto the ontology's base at persistence time and flagged for review. **This is not cosmetic.** `owl_serializer` emits `URIRef(cls.uri)` directly, so a relative IRI produces invalid RDF on export; and §6.20's curated-label store joins decisions to concepts by `concept_uri`, so two ontologies both emitting `namespace#Vehicle` would silently share label decisions and alignment would see false equivalence. |
 | FR-2.20 | Subsumption judge in the extraction loop | Before `rdfs:subClassOf` assertions are persisted, a secondary judge evaluates each one against the question *"is every X a Y?"* and returns a verdict with a reason. Failures are **flagged, not silently dropped** — a wrong subclass edge and a missing one are both defects, and an extractor that quietly discards its own output is harder to debug than one that reports. The judge prompt carries a **few-shot dictionary of real failures from this corpus** (Airbag/Supplementary Restraint System, Hose/Portable Rinse System, Smart Key Component/Smart Key System, Speed Rating/Tyre, Tyre Manufacturer Instructions/Tyre, Tyre/Vehicle, Roof Rack/Vehicle, Safety Feature/Vehicle Component) alongside genuine passes (Winter Tyre/Tyre, Unleaded Fuel/Fuel Type, Child Seat/Child Restraint), so the baseline is set by observed behaviour rather than an abstract instruction. The same dictionary is added to the EXTRACTION prompt: catching a mistake is worth less than not making it. **Measured baseline: ~52% of the 753 subclass edges in the JLR extraction fail this test** (§6.21), so the judge has a specific number to improve on and its value is verifiable rather than assumed. Once the upper ontology exists the judge also proposes the relation the kinds license (FR-21.7); until then it flags with a reason, which needs no modelling decision and is therefore not blocked on Q15. |
 
-**ArangoRDF Import Detail:**
+**OWL Import Detail:**
 
-The ArangoRDF library (`arango_rdf`) is the engine for importing ontologies into ArangoDB. The import path is:
+The in-tree importer (`backend/app/services/ontology_import.py`, built on `rdflib`) is the engine for importing ontologies into ArangoDB. The import path is:
 
 ```
 Source (OWL/TTL/RDF/SKOS)
     ↓  rdflib.Graph.parse()
 rdflib Graph (in-memory OWL/RDFS/SKOS)
-    ↓  ArangoRDF.rdf_to_arangodb_by_pgt(name=..., uri_map_collection_name=...)
+    ↓  ontology_import.import_from_file(...) — rdflib parse → PGT-aligned collections
 ArangoDB Collections (OWL metamodel: owl:Class → collection, predicates → edges)
     ↓  AOE post-processing
 Tag all imported docs with ontology_id, create per-ontology named graph
 ```
 
-| ArangoRDF Concept | AOE Usage |
+| Import Concept | AOE Usage |
 |-------------------|-----------|
 | `name` parameter | Per-ontology PGT graph name (e.g., `"foaf"`, `"schema_org"`) |
 | `uri_map_collection_name` | Shared URI→collection map enabling incremental multi-ontology imports without collisions |
@@ -999,7 +999,7 @@ Tag all imported docs with ontology_id, create per-ontology named graph
 
 **Multi-Ontology Import Strategy:**
 
-ArangoRDF merges all imports into shared collections distinguished by IRI namespace. Since IRI-only isolation is fragile, AOE applies a post-import tagging step:
+The importer merges all imports into shared collections distinguished by IRI namespace. Since IRI-only isolation is fragile, AOE applies a post-import tagging step:
 
 1. Import ontology via PGT with a unique `name` per ontology
 2. After import, query for all documents whose `_uri` matches the ontology's IRI prefix
@@ -1372,13 +1372,13 @@ The library's MCP server (`arango-er-mcp`) runs as a separate process alongside 
 
 ### 6.8 Import & Export
 
-**Description:** Bi-directional interoperability with standard ontology formats, powered by ArangoRDF for import and rdflib for export.
+**Description:** Bi-directional interoperability with standard ontology formats, powered by `rdflib` for both import and export.
 
 **Requirements:**
 
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|-------------------|
-| FR-8.1 | Import OWL/TTL/RDF/SKOS files as Domain Ontologies via ArangoRDF | Standard ontologies (FOAF, Schema.org, custom OWL, SKOS taxonomies) importable via `rdf_to_arangodb_by_pgt()` with automatic `ontology_registry` entry creation and `ontology_id` tagging |
+| FR-8.1 | Import OWL/TTL/RDF/SKOS files as Domain Ontologies | Standard ontologies (FOAF, Schema.org, custom OWL, SKOS taxonomies) importable via `rdf_to_arangodb_by_pgt()` with automatic `ontology_registry` entry creation and `ontology_id` tagging |
 | FR-8.2 | Import multiple ontologies into the same database | Each import creates a separate `ontology_registry` entry and per-ontology named graph; shared collections use `ontology_id` for isolation |
 | FR-8.3 | Ontology Library browser in UI | List all registered ontologies with stats (class count, property count, status); drill into any ontology's class hierarchy. Clicking a class shows inline detail panel with description, URI, confidence, RDF type, all properties (with range types), and a link to the ArangoDB Graph Visualizer for the per-ontology graph. |
 | FR-8.4 | Ontology composition for organizations | Organizations select which domain ontologies from the library apply to them; Tier 2 extraction uses only selected base ontologies as context |
@@ -1388,7 +1388,7 @@ The library's MCP server (`arango-er-mcp`) runs as a separate process alongside 
 | FR-8.8 | Cross-ontology dependency tracking via `owl:imports` | When ontology A references classes from ontology B (via `owl:imports` or cross-namespace URIs), the dependency is recorded as an `imports` edge between their `ontology_registry` entries. The `ontology_registry` document stores an `owl_imports` list of dependent ontology URIs. |
 | FR-8.9 | Ontology imports graph visualization | The `imports` edges between `ontology_registry` entries form a traversable dependency graph. This graph is queryable via AQL (`FOR v, e IN 1..N OUTBOUND reg imports ...`) and visualizable in the ArangoDB Visualizer and the frontend Ontology Library as a dependency tree. Users can see which ontologies depend on which others. |
 | FR-8.10 | Upper/domain ontology selection in UI | When creating or extending an ontology, the UI provides a searchable selector showing all ontologies in the library. Users can select one or more upper/domain ontologies to serve as the base. Selected ontologies are: (a) passed as context to the extraction LLM, (b) recorded as `imports` edges, and (c) used for cross-tier entity resolution. |
-| FR-8.11 | Import existing standard ontologies (FIBO, Schema.org, FOAF, etc.) | The import endpoint accepts any valid OWL/TTL/RDF/SKOS file, including large industry-standard ontologies like FIBO (Financial Industry Business Ontology), Schema.org, Dublin Core, PROV-O, etc. The ArangoRDF PGT import handles arbitrarily large ontologies. A built-in catalog of common ontology URLs (FIBO, Schema.org, FOAF, Dublin Core) is provided for one-click import from the UI. |
+| FR-8.11 | Import existing standard ontologies (FIBO, Schema.org, FOAF, etc.) | The import endpoint accepts any valid OWL/TTL/RDF/SKOS file, including large industry-standard ontologies like FIBO (Financial Industry Business Ontology), Schema.org, Dublin Core, PROV-O, etc. The importer handles arbitrarily large ontologies. A built-in catalog of common ontology URLs (FIBO, Schema.org, FOAF, Dublin Core) is provided for one-click import from the UI. |
 | FR-8.12 | Full CRUD on ontologies | Ontologies support: **Create** (via import or extraction), **Read** (library detail, class hierarchy, graph exploration), **Update** (add documents, curate classes, change metadata, re-extract), and **Delete** (deprecation with cascade analysis). |
 | FR-8.13 | Ontology deletion with cascade analysis | Deleting (deprecating) an ontology requires analysis: if other ontologies import it (via `imports` edges), the system warns and requires confirmation. Deleting an ontology expires all its classes, properties, and edges (temporal deletion, not hard delete), removes the per-ontology named graph, and marks the registry entry as `deprecated`. The `domain_ontology` composite graph automatically excludes deprecated entities via `expired` filter. |
 | FR-8.14 | Document deletion does not cascade to ontology | Deleting a document soft-deletes the document and its chunks. It does **not** delete ontology classes that were extracted from it — those classes may have been curated, approved, or enriched from other documents. The `extracted_from` provenance edges are expired. A warning lists which ontologies were sourced from the deleted document. |
@@ -1629,7 +1629,7 @@ Physical Schema Snapshot (collections, edges, named graphs, sampled docs, indexe
 Conceptual Model (entities, relationships, properties, mappings)
     ↓  export_conceptual_model_as_owl_turtle()
 OWL/Turtle Output
-    ↓  ArangoRDF PGT import (into AOE)
+    ↓  OWL import (into AOE's PGT-aligned collections)
 Ontology in the AOE Library
 ```
 
@@ -1652,7 +1652,7 @@ Ontology in the AOE Library
 | FR-9.1 | Connect to any ArangoDB instance and extract schema | User provides connection URL + credentials; system produces physical schema snapshot |
 | FR-9.2 | Optional LLM enhancement for semantic inference | Without LLM: the deterministic named-graph-aware direct extractor (provenance, SHACL, auto-imports) is the baseline. With LLM (`use_llm_inference`): the optional `arango-schema-analyzer` library runs as an **additive enrichment layer over** the direct extraction — it generates a human-readable **Markdown domain description** (stored on the registry entry and shown in the schema-extraction overlay) plus natural-language `rdfs:comment` descriptions merged onto the direct TTL by collection↔entity name. The analyzer never *replaces* the direct path, so enrichment cannot regress provenance / SHACL / `owl:imports`. The library remains an optional dependency behind an import guard; when absent, extraction silently uses the deterministic baseline. See Stream 5 PR 4. |
 | FR-9.3 | Schema snapshot cacheable and diffable | Physical schema fingerprinted; re-extraction only triggers on structural changes |
-| FR-9.4 | Extracted conceptual model importable as ontology | OWL/Turtle export from schema-mapper feeds into AOE's ArangoRDF import pipeline |
+| FR-9.4 | Extracted conceptual model importable as ontology | OWL/Turtle export from schema-mapper feeds into AOE's OWL import pipeline |
 | FR-9.5 | Schema extraction results land in staging | Same human-in-the-loop curation as document-extracted ontologies |
 | FR-9.6 | Provenance tracks source database | Extracted classes link back to source database URL + collection name, not document chunks |
 | FR-9.7 | Validate against tool contract v1 | Uses arango-schema-mapper's structured JSON request/response contract for integration |
@@ -2502,7 +2502,7 @@ The existing `ontology_constraints` collection (§5.1) stores both OWL restricti
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|-------------------|
 | FR-14.1 | Extract OWL restrictions from source documents | LLM extraction identifies cardinality constraints, value restrictions, and type restrictions expressed in source text (e.g., "each Account must have exactly one holder") and maps them to `owl:Restriction` entries in `ontology_constraints` |
-| FR-14.2 | Import OWL restrictions from OWL files | When importing an OWL file via ArangoRDF, `owl:Restriction` blank nodes are parsed and stored as `ontology_constraints` documents linked to their property and class |
+| FR-14.2 | Import OWL restrictions from OWL files | When importing an OWL file, `owl:Restriction` blank nodes are parsed and stored as `ontology_constraints` documents linked to their property and class |
 | FR-14.3 | Import SHACL shapes from Turtle/TTL files | SHACL shapes graphs (separate from the ontology) can be imported and stored as `ontology_constraints`. Each shape links to its target class via `target_class` |
 | FR-14.4 | Display constraints in curation UI | When viewing a class in the curation dashboard or library detail, associated constraints (OWL and SHACL) are displayed alongside properties — showing cardinality, allowed values, patterns, and severity levels |
 | FR-14.5 | Export constraints in OWL and SHACL formats | OWL export includes `owl:Restriction` constructs inline. SHACL shapes can be exported as a separate shapes graph in Turtle format. |
@@ -3585,7 +3585,7 @@ Long-running operations (extraction, entity resolution) and curation workflows r
 |------|-------------|---------------|
 | DB repository layer | CRUD operations on all collections, edge creation/deletion | Dedicated test database (auto-created, auto-dropped) |
 | Temporal queries | Point-in-time snapshots, version history, temporal diffs, TTL behavior | Test database with seeded temporal data |
-| ArangoRDF import | PGT transformation of OWL/TTL files into ontology collections | Test database + sample OWL files from `aws_ontology` |
+| OWL import | rdflib parse of OWL/TTL files into the PGT-aligned ontology collections | Test database + sample OWL files from `aws_ontology` |
 | Entity resolution pipeline | Full blocking → scoring → clustering → merge flow | Test database + pre-loaded candidate pairs |
 | Schema extraction | `arango-schema-mapper` against a test database | Separate source database with known schema |
 | Named graph operations | Graph creation, traversal, staging → production promotion | Test database with named graphs |
@@ -3768,24 +3768,24 @@ A feature is not complete until:
 |-----------|-------|-------------------|
 | `schema_analyzer/snapshot.py` | Physical schema introspection (collections, edges, graphs, sampling) | Integrate as a service callable from AOE backend |
 | `schema_analyzer/analyzer.py` | `AgenticSchemaAnalyzer` with optional LLM semantic inference | Use for schema-to-ontology reverse engineering (Section 6.9) |
-| `schema_analyzer/owl_export.py` | OWL/Turtle export of conceptual model | Feed output into ArangoRDF PGT import pipeline |
+| `schema_analyzer/owl_export.py` | OWL/Turtle export of conceptual model | Feed output into the OWL import pipeline |
 | `schema_analyzer/baseline.py` | No-LLM deterministic inference from snapshot | Fallback when LLM is unavailable or for cost savings |
 | `tool_contract_v1.py` | Structured JSON request/response schemas | Use for AOE ↔ schema-mapper integration contract |
 | `schema_analyzer/workflow.py` | Generate → validate → repair loop for LLM outputs | Reuse pattern for document extraction agent's self-correction |
 | Prompt construction (`_build_prompt`) | System prompt + snapshot → structured JSON | Adapt pattern for document-based ontology extraction prompts |
 
-### 9.2 `ArangoRDF` → Ontology Import/Export Engine
+### 9.2 `rdflib` → Ontology Import/Export Engine
 
-**Role:** OWL/RDFS ontology storage in ArangoDB. ArangoRDF's PGT uses an OWL metamodel strategy — `owl:Class`, `rdfs:subClassOf`, `owl:ObjectProperty`, etc. are stored as typed documents and edges, preserving semantic structure. This is the core import engine for the Ontology Library.
+**Role:** OWL/RDFS ontology storage in ArangoDB. AOE's importer uses an OWL metamodel strategy — `owl:Class`, `rdfs:subClassOf`, `owl:ObjectProperty`, etc. are stored as typed documents and edges, preserving semantic structure. This is the core import engine for the Ontology Library.
 
 | Component | Reuse | Adaptation Needed |
 |-----------|-------|-------------------|
-| `arango_rdf.rdf_to_arangodb_by_pgt()` | PGT transformation (RDF → ArangoDB collections) | Wrap as FastAPI service; add post-import `ontology_id` tagging and per-ontology named graph creation |
+| `ontology_import.import_from_file()` | rdflib parse → PGT-aligned ArangoDB collections | Wrap as FastAPI service; add post-import `ontology_id` tagging and per-ontology named graph creation |
 | `uri_map_collection_name` parameter | Multi-file/multi-ontology incremental import | Use shared URI map across all library imports to prevent collisions |
 | `adb_col_statements` | Custom collection mapping for unusual RDF structures | Expose as advanced import option |
 | RPT / LPGT variants | Alternative transformation strategies | Available for ontologies where PGT produces suboptimal results |
 
-### 9.3 `semanticlayer/foafdemo` → ArangoRDF Reference Implementation
+### 9.3 `semanticlayer/foafdemo` → OWL Import Reference Implementation
 
 **Role:** Working examples of RPT, PGT, and LPGT transformations.
 
@@ -3886,7 +3886,7 @@ A feature is not complete until:
 | Extraction Agent | N-pass extraction with self-correction on Pydantic validation failures |
 | Consistency Checker | Cross-pass agreement filtering with configurable threshold |
 | RAG context injection | Relevant chunks injected into extraction prompt |
-| ArangoRDF integration | Extracted OWL → ArangoDB via PGT → staging graph |
+| OWL import integration | Extracted OWL → ArangoDB via the in-tree importer → staging graph |
 | Pipeline checkpointing | LangGraph state persistence for resume on failure |
 | Extraction run tracking | Status, current agent step, stats, retry capability via API |
 | **Pipeline Monitor Dashboard** | React frontend: agent DAG visualization with real-time status updates via WebSocket; run list, metrics, error log (Section 6.12) |
@@ -4028,7 +4028,7 @@ A feature is not complete until:
 | ID | Question / Risk | Impact | Mitigation |
 |----|----------------|--------|------------|
 | R1 | LLM extraction quality may vary significantly by domain | Low precision → high curation burden | Multi-pass extraction, domain-specific prompt tuning, configurable confidence thresholds |
-| R2 | ArangoRDF may not support all OWL 2 constructs | Incomplete ontology representation | Identify unsupported constructs early; supplement with custom edges |
+| R2 | The importer may not cover all OWL 2 constructs | Incomplete ontology representation | Identify unsupported constructs early; supplement with custom edges |
 | R3 | Graph visualization performance with large ontologies | Slow/unusable curation UI | Implement progressive loading, subgraph filtering, level-of-detail rendering |
 | R4 | Entity resolution false positives | Noise in merge suggestions | Conservative default thresholds; require expert approval for all merges |
 | R5 | Multi-tenancy data leakage | Security incident | Collection-level isolation where possible; mandatory `org_id` filters in repository layer |
@@ -4036,7 +4036,7 @@ A feature is not complete until:
 | R7 | LangGraph pipeline complexity | Hard to debug multi-agent failures | Checkpointed state, structured logging per agent step, visual graph debugging in LangSmith |
 | R8 | MCP server security exposure | Unauthorized access to ontology data | MCP tools enforce org-scoped auth; runtime MCP requires API key; no write tools exposed without explicit permission |
 | R9 | Agentic pre-curation too aggressive | Useful extractions filtered out before human review | Conservative default thresholds; all filtered entities logged and recoverable; tunable per domain |
-| R10 | ArangoRDF PGT merges ontologies into shared collections | Hard to distinguish ontology boundaries after import | Post-import `ontology_id` tagging + per-ontology named graphs; registry tracks IRI prefixes |
+| R10 | Import merges ontologies into shared collections | Hard to distinguish ontology boundaries after import | Post-import `ontology_id` tagging + per-ontology named graphs; registry tracks IRI prefixes |
 | R11 | Schema extraction from production ArangoDB | Credentials for external DBs must be handled securely; extraction load on target DB | Read-only connections; configurable sample limits; credentials stored in secret manager, not DB |
 | R12 | Ontology library grows beyond manageable size | Performance degradation on cross-ontology queries | Ontology composition (orgs select relevant subset); lazy loading; ArangoSearch indexes on class labels |
 | R13 | Temporal versioning storage growth | Each edit creates new vertex + edge documents; historical versions accumulate | TTL aging with configurable retention (90 days default); `HISTORICAL_ONLY` strategy ensures current data is never garbage-collected; storage monitoring alerts |
@@ -4058,7 +4058,7 @@ A feature is not complete until:
 | **OWL 2** | Web Ontology Language — the W3C standard for expressing ontologies with formal semantics (classes, properties, restrictions, axioms) |
 | **RDFS** | RDF Schema — lightweight vocabulary for defining class hierarchies and property domains/ranges; foundation for OWL |
 | **SKOS** | Simple Knowledge Organization System — W3C standard for taxonomies, thesauri, and controlled vocabularies (`skos:Concept`, `skos:broader`, `skos:prefLabel`) |
-| **PGT** | Property Graph Transformation — ArangoRDF's strategy for storing OWL/RDF in ArangoDB. Uses an OWL metamodel approach: RDF types become collections, predicates become edges, OWL semantics are preserved |
+| **PGT** | Property Graph Transformation — the strategy AOE uses for storing OWL/RDF in ArangoDB (ADR-006 calls the resulting layout "PGT-aligned"). Uses an OWL metamodel approach: RDF types become collections, predicates become edges, OWL semantics are preserved |
 | **Process Graph (`aoe_process`)** | A named graph that provides end-to-end visibility of the extraction pipeline: `documents` → `chunks` → `ontology_classes` → `ontology_properties`, with lineage edges linking ontology entries back to extraction runs. Used for debugging, provenance tracing, and visual exploration in the ArangoDB Graph Visualizer |
 | **Staging Graph** | A temporary graph holding extracted entities pending human review |
 | **Curation** | The process of a domain expert reviewing, editing, and approving LLM-extracted ontology elements |
@@ -4073,7 +4073,7 @@ A feature is not complete until:
 | **Ontology Library** | The managed collection of all Domain Ontologies available for organizations to compose their Tier 2 extensions against |
 | **Schema Extraction** | Reverse-engineering an ontology from a live ArangoDB database's physical structure (collections, edges, sampled documents) |
 | **arango-schema-mapper** | Python library (`arangodb-schema-analyzer`) that introspects ArangoDB databases and produces conceptual models with optional LLM enhancement |
-| **ArangoRDF** | Python library (`arango_rdf`) for storing OWL/RDFS/SKOS ontologies in ArangoDB via PGT/RPT/LPGT strategies, preserving OWL metamodel semantics |
+| **ArangoRDF** | Third-party Python library (`arango_rdf`) for storing RDF in ArangoDB. **AOE does not use or depend on it** — historical PRD text said otherwise; see FR-2.5. Import is handled in-tree by `ontology_import.py` on `rdflib`. |
 | **IRI** | Internationalized Resource Identifier — the unique identifier for an ontology concept (e.g., `http://xmlns.com/foaf/0.1/Person`) |
 | **ArangoDB Graph Visualizer** | Built-in web UI for exploring named graphs in ArangoDB, supporting custom themes, canvas actions (right-click menu), saved queries, and viewpoints |
 | **Canvas Action** | A user-defined AQL query that appears in the Graph Visualizer's right-click menu, used for interactive graph exploration (e.g., expand neighborhood, show related entities) |

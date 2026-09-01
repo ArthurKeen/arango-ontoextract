@@ -8,6 +8,84 @@ The backend version is the single source of truth in `backend/app/__init__.py`.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-01
+
+Curated names that survive re-extraction, a judge for the one relation LLMs
+overuse, SHACL shapes derived from constraints already held, and a bundled
+catalog of published vocabularies — plus the event-loop fix that stops an
+extraction run from silencing the API.
+
+### Added
+
+- **Curated lexicon (§6.20, FR-20.1–20.6):** colliding attribute labels
+  (`Document.role` vs `Contact.role`) reach a curator queue; the resolution is a
+  *decision*, stored outside the path extraction writes to, and merged over the
+  extracted label on every read. Re-deciding expires the prior decision rather
+  than overwriting it. Proven by integration test against a live ArangoDB that a
+  curated label survives repeated re-extraction.
+- **Subsumption judge (FR-2.20):** every proposed `rdfs:subClassOf` is tested
+  against *"is every X a Y?"* between the structural gate and the curation
+  breakpoint. Failures are flagged, never silently dropped; the node fails open,
+  so a judge error can never block an extraction. Review endpoints under
+  `/ontology/{id}/subsumption/`.
+- **SHACL shape derivation (FR-14.8–14.10):** `export?format=shacl` derives
+  shapes from `owl:Restriction` rows — cardinality to `sh:min/maxCount`,
+  `allValuesFrom`/`someValuesFrom` to `sh:class`, `hasValue` to `sh:hasValue`.
+  Unmappable kinds are dropped, not guessed. Derived shapes are
+  `sh:severity sh:Warning`, never `sh:Violation`, and carry `derivedFrom`
+  provenance: OWL is open-world, SHACL is closed-world, and promoting one to the
+  other is a curator's recorded decision. Now offered in the export menu.
+- **A-box canvas rendering (FR-18.13):** individuals draw alongside their T-box
+  classes, opt-in and expanded per class so instance volume cannot swamp the
+  layout. Node ids are namespaced so an individual cannot collide with a class.
+- **Restriction edges on the canvas (FR-7.8.x):** structure stated as
+  `owl:onProperty` + `allValuesFrom`/`someValuesFrom` renders as a real
+  relationship — an optional view, toggled without re-running layout. SOSA/SSN's
+  `Deployment`, `Stimulus`, `Input` and `Output` stop drawing as orphans.
+- **Standard-ontology catalog:** 11 vocabularies importable in one click and
+  **bundled offline** — BFO 2020, SKOS, FOAF, PROV-O, OWL-Time, DCMI Terms
+  (core) and Schema.org, SOSA/SSN, VSSo, FIBO Agents/Accounting (domain).
+- **schema.org soft typing (FR-8b.9):** `schema:domainIncludes` /
+  `rangeIncludes` are read as a *fallback*, never a supplement, and each edge
+  records which predicate produced it.
+- **`owl:inverseOf` collapse (FR-7.8.23):** an inverse pair states one fact
+  twice, so the canvas draws it once; the importer materialises the symmetric
+  mirror a source usually leaves implicit.
+- **Continuous reverse playback on the VCR timeline (§6.5 / FR-5.7).**
+
+### Fixed
+
+- **An extraction run silenced the API.** Starlette runs a coroutine
+  `BackgroundTasks` entry on the event loop; the pipeline is a coroutine that
+  spends minutes in blocking driver calls, so the server kept listening and
+  answered nothing — `/health` included. Background work is now dispatched
+  through a thread helper, ~25 awaitless `async def` handlers became plain `def`
+  so FastAPI puts them in the threadpool, and the anyio worker pool is widened
+  from its CPU-sized default. Guarded structurally by
+  `test_event_loop_blocking.py`.
+- **Uploads failed above 10MB** with `socket hang up` and no mention of size —
+  Next buffers proxied bodies against `middlewareClientMaxBodySize`.
+- **The catalog's schema.org entry imported zero classes**: the importer read
+  `rdf:type owl:Class` only, and schema.org declares its ~1,000 types as
+  `rdfs:Class`. Reading the union took the entry from 0 to 1,010 classes.
+- **Imports were stamped `tier: local`**, overwriting the one field that
+  distinguishes a published standard from this organisation's own work.
+- **Effective-graph load**: five sequential round trips to two (2.6s → 1.0s),
+  then projection pushed into the database (5.8s → 1.1s on a 1,688-class
+  ontology). Restriction toggling no longer rebuilds the graph.
+- **Atomic reparent endpoint**, rename/reparent wiring, and `target_ontology_id`
+  threaded into the pipeline so ER/extension reuse actually runs.
+
+### Changed
+
+- **The OWL importer is not an ArangoRDF bridge, and never was.** `arango_rdf`
+  was neither declared nor installed in any deployment, and
+  `rdf_to_arangodb_by_pgt()` is not in arango-rdf 2.0.0's API — so every import
+  always took the in-tree `rdflib` path that the code described as a degraded
+  fallback. Two real defects hid there because the path everyone used was
+  documented as the path nobody used. The code, the PRD (28 references) and the
+  README/article now say what actually runs.
+
 ## [1.8.0] - 2026-07-30
 
 Assertion-graph (A-box) curation, requirements-driven scoping, and alignment

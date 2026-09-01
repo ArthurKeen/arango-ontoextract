@@ -150,7 +150,7 @@ h2 {
 
 .body-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; min-height: 0; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
-.grow  { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.grow  { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 
 /* --- bullets --- */
 ul.pts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 15px; }
@@ -791,7 +791,7 @@ table.grid tr:last-child td { border-bottom: 0; }
     <section class="slide" data-act="3">
       <div class="eyebrow">Belief revision</div>
       <h2>The second document shouldn't start over</h2>
-      <p class="deck">Add a document to an existing ontology and you don't want a fresh, disconnected extraction. You want the new evidence to <strong>update what the ontology already believes</strong>. Every class is a belief with evidence and a confidence score; each comparison produces a verdict.</p>
+      <p class="deck" style="margin-bottom:14px">Adding a document shouldn't mean a fresh, disconnected extraction. Every class is a belief with evidence and a confidence score, and each comparison against the new source produces a verdict.</p>
       <div class="grow">
         <table class="grid">
           <tr><td style="width:24%"><span class="chip on">Reinforced</span></td><td>More evidence agrees → raise confidence</td><td style="width:22%; color:var(--muted)">automatic</td></tr>
@@ -801,7 +801,7 @@ table.grid tr:last-child td { border-bottom: 0; }
           <tr><td><span class="chip warn">Retract</span></td><td>The belief no longer holds → expire it</td><td style="color:var(--alarm)">to a human</td></tr>
         </table>
       </div>
-      <p class="deck" style="margin:22px 0 0">The mechanical majority is handled deterministically and cheaply. Only contradictions reach a curator's inbox — and because everything is temporal, every revision is reversible.</p>
+      <p class="deck" style="margin:16px 0 0">The mechanical majority is handled deterministically and cheaply — only contradictions reach a curator, and every revision is reversible.</p>
       <aside class="notes">
         <p>The economics matter: paying an LLM to adjudicate every comparison is unaffordable and unnecessary. Spend tokens only where they change the answer.</p>
         <p>Safety rails worth naming if asked: published items are protected, there's a circuit breaker on revision rate, and per-organisation budgets.</p>
@@ -1077,18 +1077,18 @@ table.grid tr:last-child td { border-bottom: 0; }
     <section class="slide" data-act="5">
       <div class="eyebrow">Legibility</div>
       <h2>Because it's automated, it has to be measurable</h2>
-      <p class="deck">Every extraction is scored along six signals, rolled into a 0–100 health score with a traffic light.</p>
+      <p class="deck" style="margin-bottom:14px">Six signals, rolled into a 0–100 health score.</p>
       <div class="grow">
         <table class="grid">
-          <tr><td style="width:26%">Faithfulness</td><td>Does each class trace to real evidence? Scored by an LLM judge.</td></tr>
+          <tr><td style="width:26%">Faithfulness</td><td>Does each class trace to real evidence? (LLM judge.)</td></tr>
           <tr><td>Semantic validity</td><td>Are the assertions internally coherent?</td></tr>
           <tr><td>Connectivity</td><td>Is this a graph, or a bag of islands?</td></tr>
           <tr><td>Structural integrity</td><td>Do the relationships point at things that exist?</td></tr>
-          <tr><td>Completeness</td><td>How much declared structure survived to materialization?</td></tr>
-          <tr><td>Confidence</td><td>Evidence age and count, combined with judge scores.</td></tr>
+          <tr><td>Completeness</td><td>How much declared structure survived?</td></tr>
+          <tr><td>Confidence</td><td>Evidence age and count, plus judge scores.</td></tr>
         </table>
       </div>
-      <p class="deck" style="margin:22px 0 0">These aren't vanity numbers. Connectivity and structural integrity are exactly what the self-repair gate moves — and <strong>faithfulness is a hard cap no automated repair or revision is permitted to regress</strong>.</p>
+      <p class="deck" style="margin:16px 0 0">Not vanity numbers: connectivity and structural integrity are what the self-repair gate moves, and <strong>faithfulness is a hard cap no repair or revision may regress</strong>.</p>
       <aside class="notes">
         <p>The link between this slide and the structural-gate slide is the point: the metric that proves the repair worked is the same metric that constrains what the repair is allowed to do.</p>
       </aside>

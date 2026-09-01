@@ -142,14 +142,23 @@ function lensNodeSize(
   lens: LensType,
 ): number {
   if (lens !== "confidence") return baseSize;
+  // Unmeasured keeps the neutral mid-scale: size encodes confidence in this
+  // lens, and there is nothing to encode, so it should neither inflate nor
+  // shrink relative to measured classes.
   const c = normalizeConfidence01(cls.confidence ?? 0.5);
   const scale = 0.72 + 0.56 * Math.min(1, Math.max(0, c));
   return Math.max(10, Math.min(36, baseSize * scale));
 }
 
-function displayNodeLabel(cls: OntologyClass, lens: LensType): string {
+export function displayNodeLabel(cls: OntologyClass, lens: LensType): string {
   if (lens !== "confidence") return cls.label;
-  const pct = Math.round(normalizeConfidence01(cls.confidence ?? 0) * 100);
+  // An unmeasured class gets NO percentage. Reading ``?? 0`` labelled every
+  // class of every imported ontology "0%" — BFO rendered as 36 classes at 0%,
+  // which states a measurement that was never taken and reads as the worst
+  // possible score. The node is already painted off the confidence ramp; the
+  // label simply says nothing rather than saying zero.
+  if (cls.confidence == null || Number.isNaN(cls.confidence)) return cls.label;
+  const pct = Math.round(normalizeConfidence01(cls.confidence) * 100);
   return `${cls.label} ${pct}%`;
 }
 

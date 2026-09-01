@@ -1318,6 +1318,7 @@ def import_from_file(
     db: StandardDatabase | None = None,
     ontology_label: str | None = None,
     ontology_uri_prefix: str | None = None,
+    tier: str | None = None,
 ) -> dict[str, Any]:
     """Import an OWL/TTL/RDF-XML/JSON-LD file into ArangoDB.
 
@@ -1398,7 +1399,14 @@ def import_from_file(
             "name": display_name,
             "label": display_name,
             "description": f"Imported from {filename}",
-            "tier": "local",
+            # ``local`` means "authored here". A published third-party
+            # vocabulary is not that, and the catalog already says what it is
+            # -- BFO and SKOS are ``core``, schema.org and VSSo are ``domain``.
+            # Hardcoding ``local`` overwrote that on every import, discarding
+            # the one field that distinguishes a foundational standard from
+            # this org's own work. Ad-hoc file uploads, which have no declared
+            # tier, still default to ``local``.
+            "tier": tier or "local",
             "source": "file_import",
             "source_filename": filename,
             "format": fmt,
@@ -1439,6 +1447,7 @@ def import_from_url(
     *,
     db: StandardDatabase | None = None,
     ontology_label: str | None = None,
+    tier: str | None = None,
 ) -> dict[str, Any]:
     """Fetch an OWL/RDF file from a URL and import it.
 
@@ -1466,6 +1475,7 @@ def import_from_url(
         ontology_id=ontology_id,
         db=db,
         ontology_label=ontology_label,
+        tier=tier,
     )
     result["source"] = "url_import"
     result["source_url"] = url

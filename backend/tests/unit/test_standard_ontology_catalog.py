@@ -485,3 +485,62 @@ class TestCatalogHTTPEndpoints:
         assert resp.status_code == 201
         assert captured["ontology_id"] == "my_metadata_vocab"
         assert resp.json()["registry_key"] == "my_metadata_vocab"
+
+
+class TestCatalogTierSurvivesImport:
+    """``local`` means "authored here". A published third-party vocabulary is
+    not that, and the catalog already says what each entry is — BFO and SKOS
+    are ``core``, schema.org and VSSo are ``domain``. The importer hardcoded
+    ``local``, overwriting that on every import and discarding the one field
+    that separates a foundational standard from this org's own work.
+    """
+
+    def _tier_passed_to_importer(self, catalog_id: str, _fake_db):
+        with patch.object(svc, "import_from_file") as mock_import:
+            mock_import.return_value = {"registry_key": catalog_id}
+            svc.import_catalog_entry(catalog_id, db=_fake_db)
+        return mock_import.call_args.kwargs.get("tier")
+
+    def test_core_entries_import_as_core(self, _fake_db, _patch_registry_repo) -> None:
+        for cid in ("bfo", "skos", "foaf"):
+            assert self._tier_passed_to_importer(cid, _fake_db) == "core", cid
+
+    def test_domain_entries_import_as_domain(self, _fake_db, _patch_registry_repo) -> None:
+        for cid in ("schema-org-core", "vsso", "sosa-ssn"):
+            assert self._tier_passed_to_importer(cid, _fake_db) == "domain", cid
+
+    def test_an_unrecognised_tier_is_not_forwarded(self, _fake_db, _patch_registry_repo) -> None:
+        """Only the two the registry understands are passed; anything else
+        falls back to the importer's own default rather than writing a value
+        no consumer can interpret."""
+        with patch.object(svc, "load_catalog") as mock_load:
+            mock_load.return_value = [
+                {
+                    "id": "ghost-tier",
+                    "name": "Phantom",
+                    "description": "",
+                    "uri": "http://example.org/ghost",
+                    "tier": "whatever",
+                    "source": {
+                        "kind": "bundled",
+                        "path": "dcterms_minimal.ttl",
+                        "format": "turtle",
+                    },
+                }
+            ]
+            with patch.object(svc, "import_from_file") as mock_import:
+                mock_import.return_value = {"registry_key": "ghost-tier"}
+                svc.import_catalog_entry("ghost-tier", db=_fake_db)
+
+        assert mock_import.call_args.kwargs.get("tier") is None
+
+
+class TestAdHocUploadsStayLocal:
+    def test_file_import_without_a_tier_defaults_to_local(self) -> None:
+        """An ontology someone uploads IS authored here as far as the system
+        knows, so the default must not change."""
+        import inspect
+
+        from app.services.ontology_import import import_from_file
+
+        assert inspect.signature(import_from_file).parameters["tier"].default is None

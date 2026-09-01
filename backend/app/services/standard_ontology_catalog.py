@@ -158,12 +158,19 @@ def import_catalog_entry(
         },
     )
 
+    # The catalog knows what each entry IS -- BFO and SKOS are foundational
+    # (``core``), schema.org and VSSo are domain vocabularies. The importer used
+    # to stamp everything ``local``, meaning "authored here", which is exactly
+    # what a published third-party standard is not.
+    declared_tier = entry.get("tier") if entry.get("tier") in ("core", "domain") else None
+
     if kind == "bundled":
         result = _import_bundled(
             entry=entry,
             ontology_id=final_ontology_id,
             ontology_label=ontology_label,
             db=db,
+            tier=declared_tier,
         )
     elif kind == "url":
         url = source.get("url")
@@ -176,6 +183,7 @@ def import_catalog_entry(
             ontology_id=final_ontology_id,
             db=db,
             ontology_label=ontology_label,
+            tier=declared_tier,
         )
     else:
         raise RuntimeError(f"Catalog entry '{catalog_id}' has unsupported source.kind={kind!r}")
@@ -192,6 +200,7 @@ def _import_bundled(
     ontology_id: str,
     ontology_label: str | None,
     db: StandardDatabase,
+    tier: str | None = None,
 ) -> dict[str, Any]:
     """Read a packaged file out of ``app.data.ontologies`` and import it.
 
@@ -219,4 +228,5 @@ def _import_bundled(
         ontology_id=ontology_id,
         db=db,
         ontology_label=ontology_label,
+        tier=tier,
     )

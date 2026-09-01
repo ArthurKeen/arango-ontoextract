@@ -2,15 +2,17 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 from arango.database import StandardDatabase
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse, Response
+from pydantic import BaseModel, Field
 
 from app.api.errors import ConflictError, NotFoundError, ValidationError
 from app.api.ontology import _shared
 from app.db.temporal_constants import NEVER_EXPIRES
+from app.db.utils import doc_get
 from app.models.ontology import (
     BulkReparentRequest,
     BulkReparentUndoRequest,
@@ -22,6 +24,7 @@ from app.models.ontology import (
     UpdateEdgeRequest,
     UpdatePropertyRequest,
 )
+from app.services import curation as curation_svc
 from app.services import export as export_svc
 from app.services import temporal as temporal_svc
 
@@ -689,4 +692,121 @@ async def undo_bulk_reparent(ontology_id: str, body: BulkReparentUndoRequest) ->
         "failed": failed,
         "restored_count": len(restored),
         "failed_count": len(failed),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Orphan object properties — curator actions on what the matcher could not fix
+# ---------------------------------------------------------------------------
+
+
+class ResolveOrphanRequest(BaseModel):
+    """What to do with an object property that has a domain but no range."""
+
+    action: Literal["reject", "set_range"] = Field(
+        ...,
+        description=(
+            "``reject`` expires the property — the extractor should not have "
+            "produced it. ``set_range`` names the class it points at, which "
+            "the matcher could not infer."
+        ),
+    )
+    curator_id: str = Field(
+        ..., description="Who decided. The audit trail is only as good as this value."
+    )
+    range_class_key: str | None = Field(
+        default=None,
+        description="Required for ``set_range``: the class the property points at.",
+    )
+    notes: str | None = Field(default=None, description="Optional rationale.")
+
+
+@router.post("/{ontology_id}/orphan-properties/{property_key}/resolve")
+async def resolve_orphan_property(
+    ontology_id: str,
+    property_key: str,
+    body: ResolveOrphanRequest,
+) -> dict[str, Any]:
+    """Reject an orphan object property, or wire it to a range class.
+
+    The repair overlay could only ever APPLY an inferred range. When the
+    matcher inferred nothing — 12 of WTW Ontology's 12 orphans — the curator
+    had no action at all, so the same properties reappeared on every scan with
+    no way to record that they had been looked at.
+
+    The two things a curator actually concludes about such a property are:
+
+    ``reject``
+        It should not exist. ``HRPartner aligns_with_company_vision`` is an
+        assertion the extractor typed as a relation. Routed through the normal
+        curation path, so it expires temporally and lands in
+        ``curation_decisions`` with attribution, exactly like rejecting a class.
+
+    ``set_range``
+        It is real and the target class exists (or now does), the matcher just
+        could not find it from the description. Inserts the missing
+        ``rdfs_range_class`` edge, which is what makes the property visible on
+        the canvas at all.
+    """
+    db = _shared.get_db()
+
+    prop = None
+    prop_collection = None
+    for collection in ("ontology_object_properties", "ontology_datatype_properties"):
+        if not db.has_collection(collection):
+            continue
+        found = doc_get(db.collection(collection), property_key)
+        if found is not None:
+            prop, prop_collection = found, collection
+            break
+    if prop is None or prop_collection is None:
+        raise NotFoundError(f"Property '{property_key}' not found")
+    if prop.get("ontology_id") != ontology_id:
+        raise ValidationError("Property belongs to a different ontology")
+    if prop.get("expired") != NEVER_EXPIRES:
+        raise ValidationError("Property is already expired; there is nothing to resolve")
+
+    if body.action == "reject":
+        decision = curation_svc.record_decision(
+            db,
+            run_id=str(prop.get("extraction_run_id") or ""),
+            entity_key=property_key,
+            entity_type="property",
+            action="reject",
+            curator_id=body.curator_id,
+            notes=body.notes,
+            issue_reasons=["wrong_relationship"],
+        )
+        return {"status": "rejected", "property_key": property_key, "decision": decision}
+
+    if not body.range_class_key:
+        raise ValidationError("range_class_key is required when action is 'set_range'")
+    target = doc_get(db.collection("ontology_classes"), body.range_class_key)
+    if target is None:
+        raise NotFoundError(f"Class '{body.range_class_key}' not found")
+    if target.get("ontology_id") != ontology_id:
+        raise ValidationError("Range class belongs to a different ontology")
+
+    _ensure_collection(db, "rdfs_range_class", edge=True)
+    now = time.time()
+    edge = {
+        "_from": prop["_id"],
+        "_to": target["_id"],
+        "ontology_id": ontology_id,
+        # Distinguishable from a matcher repair and from an extracted edge: a
+        # human named this range, and the audit should say which.
+        "repair_meta": {
+            "source": "curator",
+            "curator_id": body.curator_id,
+            "notes": body.notes,
+            "resolved_at": now,
+        },
+        "created": now,
+        "expired": NEVER_EXPIRES,
+    }
+    db.collection("rdfs_range_class").insert(edge)
+    return {
+        "status": "range_set",
+        "property_key": property_key,
+        "range_class_key": body.range_class_key,
     }

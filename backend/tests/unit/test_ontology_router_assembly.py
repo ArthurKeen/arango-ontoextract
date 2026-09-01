@@ -49,7 +49,8 @@ ONTOLOGY_PREFIX = "/api/v1/ontology"
 # + 1 bulk reparent for set actions on a multi-selection (FR-7.8.20).
 # + 1 bulk-reparent undo (FR-7.8.21).
 # + 2 subsumption review (FR-2.20): flagged list + resolve.
-EXPECTED_ROUTE_COUNT = 89
+# + 1 orphan-property resolve (reject / set_range).
+EXPECTED_ROUTE_COUNT = 90
 
 
 def _ontology_openapi_paths() -> dict[str, list[str]]:

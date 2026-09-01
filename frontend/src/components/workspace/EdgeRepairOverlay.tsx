@@ -31,7 +31,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError } from "@/lib/api-client";
+import { api, ApiError } from "@/lib/api-client";
 import {
   applyEdgeRepair,
   previewEdgeRepair,
@@ -62,6 +62,10 @@ export default function EdgeRepairOverlay({
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [resolvedKeys, setResolvedKeys] = useState<Set<string>>(new Set());
+  const [classes, setClasses] = useState<{ _key: string; label?: string }[]>(
+    [],
+  );
 
   const loadPreview = useCallback(async () => {
     setPhase("loading");
@@ -80,6 +84,32 @@ export default function EdgeRepairOverlay({
     void loadPreview();
   }, [loadPreview]);
 
+  // Candidate range classes for the "point it at…" picker. Summary profile:
+  // the picker needs a key and a label, nothing else.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ data?: { _key: string; label?: string }[] }>(
+        `/api/v1/ontology/${encodeURIComponent(ontologyId)}/classes?include=summary`,
+      )
+      .then((res) => {
+        if (cancelled) return;
+        const rows = res.data ?? [];
+        setClasses(
+          [...rows].sort((a, b) =>
+            (a.label || a._key).localeCompare(b.label || b._key),
+          ),
+        );
+      })
+      .catch(() => {
+        // A missing picker is survivable — Reject still works without it.
+        if (!cancelled) setClasses([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ontologyId]);
+
   const handleApply = useCallback(async () => {
     setPhase("applying");
     setError(null);
@@ -95,7 +125,12 @@ export default function EdgeRepairOverlay({
   }, [ontologyId, onApplied]);
 
   const repaired = report?.repaired ?? [];
-  const unrecoverable = report?.unrecoverable ?? [];
+  // Resolved rows disappear from the list immediately rather than waiting for
+  // a re-scan: the point of the actions is that the queue stops re-presenting
+  // work that has been dealt with.
+  const unrecoverable = (report?.unrecoverable ?? []).filter(
+    (u) => !resolvedKeys.has(u.prop_key),
+  );
   const noDomain = report?.no_domain ?? [];
 
   return (
@@ -122,14 +157,12 @@ export default function EdgeRepairOverlay({
           >
             🔧 Repair Orphan Properties
           </h2>
-          <p className="mt-1 text-sm text-gray-600">
-            {ontologyName}
-          </p>
+          <p className="mt-1 text-sm text-gray-600">{ontologyName}</p>
           <p className="mt-3 text-xs text-gray-500 leading-snug max-w-3xl">
             Object properties that have an <code>rdfs:domain</code> but no{" "}
             <code>rdfs:range</code> class are invisible on the canvas. The
-            matcher infers a range from the property&apos;s own description
-            and evidence text. Review the inferred matches below, then{" "}
+            matcher infers a range from the property&apos;s own description and
+            evidence text. Review the inferred matches below, then{" "}
             <span className="font-medium">Apply</span> to insert the missing
             edges (idempotent and audited via <code>repair_meta</code>).
           </p>
@@ -161,22 +194,30 @@ export default function EdgeRepairOverlay({
             <>
               <SummaryBar report={report} />
 
-              {repaired.length > 0 && (
-                <RepairableSection rows={repaired} />
-              )}
+              {repaired.length > 0 && <RepairableSection rows={repaired} />}
 
               {unrecoverable.length > 0 && (
-                <UnrecoverableSection rows={unrecoverable} />
+                <UnrecoverableSection
+                  rows={unrecoverable}
+                  ontologyId={ontologyId}
+                  // TODO: no curator identity is plumbed through the frontend
+                  // yet; the §6.20 queue posts the same placeholder. The audit
+                  // trail is only as good as this value (FR-20.3).
+                  curatorId="anonymous"
+                  classes={classes}
+                  onResolved={(key) => {
+                    setResolvedKeys((k) => new Set(k).add(key));
+                    onApplied();
+                  }}
+                />
               )}
 
-              {noDomain.length > 0 && (
-                <NoDomainSection keys={noDomain} />
-              )}
+              {noDomain.length > 0 && <NoDomainSection keys={noDomain} />}
 
               {report.orphans_found === 0 && (
                 <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-                  No orphan object properties found. This ontology&apos;s
-                  range edges are all wired up.
+                  No orphan object properties found. This ontology&apos;s range
+                  edges are all wired up.
                 </div>
               )}
 
@@ -266,11 +307,7 @@ function Stat({
   );
 }
 
-function RepairableSection({
-  rows,
-}: {
-  rows: EdgeRepairReport["repaired"];
-}) {
+function RepairableSection({ rows }: { rows: EdgeRepairReport["repaired"] }) {
   return (
     <section>
       <h3 className="text-sm font-semibold text-gray-800 mb-2">
@@ -323,24 +360,59 @@ function RepairableSection({
 
 function UnrecoverableSection({
   rows,
+  ontologyId,
+  curatorId,
+  classes,
+  onResolved,
 }: {
   rows: EdgeRepairReport["unrecoverable"];
+  ontologyId: string;
+  curatorId: string;
+  classes: { _key: string; label?: string }[];
+  onResolved: (propKey: string) => void;
 }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<Record<string, string>>({});
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+
+  async function resolve(
+    propKey: string,
+    body: Record<string, unknown>,
+  ): Promise<void> {
+    setBusy(propKey);
+    setRowError((e) => ({ ...e, [propKey]: "" }));
+    try {
+      await api.post(
+        `/api/v1/ontology/${encodeURIComponent(ontologyId)}/orphan-properties/${encodeURIComponent(propKey)}/resolve`,
+        { curator_id: curatorId, ...body },
+      );
+      onResolved(propKey);
+    } catch (err) {
+      setRowError((e) => ({
+        ...e,
+        [propKey]: formatErr(err, "Could not resolve this property"),
+      }));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section>
       <h3 className="text-sm font-semibold text-gray-800 mb-2">
         Unrecoverable ({rows.length})
       </h3>
       <p className="text-xs text-gray-500 mb-3">
-        No candidate range class matched these properties&apos;
-        descriptions. They likely need new evidence (a class that
-        doesn&apos;t yet exist) or human curation.
+        No candidate range class matched these properties&apos; descriptions.
+        Either the class they point at does not exist yet, or the property is
+        not a relation at all and should be rejected.
       </p>
       <ul className="space-y-1 text-sm">
         {rows.map((u) => (
           <li
             key={u.prop_key}
             className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2"
+            data-testid={`orphan-${u.prop_key}`}
           >
             <p className="font-mono text-xs text-amber-900">{u.prop_key}</p>
             <p className="text-xs text-amber-800">
@@ -353,6 +425,52 @@ function UnrecoverableSection({
                 </>
               )}
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <select
+                value={chosen[u.prop_key] ?? ""}
+                onChange={(e) =>
+                  setChosen((c) => ({ ...c, [u.prop_key]: e.target.value }))
+                }
+                aria-label={`Range class for ${u.prop_key}`}
+                data-testid={`orphan-range-${u.prop_key}`}
+                className="rounded border border-amber-300 bg-white px-2 py-1 text-xs text-gray-900"
+              >
+                <option value="">Point it at…</option>
+                {classes.map((c) => (
+                  <option key={c._key} value={c._key}>
+                    {c.label || c._key}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={busy === u.prop_key || !chosen[u.prop_key]}
+                onClick={() =>
+                  resolve(u.prop_key, {
+                    action: "set_range",
+                    range_class_key: chosen[u.prop_key],
+                  })
+                }
+                data-testid={`orphan-setrange-${u.prop_key}`}
+                className="rounded bg-emerald-600 px-2 py-1 text-xs text-white disabled:opacity-40"
+              >
+                Set range
+              </button>
+              <button
+                type="button"
+                disabled={busy === u.prop_key}
+                onClick={() => resolve(u.prop_key, { action: "reject" })}
+                data-testid={`orphan-reject-${u.prop_key}`}
+                className="rounded bg-rose-600 px-2 py-1 text-xs text-white disabled:opacity-40"
+              >
+                Reject
+              </button>
+              {rowError[u.prop_key] && (
+                <span className="text-xs text-rose-700">
+                  {rowError[u.prop_key]}
+                </span>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -399,17 +517,16 @@ function AppliedSummary({
           ✓ Repair complete
         </p>
         <p className="mt-1 text-sm text-green-700">
-          Inserted{" "}
-          <span className="font-bold">{report.repaired_count}</span>{" "}
-          {report.repaired_count === 1 ? "edge" : "edges"} into the
-          ontology. The canvas will refresh when you close this dialog.
+          Inserted <span className="font-bold">{report.repaired_count}</span>{" "}
+          {report.repaired_count === 1 ? "edge" : "edges"} into the ontology.
+          The canvas will refresh when you close this dialog.
         </p>
         {report.unrecoverable_count > 0 && (
           <p className="mt-2 text-xs text-green-700">
             {report.unrecoverable_count} property
             {report.unrecoverable_count === 1 ? "" : "s"} still need
-            {report.unrecoverable_count === 1 ? "s" : ""} new evidence or
-            human curation.
+            {report.unrecoverable_count === 1 ? "s" : ""} new evidence or human
+            curation.
           </p>
         )}
       </div>

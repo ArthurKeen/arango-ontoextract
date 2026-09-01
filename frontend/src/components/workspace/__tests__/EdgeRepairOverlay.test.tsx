@@ -15,6 +15,12 @@ jest.mock("@/lib/api-client", () => ({
     public readonly status = 500;
     public readonly body = { code: "X", message: "stub" };
   },
+  // The overlay now fetches candidate range classes for the "point it at…"
+  // picker, and posts the curator's reject / set-range decision.
+  api: {
+    get: jest.fn().mockResolvedValue({ data: [] }),
+    post: jest.fn().mockResolvedValue({}),
+  },
 }));
 
 function makePreview(overrides: Record<string, unknown> = {}) {
@@ -248,5 +254,105 @@ describe("EdgeRepairOverlay", () => {
     await screen.findByText(/No domain \(2\)/);
     expect(screen.getByText("floating_p1")).toBeInTheDocument();
     expect(screen.getByText("floating_p2")).toBeInTheDocument();
+  });
+});
+
+describe("actions on an orphan the matcher could not fix", () => {
+  // Before this, an unrecoverable orphan had no action at all: the overlay's
+  // only button was Apply, which does nothing when nothing was inferred. WTW
+  // Ontology showed the same 12 properties on every scan with no way to record
+  // that a human had looked at them.
+  const { api: mockApi } = require("@/lib/api-client") as {
+    api: { get: jest.Mock; post: jest.Mock };
+  };
+
+  beforeEach(() => {
+    mockApi.post.mockClear();
+    mockApi.get.mockResolvedValue({
+      data: [{ _key: "Vision", label: "Company Vision" }],
+    });
+  });
+
+  async function openWithOrphan() {
+    previewEdgeRepair.mockResolvedValue(
+      makePreview({
+        repaired: [],
+        unrecoverable: [
+          {
+            prop_key: "HRPartner_aligns_with_company_vision",
+            label: "aligns with company vision",
+            domain_class_key: "HRPartner",
+          },
+        ],
+      }),
+    );
+    render(
+      <EdgeRepairOverlay
+        ontologyId="ont-1"
+        ontologyName="WTW"
+        onClose={jest.fn()}
+        onApplied={jest.fn()}
+      />,
+    );
+    await screen.findByTestId("orphan-HRPartner_aligns_with_company_vision");
+  }
+
+  it("rejects an orphan that should not be a relation", async () => {
+    await openWithOrphan();
+
+    fireEvent.click(
+      screen.getByTestId("orphan-reject-HRPartner_aligns_with_company_vision"),
+    );
+
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalled());
+    const [url, body] = mockApi.post.mock.calls.at(-1)!;
+    expect(url).toContain("/orphan-properties/");
+    expect(url).toContain("/resolve");
+    expect(body).toMatchObject({ action: "reject" });
+    expect(body.curator_id).toBeTruthy();
+  });
+
+  it("wires an orphan to a range class the curator picks", async () => {
+    await openWithOrphan();
+
+    fireEvent.change(
+      screen.getByTestId("orphan-range-HRPartner_aligns_with_company_vision"),
+      { target: { value: "Vision" } },
+    );
+    fireEvent.click(
+      screen.getByTestId(
+        "orphan-setrange-HRPartner_aligns_with_company_vision",
+      ),
+    );
+
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalled());
+    expect(mockApi.post.mock.calls.at(-1)![1]).toMatchObject({
+      action: "set_range",
+      range_class_key: "Vision",
+    });
+  });
+
+  it("will not set a range before one is chosen", async () => {
+    await openWithOrphan();
+
+    expect(
+      screen.getByTestId(
+        "orphan-setrange-HRPartner_aligns_with_company_vision",
+      ),
+    ).toBeDisabled();
+  });
+
+  it("drops a resolved orphan from the list rather than waiting for a rescan", async () => {
+    await openWithOrphan();
+
+    fireEvent.click(
+      screen.getByTestId("orphan-reject-HRPartner_aligns_with_company_vision"),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("orphan-HRPartner_aligns_with_company_vision"),
+      ).not.toBeInTheDocument(),
+    );
   });
 });

@@ -218,6 +218,22 @@ table.grid tr:last-child td { border-bottom: 0; }
 .chip.warn { border-color: var(--alarm);  color: var(--alarm);  background: var(--alarm-wash); }
 .chip.ghost{ color: var(--muted); border-style: dashed; background: transparent; }
 
+.code {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+  padding: 14px 16px;
+  margin: 0;
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: pre;
+}
+.code b { color: var(--accent); font-weight: 700; }
+
 .flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .arrow { color: var(--rule); font-size: 18px; line-height: 1; }
 
@@ -867,37 +883,51 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 19 · SHACL / OPEN WORLD ══════════════════ -->
+    <!-- ══════════════════ 19 · RESTRICTION VIEW ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">An optional canvas view</div>
+      <h2>See the structure most graph tools never draw</h2>
+      <p class="deck" style="margin-bottom:16px">OWL lets you state a relationship two ways. As a plain property with a domain and a range — or as an <strong>axiom on the class itself</strong>. Published vocabularies lean heavily on the second form.</p>
+      <div class="grow">
+        <pre class="code">ssn:Deployment  rdfs:subClassOf
+    [ owl:onProperty     ssn:deployedSystem ;
+      <b>owl:allValuesFrom  ssn:System</b> ]</pre>
+        <p class="deck" style="margin:16px 0 0">That says <em>Deployment → deployedSystem → System</em> as plainly as a property would. Most viewers only draw properties, so relations like this stay invisible and the classes look unconnected. <strong>AOE can draw them — as a view you switch on.</strong></p>
+      </div>
+      <div class="flow" style="margin-top:18px">
+        <span class="chip">restrictions off</span>
+        <span class="arrow">↔</span>
+        <span class="chip on">restrictions on</span>
+        <span style="width:18px"></span>
+        <span class="chip ghost">a display setting — never re-runs the layout</span>
+      </div>
+      <aside class="notes">
+        <p>Lead with what it lets you do: <b>audit what an imported vocabulary actually says.</b> W3C's SOSA/SSN states most of its structure in restrictions — turn the view on and its real shape appears; leave it off and you see the plain property graph.</p>
+        <p>Why it's optional rather than always-on: restrictions add a lot of edges. You want them when you're inspecting a standard you've imported or checking whether a class is genuinely isolated; you want them out of the way when you're curating your own classes. That's a lens, the same pattern as colour-by-confidence.</p>
+        <p>The information was always in the database — imported correctly, stored as constraints. This view is what makes it legible. Toggling is a reducer decision on the graph already in memory, so it's instant in both directions.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 20 · SHACL / OPEN WORLD ══════════════════ -->
     <section class="slide" data-act="3">
       <div class="eyebrow">From constraints to validation</div>
       <h2>OWL is open-world. SHACL is not.</h2>
-      <div class="body-cols" style="margin-top:14px">
-        <div class="stack">
-          <div class="card">
-            <h3>The material was already there</h3>
-            <p>Published ontologies state much of their structure as <strong>OWL restrictions</strong> rather than plain properties. AOE imported them correctly — into a constraints table nothing ever read.</p>
-            <p>SOSA/SSN therefore drew four of its classes as <strong>isolated dots</strong>. They now render as real edges, toggled without re-running layout.</p>
-          </div>
+      <p class="deck" style="margin-bottom:16px">Those same restrictions are the raw material for <strong>SHACL</strong> — the W3C standard for shapes a validator can actually run against real records. AOE derives them: cardinality becomes <code>sh:minCount</code>/<code>maxCount</code>, <code>allValuesFrom</code> becomes <code>sh:class</code>. Kinds with no faithful mapping are <strong>dropped, not guessed</strong>.</p>
+      <div class="grow">
+        <div class="card alarm">
+          <h3>The line we won't cross</h3>
+          <p><code>owl:minCardinality 1</code> licenses an <em>inference</em>: there is at least one, and if you can't see it you simply haven't been told. <code>sh:minCount 1</code> is a <em>verdict</em>: an instance without one is invalid. Translating the first into the second manufactures a claim the source never made.</p>
+          <p>So every derived shape is <strong>sh:Warning, never sh:Violation</strong>, and carries provenance back to the row it came from. Promotion is a curator's recorded decision. <strong>The system may reorganize what it was told; it may never upgrade it into a stronger claim.</strong></p>
         </div>
-        <div class="stack">
-          <div class="card">
-            <h3>And they derive SHACL shapes</h3>
-            <p>Cardinality becomes <code>sh:minCount</code>/<code>maxCount</code>; <code>allValuesFrom</code> becomes <code>sh:class</code>. Kinds with no faithful mapping are <strong>dropped, not guessed</strong>.</p>
-          </div>
-        </div>
-      </div>
-      <div class="card alarm" style="margin-top:20px">
-        <h3>The line we won't cross</h3>
-        <p><code>owl:minCardinality 1</code> licenses an <em>inference</em>: there's at least one, and if you can't see it you just haven't been told. <code>sh:minCount 1</code> is a <em>verdict</em>: an instance without one is invalid. So every derived shape is <strong>sh:Warning, never sh:Violation</strong>, and carries provenance. Promotion is a curator's recorded decision. <strong>The system may reorganize what it was told; it may never upgrade it into a stronger claim.</strong></p>
       </div>
       <aside class="notes">
-        <p>This is the single most defensible slide in the deck for a semantics-literate audience — mechanically translating OWL cardinality into SHACL constraints is a common and genuinely wrong shortcut.</p>
+        <p>The most defensible slide in the deck for a semantics-literate audience — mechanically turning OWL cardinality into SHACL constraints is a common and genuinely wrong shortcut.</p>
         <p>Shapes derived from LLM-extracted restrictions also carry the extraction confidence: "the manual says SHALL" is a model's reading of prose, not an axiom an author wrote. Shapes that arrived as SHACL keep their author's severity — they were published as validation and need no reinterpretation.</p>
         <p>Same rule as the structural gate and the belief reviser, on a new surface. That consistency is the argument.</p>
       </aside>
     </section>
 
-    <!-- ══════════════════ 20 · ALIGNMENT + ABOX ══════════════════ -->
+    <!-- ══════════════════ 21 · ALIGNMENT + ABOX ══════════════════ -->
     <section class="slide" data-act="3">
       <div class="eyebrow">Two more capabilities, briefly</div>
       <h2>Many sources, one master — and facts, not just schema</h2>
@@ -924,7 +954,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 21 · ACT IV DIVIDER ══════════════════ -->
+    <!-- ══════════════════ 22 · ACT IV DIVIDER ══════════════════ -->
     <section class="slide divider" data-act="4">
       <div class="act-no">Part four</div>
       <h2>The result that changed how we spend effort</h2>
@@ -932,7 +962,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       <aside class="notes"><p>Slow down here. This act is the reason the talk is worth giving — everything before it is architecture, and architecture is cheap to claim.</p></aside>
     </section>
 
-    <!-- ══════════════════ 22 · CQs ══════════════════ -->
+    <!-- ══════════════════ 23 · CQs ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">Requirements-driven</div>
       <h2>An ontology exists to answer questions — so start there</h2>
@@ -951,7 +981,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 23 · THE RESULT ══════════════════ -->
+    <!-- ══════════════════ 24 · THE RESULT ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">Measured — 71-question benchmark</div>
       <h2>Human curation is the highest-leverage input</h2>
@@ -982,7 +1012,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 24 · LEXICON ══════════════════ -->
+    <!-- ══════════════════ 25 · LEXICON ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">The curated lexicon</div>
       <h2>What a thing is called is a domain judgement</h2>
@@ -1010,7 +1040,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 25 · THE BUG ══════════════════ -->
+    <!-- ══════════════════ 26 · THE BUG ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">Durability by design</div>
       <h2>A curated decision has to survive the next refresh</h2>
@@ -1039,7 +1069,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 26 · THE LESSON ══════════════════ -->
+    <!-- ══════════════════ 27 · THE LESSON ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">The principle</div>
       <h2>Ask any tool in this category one question</h2>
@@ -1065,7 +1095,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 27 · ACT V DIVIDER ══════════════════ -->
+    <!-- ══════════════════ 28 · ACT V DIVIDER ══════════════════ -->
     <section class="slide divider" data-act="5">
       <div class="act-no">Part five</div>
       <h2>Where it goes</h2>
@@ -1073,7 +1103,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       <aside class="notes"><p>Short landing. Two slides and the close.</p></aside>
     </section>
 
-    <!-- ══════════════════ 28 · TRUST MEASURED ══════════════════ -->
+    <!-- ══════════════════ 29 · TRUST MEASURED ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">Legibility</div>
       <h2>Because it's automated, it has to be measurable</h2>
@@ -1094,7 +1124,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 29 · AUTONOMY DIAL ══════════════════ -->
+    <!-- ══════════════════ 30 · AUTONOMY DIAL ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">Governance</div>
       <h2>Autonomy is a dial, not a default</h2>
@@ -1116,7 +1146,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 30 · CLOSE ══════════════════ -->
+    <!-- ══════════════════ 31 · CLOSE ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">The bet</div>
       <h2>The future isn't a better one-shot extractor</h2>
@@ -1139,7 +1169,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 31 · GET IT ══════════════════ -->
+    <!-- ══════════════════ 32 · GET IT ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">It's open source</div>
       <h2 style="max-width:26ch">All of this is in the repo</h2>
@@ -1172,7 +1202,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       <span id="rail-act">Title</span>
       <span id="rail-bar"></span>
       <span id="rail-repo">github.com/arango-solutions/arango-ontoextract</span>
-      <span id="rail-no">01 / 31</span>
+      <span id="rail-no">01 / 32</span>
     </div>
   </div>
 </div>

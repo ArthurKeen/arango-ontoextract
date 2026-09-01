@@ -572,20 +572,22 @@ These aren't vanity numbers. The connectivity and structural-integrity metrics a
 
 ---
 
-## 16. The constraints were there the whole time
+## 16. Seeing the structure most tools never draw
 
-Here's a failure mode that doesn't announce itself: **the system holds information, files it in the wrong shape, and then acts as though it doesn't have it.**
+OWL lets you state a relationship two ways, and most graph tools only show you one of them.
 
-OWL lets you state structure two ways. You can declare a property with a domain and a range — *`deployedSystem` goes from Deployment to System* — or you can state it as a **restriction** on the class:
+You can declare a property with a domain and a range — *`deployedSystem` goes from Deployment to System*. Or you can state it as a **restriction** on the class itself:
 
 ```
 ssn:Deployment rdfs:subClassOf [ owl:onProperty ssn:deployedSystem ;
                                  owl:allValuesFrom ssn:System ]
 ```
 
-Both say the same thing. Published ontologies lean heavily on the second form — W3C's SOSA/SSN sensor vocabulary states most of its structure that way. AOE imported those axioms correctly, into a constraints collection, and then the graph reader never looked at them. The result: import SOSA/SSN, and `Deployment`, `Stimulus`, `Input` and `Output` render as **isolated dots**. The ontology connects all four. The canvas didn't, and a curator reasonably concluded the import was broken.
+Both say exactly the same thing. And published vocabularies lean heavily on the second form — W3C's SOSA/SSN sensor ontology states most of its structure that way, as do large parts of BFO and FIBO. If your viewer only draws properties, every relation expressed as an axiom is invisible, and the classes involved look unconnected when the ontology connects them perfectly well. Import SOSA/SSN into a typical graph tool and `Deployment`, `Stimulus`, `Input` and `Output` sit there as isolated dots.
 
-Nothing needed re-importing. The information was in the database the whole time, filed as a constraint rather than expressed as a relationship. Restrictions now draw as real edges — and because toggling them is a display decision rather than a different query, turning them on and off never re-runs the layout.
+So AOE draws them — as **a view you switch on**. Restrictions become real edges on the canvas whenever you want to see the axiom-level structure, and stay out of the way when you don't.
+
+Optional is the right default rather than a hedge, because the two views answer different questions. Turn restrictions **on** when you're auditing an imported standard — "what does this vocabulary actually say?", "is this class genuinely isolated or am I just not seeing it?" Leave them **off** when you're curating your own classes and want the plain property graph without a few hundred extra axiom edges competing for attention. It's the same lens pattern as colour-by-confidence: one graph, several ways of reading it. And because visibility is a display decision on the graph already in memory rather than a different query, switching is instant in both directions and never rearranges your layout.
 
 ### From constraints to validation — and the line we won't cross
 
@@ -705,7 +707,7 @@ Then open **http://localhost:3000** — that's the workspace: upload, extract, c
 
 **Four things worth doing first**, roughly in increasing order of "huh, that's interesting":
 
-0. **Import something from the catalog.** One click, no keys, nothing to configure — SOSA/SSN is a good one, because it states most of its structure as OWL restrictions and is the case §16 is about. Thirty seconds to a real ontology on the canvas.
+0. **Import something from the catalog.** One click, no keys, nothing to configure — SOSA/SSN is a good one: import it, then toggle restrictions on and watch half its structure appear. That's §16, in thirty seconds.
 1. **Point it at a database you already run.** No LLM, no keys needed for this path either, and no hallucination risk — it's a deterministic walk of a live schema. It's the fastest way to a defensible ontology *of your own*, and it takes about a minute.
 2. **Upload a slide deck, then upload a second one on the same subject.** The second extraction won't start over; watch the belief-revision verdicts land, and see which contradictions get routed to the inbox instead of being silently resolved.
 3. **Curate something, then re-extract.** Rename a class, then run extraction again over the same source. That's the mechanism §13 is about, and watching a decision survive a regeneration is more convincing than reading about it.

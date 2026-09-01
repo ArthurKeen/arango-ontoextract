@@ -198,3 +198,97 @@ class TestLiveDecisionsByUri:
         db = MagicMock()
         assert repo.live_decisions_by_uri(db, existing_collections=set()) == {}
         db.has_collection.assert_not_called()
+
+
+class TestSelfProvisioning:
+    """Scanning WTW Ontology returned "An unexpected error occurred" because
+    ``label_collisions`` did not exist — migration 032 had never been applied
+    to that database. The read path tolerated the absence and reported "no
+    collisions", so the feature looked functional right up to the first write,
+    which raised a raw 404 from python-arango that no user could act on.
+
+    The write paths now provision the collections themselves. The migration
+    still exists for provisioning up front, and shares this schema so the two
+    cannot drift.
+    """
+
+    def _db_without_collections(self):
+        db = MagicMock()
+        created: list[str] = []
+        db.has_collection.side_effect = lambda name: name in created
+
+        def _create(name, **kw):
+            created.append(name)
+            return MagicMock()
+
+        db.create_collection.side_effect = _create
+        col = MagicMock()
+        col.indexes.return_value = []
+        col.get.return_value = None
+        db.collection.return_value = col
+        return db, created
+
+    def test_ensure_creates_both_collections(self):
+        from app.db.lexicon_repo import COLLISIONS, DECISIONS, ensure_lexicon_collections
+
+        db, created = self._db_without_collections()
+        ensure_lexicon_collections(db)
+
+        assert sorted(created) == sorted([COLLISIONS, DECISIONS])
+
+    def test_ensure_adds_the_indexes_the_queue_reads(self):
+        from app.db.lexicon_repo import ensure_lexicon_collections
+
+        db, _ = self._db_without_collections()
+        ensure_lexicon_collections(db)
+
+        names = {
+            c.kwargs.get("name")
+            for c in db.collection.return_value.add_persistent_index.call_args_list
+        }
+        assert "idx_collisions_status" in names
+        assert "idx_decisions_concept_uri" in names
+
+    def test_ensure_is_a_no_op_once_provisioned(self):
+        from app.db.lexicon_repo import ensure_lexicon_collections
+
+        db, _ = self._db_without_collections()
+        ensure_lexicon_collections(db)
+        db.create_collection.reset_mock()
+
+        ensure_lexicon_collections(db)
+
+        db.create_collection.assert_not_called()
+
+    def test_upsert_provisions_before_writing(self):
+        """The actual failure: a write against a database that never ran the
+        migration must succeed, not 404."""
+        from app.db import lexicon_repo
+
+        db, created = self._db_without_collections()
+        lexicon_repo.upsert_collision(
+            db,
+            scope="onto",
+            label="role",
+            occurrences=[{"concept_uri": "http://x#role"}],
+        )
+
+        assert lexicon_repo.COLLISIONS in created
+
+    def test_the_migration_shares_this_schema(self):
+        """Two definitions of the same collections would drift; the bug was
+        that only one of them had ever run."""
+        import importlib.util
+        import pathlib
+
+        from app.db.lexicon_repo import LEXICON_SCHEMA
+
+        path = pathlib.Path(__file__).parents[2] / "migrations" / "032_lexicon_collections.py"
+        spec = importlib.util.spec_from_file_location("m032", path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        assert [name for name, _idx in LEXICON_SCHEMA] == [
+            name for name, _edge, _idx in module._COLLECTIONS
+        ]

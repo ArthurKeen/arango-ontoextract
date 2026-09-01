@@ -17,6 +17,7 @@ cannot be clobbered; read paths merge it back over the extracted label.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 import time
@@ -31,6 +32,63 @@ from app.services.temporal import create_version, expire_entity
 
 COLLISIONS = "label_collisions"
 DECISIONS = "label_decisions"
+
+#: Schema for the two lexicon collections, as
+#: ``(collection, ((index_name, fields, sparse, unique), ...))``.
+#:
+#: Lives here rather than only in migration 032 so the SAME definition serves
+#: both. The migration provisions a database up front; this lets the first
+#: write provision one that was never migrated. Scanning WTW Ontology for
+#: collisions returned "An unexpected error occurred" for exactly that reason:
+#: ``label_collisions`` did not exist, the read path tolerated it and reported
+#: "no collisions", and the write path raised a raw 404 from python-arango.
+LEXICON_SCHEMA: tuple[tuple[str, tuple[tuple[str, list[str], bool, bool], ...]], ...] = (
+    (
+        COLLISIONS,
+        (
+            ("idx_collisions_status", ["status"], False, False),
+            ("idx_collisions_label", ["normalized_label"], False, False),
+            ("idx_collisions_detected", ["detected_at"], False, False),
+        ),
+    ),
+    (
+        DECISIONS,
+        (
+            ("idx_decisions_ontology_expired", ["ontology_id", "expired"], False, False),
+            ("idx_decisions_concept_uri", ["concept_uri", "expired"], False, False),
+            ("idx_decisions_collision", ["collision_key"], True, False),
+        ),
+    ),
+)
+
+
+def ensure_lexicon_collections(db: StandardDatabase) -> None:
+    """Create the lexicon collections and their indexes if they are absent.
+
+    Idempotent and cheap once provisioned: a ``has_collection`` probe per
+    collection. Called from the write paths so the feature works on a database
+    that has not had migration 032 applied, rather than failing with a 404 the
+    user cannot act on.
+    """
+    for name, indexes in LEXICON_SCHEMA:
+        if not db.has_collection(name):
+            db.create_collection(name)
+        col = db.collection(name)
+        try:
+            # python-arango types indexes() as a sync-vs-async union; in
+            # synchronous mode it always returns the list.
+            listed = cast("list[dict[str, Any]]", col.indexes() or [])
+        except Exception:  # pragma: no cover -- index listing is best-effort
+            continue
+        existing = {idx.get("name") for idx in listed}
+        for idx_name, fields, sparse, unique in indexes:
+            if idx_name in existing:
+                continue
+            # A missing index is a performance problem, not a correctness one;
+            # provisioning must not fail because of it.
+            with contextlib.suppress(Exception):
+                col.add_persistent_index(fields=fields, name=idx_name, sparse=sparse, unique=unique)
+
 
 COLLISION_STATUSES = ("open", "resolved", "dismissed")
 CONCEPT_TYPES = ("class", "datatype_property", "object_property")
@@ -82,6 +140,7 @@ def upsert_collision(
     """
     if db is None:
         db = get_db()
+    ensure_lexicon_collections(db)
     normalized = normalize_label(label)
     key = collision_key(scope, normalized)
     now = detected_at if detected_at is not None else time.time()
@@ -175,6 +234,7 @@ def set_collision_status(
         raise ValueError(f"unknown collision status {status!r} (expected {COLLISION_STATUSES})")
     if db is None:
         db = get_db()
+    ensure_lexicon_collections(db)
     col = db.collection(COLLISIONS)
     if col.get(key) is None:
         return None
@@ -219,6 +279,7 @@ def record_label_decision(
         raise ValueError("concept_uri is required — it is how a decision survives re-extraction")
     if db is None:
         db = get_db()
+    ensure_lexicon_collections(db)
 
     prior = get_live_decision(db, concept_uri=concept_uri)
     if prior is not None:

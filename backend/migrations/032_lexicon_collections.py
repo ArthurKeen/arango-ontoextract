@@ -27,35 +27,15 @@ import logging
 from arango.database import StandardDatabase
 from arango.exceptions import IndexCreateError
 
+from app.db.lexicon_repo import LEXICON_SCHEMA
+
 log = logging.getLogger(__name__)
 
-_COLLISIONS = "label_collisions"
-_DECISIONS = "label_decisions"
-
-# (collection, is_edge, ((index_name, fields, sparse, unique), ...))
-_COLLECTIONS = (
-    (
-        _COLLISIONS,
-        False,
-        (
-            ("idx_collisions_status", ["status"], False, False),
-            ("idx_collisions_label", ["normalized_label"], False, False),
-            ("idx_collisions_detected", ["detected_at"], False, False),
-        ),
-    ),
-    (
-        _DECISIONS,
-        False,
-        (
-            # The overlay's hot lookup: live decisions for one ontology.
-            ("idx_decisions_ontology_expired", ["ontology_id", "expired"], False, False),
-            # The join key. Not unique: history rows share a concept_uri and are
-            # separated by ``expired``.
-            ("idx_decisions_concept_uri", ["concept_uri", "expired"], False, False),
-            ("idx_decisions_collision", ["collision_key"], True, False),
-        ),
-    ),
-)
+# The schema itself lives in ``app.db.lexicon_repo`` so this migration and the
+# repo's own self-provisioning cannot drift apart. Scanning an un-migrated
+# database used to fail with a raw 404 from python-arango; the repo now creates
+# the collections on first write, and this migration provisions them up front.
+_COLLECTIONS = tuple((name, False, indexes) for name, indexes in LEXICON_SCHEMA)
 
 
 def up(db: StandardDatabase) -> None:

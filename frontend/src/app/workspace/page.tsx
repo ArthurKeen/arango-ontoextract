@@ -975,6 +975,58 @@ function WorkspacePageInner() {
     [selectedOntologyId],
   );
 
+  // An edge the canvas DERIVED has no row behind it: owl:Restriction edges are
+  // computed from constraints, and a multi-domain rdfs_range_class edge is one
+  // of several drawn from a single stored edge, so its key carries a suffix.
+  // Fetching either produced 'edge "restriction:ac5c18af" not found'. Detail
+  // for these comes from the payload the canvas already has.
+  const restrictionEdgeByKey = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>();
+    for (const e of edges) {
+      const rec = e as unknown as Record<string, unknown>;
+      if (rec.edge_type === "owl_restriction" && typeof rec._key === "string") {
+        map.set(rec._key, rec);
+      }
+    }
+    return map;
+  }, [edges]);
+
+  const derivedEdgeDetail = useMemo(() => {
+    if (!selectedEdgeKey) return null;
+    if (edges.some((e) => e._key === selectedEdgeKey)) return null;
+
+    const restriction = restrictionEdgeByKey.get(selectedEdgeKey);
+    if (restriction) {
+      const kind = String(restriction.restriction_type ?? "");
+      return {
+        _key: selectedEdgeKey,
+        label: String(restriction.label ?? "owl:Restriction"),
+        uri: String(restriction.property_uri ?? ""),
+        rdf_type: "owl:Restriction",
+        description:
+          kind === "allValuesFrom"
+            ? "Universal restriction: every value of this property on this class is of the target class. It does not assert that a value exists."
+            : kind === "someValuesFrom"
+              ? "Existential restriction: at least one value of this property is of the target class."
+              : `owl:${kind} restriction.`,
+      };
+    }
+    // A suffixed synthetic range edge: recover the stored edge it came from.
+    const base = selectedEdgeKey.split(":")[0];
+    const source = edges.find((e) => e._key === base);
+    if (source) {
+      const rec = source as unknown as Record<string, unknown>;
+      return {
+        _key: selectedEdgeKey,
+        label: String(source.label ?? ""),
+        uri: String(rec.uri ?? ""),
+        rdf_type: "owl:ObjectProperty",
+        description: String(rec.description ?? ""),
+      };
+    }
+    return null;
+  }, [selectedEdgeKey, edges, restrictionEdgeByKey]);
+
   const handleSelectEdgeFromSidebar = useCallback(
     (edgeKey: string, ontologyId: string) => {
       // Same cross-ontology guard as class selection: the detail panel fetches
@@ -2002,6 +2054,7 @@ function WorkspacePageInner() {
                   entityType="edge"
                   entityKey={selectedEdgeKey}
                   ontologyId={selectedEdgeOntologyId}
+                  preset={derivedEdgeDetail}
                   onClose={() => setDetailPanelOpen(false)}
                 />
               )}

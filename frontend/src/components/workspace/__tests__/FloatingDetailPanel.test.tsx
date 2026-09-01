@@ -106,7 +106,9 @@ describe("FloatingDetailPanel", () => {
     expect(apiGet).toHaveBeenCalledWith("/api/v1/ontology/ont1/classes/Foo");
     // Verify we did NOT use the list endpoint (which has no key suffix).
     const calls = apiGet.mock.calls.map((c) => c[0] as string);
-    expect(calls.some((u) => u === "/api/v1/ontology/ont1/classes")).toBe(false);
+    expect(calls.some((u) => u === "/api/v1/ontology/ont1/classes")).toBe(
+      false,
+    );
   });
 
   it("edge entity hits GET /edges/{key} (the new single-item endpoint)", async () => {
@@ -153,14 +155,21 @@ describe("FloatingDetailPanel", () => {
     );
 
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    expect(apiGet).toHaveBeenCalledWith("/api/v1/ontology/ont1/properties/p999");
+    expect(apiGet).toHaveBeenCalledWith(
+      "/api/v1/ontology/ont1/properties/p999",
+    );
     const calls = apiGet.mock.calls.map((c) => c[0] as string);
-    expect(calls.some((u) => u === "/api/v1/ontology/ont1/properties")).toBe(false);
+    expect(calls.some((u) => u === "/api/v1/ontology/ont1/properties")).toBe(
+      false,
+    );
   });
 
   it("404 from a single-item endpoint surfaces a 'not found' message", async () => {
     apiGet.mockRejectedValue(
-      new MockApiError(404, { code: "ENTITY_NOT_FOUND", message: "Edge not found" }),
+      new MockApiError(404, {
+        code: "ENTITY_NOT_FOUND",
+        message: "Edge not found",
+      }),
     );
 
     render(
@@ -249,5 +258,71 @@ describe("FloatingDetailPanel", () => {
     await waitFor(() => expect(entityCalls()).toHaveLength(2));
     // Pin that the latest entity request was for the new key.
     expect(entityCalls().at(-1)).toBe("/api/v1/ontology/ont1/classes/Bar");
+  });
+});
+
+describe("derived edges have no row to fetch", () => {
+  beforeEach(() => apiGet.mockReset());
+
+  // An owl:Restriction edge is computed from a constraint and a multi-domain
+  // rdfs_range_class edge is one of several drawn from one stored edge, so its
+  // key is suffixed. Asking the API for either produced a confusing
+  // 'edge "restriction:ac5c18af" not found' where a detail panel should be.
+  const preset = {
+    _key: "restriction:ac5c18af",
+    label: "deployedSystem",
+    uri: "http://www.w3.org/ns/ssn/deployedSystem",
+    rdf_type: "owl:Restriction",
+    description: "Universal restriction: every value of this property...",
+  };
+
+  it("renders the supplied detail without calling the API", async () => {
+    render(
+      <FloatingDetailPanel
+        entityType="edge"
+        entityKey="restriction:ac5c18af"
+        ontologyId="sosa-ssn"
+        preset={preset}
+        onClose={() => {}}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("deployedSystem")).toBeInTheDocument(),
+    );
+    expect(apiGet).not.toHaveBeenCalled();
+  });
+
+  it("never shows the not-found error for a derived edge", async () => {
+    render(
+      <FloatingDetailPanel
+        entityType="edge"
+        entityKey="restriction:ac5c18af"
+        ontologyId="sosa-ssn"
+        preset={preset}
+        onClose={() => {}}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("deployedSystem")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+  });
+
+  it("still fetches when no preset is supplied", async () => {
+    apiGet.mockResolvedValue({ _key: "e1", label: "hosts" });
+
+    render(
+      <FloatingDetailPanel
+        entityType="edge"
+        entityKey="e1"
+        ontologyId="sosa-ssn"
+        onClose={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    expect(apiGet).toHaveBeenCalledWith("/api/v1/ontology/sosa-ssn/edges/e1");
   });
 });

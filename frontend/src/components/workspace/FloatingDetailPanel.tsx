@@ -10,6 +10,9 @@ interface FloatingDetailPanelProps {
   entityType: "class" | "edge" | "property";
   entityKey: string;
   ontologyId: string;
+  /** Pre-resolved detail for an entity that has no row to fetch — a derived
+   *  edge the canvas computed rather than read. When set, no request is made. */
+  preset?: ClassDetail | null;
   onClose: () => void;
 }
 
@@ -51,12 +54,17 @@ export default function FloatingDetailPanel({
   entityType,
   entityKey,
   ontologyId,
+  preset,
   onClose,
 }: FloatingDetailPanelProps) {
-  const { panelRef, panelStyle, dragHandleProps } = useDraggablePanel(DETAIL_PANEL_WIDTH, {
-    placement: "viewportTopRight",
-  });
-  const { className: dragHandleClassName, ...dragHandleEvents } = dragHandleProps;
+  const { panelRef, panelStyle, dragHandleProps } = useDraggablePanel(
+    DETAIL_PANEL_WIDTH,
+    {
+      placement: "viewportTopRight",
+    },
+  );
+  const { className: dragHandleClassName, ...dragHandleEvents } =
+    dragHandleProps;
 
   const [entity, setEntity] = useState<ClassDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +90,19 @@ export default function FloatingDetailPanel({
       property: `/api/v1/ontology/${ontologyId}/properties/${entityKey}`,
     };
     const url = endpointMap[entityType];
+
+    // Some edges the canvas draws have no row to fetch: they are DERIVED.
+    // An owl:Restriction edge is computed from a constraint, and a
+    // multi-domain rdfs_range_class edge is one of several drawn from a
+    // single stored edge, so its key is suffixed to stay unique. Asking the
+    // API for either produced a confusing 'edge "restriction:ac5c18af" not
+    // found'. The caller passes what it already knows instead.
+    if (preset) {
+      setEntity(preset);
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
     async function fetchEntity() {
       setLoading(true);
@@ -122,15 +143,18 @@ export default function FloatingDetailPanel({
     }
 
     fetchEntity();
-    return () => { cancelled = true; };
-  }, [entityType, entityKey, ontologyId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [entityType, entityKey, ontologyId, preset]);
 
   const typeLabel = entityType.charAt(0).toUpperCase() + entityType.slice(1);
 
   const attributes = entity?.attributes ?? [];
   const relationships = entity?.relationships ?? [];
   const legacyProps = entity?.legacy_properties ?? [];
-  const hasProperties = attributes.length > 0 || relationships.length > 0 || legacyProps.length > 0;
+  const hasProperties =
+    attributes.length > 0 || relationships.length > 0 || legacyProps.length > 0;
 
   return (
     <div
@@ -217,7 +241,9 @@ export default function FloatingDetailPanel({
                   <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
                     Status
                   </dt>
-                  <dd className="text-sm text-gray-700 capitalize">{entity.status}</dd>
+                  <dd className="text-sm text-gray-700 capitalize">
+                    {entity.status}
+                  </dd>
                 </div>
               )}
               {entity.rdf_type && (
@@ -225,7 +251,9 @@ export default function FloatingDetailPanel({
                   <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
                     RDF Type
                   </dt>
-                  <dd className="text-xs text-gray-600 font-mono">{entity.rdf_type}</dd>
+                  <dd className="text-xs text-gray-600 font-mono">
+                    {entity.rdf_type}
+                  </dd>
                 </div>
               )}
             </div>
@@ -235,15 +263,19 @@ export default function FloatingDetailPanel({
                 <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
                   Created
                 </dt>
-                <dd className="text-xs text-gray-600">{formatCreated(entity.created)}</dd>
+                <dd className="text-xs text-gray-600">
+                  {formatCreated(entity.created)}
+                </dd>
               </div>
             )}
 
             {entityType === "class" && !hasProperties && (
               <p className="text-xs text-gray-500 border-t border-gray-100 pt-3">
-                No datatype attributes or object relationships are linked to this class yet.
-                They appear when the ontology uses PGT-aligned properties (rdfs:domain edges) or
-                legacy <code className="text-[10px]">has_property</code> links from extraction.
+                No datatype attributes or object relationships are linked to
+                this class yet. They appear when the ontology uses PGT-aligned
+                properties (rdfs:domain edges) or legacy{" "}
+                <code className="text-[10px]">has_property</code> links from
+                extraction.
               </p>
             )}
 
@@ -268,7 +300,9 @@ export default function FloatingDetailPanel({
                           key={`${attr._key}-${idx}`}
                           className="flex items-baseline gap-2 text-xs bg-gray-50 rounded-md px-2.5 py-1.5"
                         >
-                          <span className="font-medium text-gray-800">{attr.label ?? attr._key}</span>
+                          <span className="font-medium text-gray-800">
+                            {attr.label ?? attr._key}
+                          </span>
                           <span className="text-gray-400">:</span>
                           <span className="text-purple-600 font-mono text-[11px]">
                             {attr.range_datatype ?? attr.range ?? "—"}
@@ -290,7 +324,9 @@ export default function FloatingDetailPanel({
                           key={`${rel._key}-${idx}`}
                           className="flex items-baseline gap-2 text-xs bg-blue-50 rounded-md px-2.5 py-1.5"
                         >
-                          <span className="font-medium text-gray-800">{rel.label ?? rel._key}</span>
+                          <span className="font-medium text-gray-800">
+                            {rel.label ?? rel._key}
+                          </span>
                           <span className="text-gray-400">&rarr;</span>
                           <span className="text-blue-600 font-medium">
                             {rel.target_class?.label ?? "?"}
@@ -301,29 +337,35 @@ export default function FloatingDetailPanel({
                   </div>
                 )}
 
-                {legacyProps.length > 0 && attributes.length === 0 && relationships.length === 0 && (
-                  <div>
-                    <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                      Properties ({legacyProps.length})
-                    </dt>
-                    <div className="space-y-1.5">
-                      {legacyProps.map((prop, idx) => (
-                        <div
-                          key={`${prop._key}-${idx}`}
-                          className="flex items-baseline gap-2 text-xs bg-gray-50 rounded-md px-2.5 py-1.5"
-                        >
-                          <span className="font-medium text-gray-800">{prop.label ?? prop._key}</span>
-                          {prop.range && (
-                            <>
-                              <span className="text-gray-400">:</span>
-                              <span className="text-purple-600 font-mono text-[11px]">{prop.range}</span>
-                            </>
-                          )}
-                        </div>
-                      ))}
+                {legacyProps.length > 0 &&
+                  attributes.length === 0 &&
+                  relationships.length === 0 && (
+                    <div>
+                      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                        Properties ({legacyProps.length})
+                      </dt>
+                      <div className="space-y-1.5">
+                        {legacyProps.map((prop, idx) => (
+                          <div
+                            key={`${prop._key}-${idx}`}
+                            className="flex items-baseline gap-2 text-xs bg-gray-50 rounded-md px-2.5 py-1.5"
+                          >
+                            <span className="font-medium text-gray-800">
+                              {prop.label ?? prop._key}
+                            </span>
+                            {prop.range && (
+                              <>
+                                <span className="text-gray-400">:</span>
+                                <span className="text-purple-600 font-mono text-[11px]">
+                                  {prop.range}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
               </div>
             )}
 

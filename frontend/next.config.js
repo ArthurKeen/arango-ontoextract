@@ -33,6 +33,17 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_BASE_PATH: pathPrefix,
   },
+  experimental: {
+    // Document uploads (PDF manuals run to tens of MB) are POSTed to the
+    // same-origin `/api/*` rewrite below. Because a middleware file exists,
+    // Next buffers every proxied request body against this limit, which
+    // defaults to 10MB -- past that it truncates the body, FastAPI sees a
+    // short multipart payload and drops the connection, and the browser gets
+    // `socket hang up` / HTTP 500 with no mention of size. Excluding /api from
+    // the middleware matcher does NOT avoid the buffering; raising the limit
+    // is the supported fix. Keep this >= any document the pipeline accepts.
+    middlewareClientMaxBodySize: "500mb",
+  },
   ...(staticExport
     ? {
         output: "export",

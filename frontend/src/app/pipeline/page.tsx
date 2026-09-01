@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api-client";
@@ -35,17 +35,35 @@ export default function PipelineMonitor() {
 
 function PipelineMonitorInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
-  // Sync from URL search params (runs after hydration, avoiding SSR mismatch)
+  // Adopt a run id FROM the URL (deep links, and the "Open in Pipeline" link
+  // from the workspace). Runs after hydration, avoiding an SSR mismatch.
+  //
+  // The guard on ``runIdParam`` is load-bearing. Without it this effect fought
+  // the click handler and always won: selecting a run set the state, the state
+  // change re-ran this effect, ``searchParams.get("runId")`` was still null
+  // because nothing wrote the URL, and it set the selection straight back to
+  // null. The pipeline never rendered and the page showed "Select an
+  // extraction run" no matter what you clicked.
+  //
+  // Selecting now writes the URL too (see ``handleSelectRun``), so the two
+  // agree rather than race. Both sides compare before writing, so neither can
+  // re-trigger the other — the loop an earlier bidirectional sync hit.
   useEffect(() => {
     const runIdParam = searchParams.get("runId");
-    if (runIdParam !== selectedRunId) {
+    if (runIdParam && runIdParam !== selectedRunId) {
       setSelectedRunId(runIdParam);
     }
   }, [searchParams, selectedRunId]);
   const [activeTab, setActiveTab] = useState<DetailTab>("metrics");
-  const { steps, isConnected, error: wsError } = useExtractionSocket(selectedRunId);
+  const {
+    steps,
+    isConnected,
+    error: wsError,
+  } = useExtractionSocket(selectedRunId);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [resetBusy, setResetBusy] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -58,13 +76,22 @@ function PipelineMonitorInner() {
     if (!confirm(msg)) return;
     setResetBusy(true);
     try {
-      const endpoint = full ? "/api/v1/admin/reset/full" : "/api/v1/admin/reset";
-      const result = await api.post<{ reset: boolean; collections_truncated: string[] }>(endpoint);
-      alert(`Reset complete. Truncated: ${result.collections_truncated.join(", ")}`);
+      const endpoint = full
+        ? "/api/v1/admin/reset/full"
+        : "/api/v1/admin/reset";
+      const result = await api.post<{
+        reset: boolean;
+        collections_truncated: string[];
+      }>(endpoint);
+      alert(
+        `Reset complete. Truncated: ${result.collections_truncated.join(", ")}`,
+      );
       setSelectedRunId(null);
       setRunListKey((k) => k + 1);
     } catch (err) {
-      alert(`Reset failed: ${err instanceof Error ? err.message : String(err)}`);
+      alert(
+        `Reset failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     } finally {
       setResetBusy(false);
     }
@@ -74,10 +101,21 @@ function PipelineMonitorInner() {
   // see a new reference on every parent render — which would re-fire their
   // dependent effects and (combined with bidirectional sync) used to spin the
   // page into a render loop.
-  const handleSelectRun = useCallback((id: string) => {
-    setSelectedRunId(id);
-    setSidebarOpen(false);
-  }, []);
+  const handleSelectRun = useCallback(
+    (id: string) => {
+      setSelectedRunId(id);
+      setSidebarOpen(false);
+      // Keep the URL in step so the selection is shareable and the sync effect
+      // above sees the same value it would adopt. ``replace``, not ``push``:
+      // clicking through a run list should not stack history entries.
+      const params = new URLSearchParams(searchParams.toString());
+      if (params.get("runId") !== id) {
+        params.set("runId", id);
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      }
+    },
+    [router, pathname, searchParams],
+  );
 
   const tabs: { key: DetailTab; label: string }[] = [
     { key: "metrics", label: "Metrics" },
@@ -121,21 +159,31 @@ function PipelineMonitorInner() {
                 <div className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
                   <button
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { setResetOpen(false); handleReset(false); }}
+                    onClick={() => {
+                      setResetOpen(false);
+                      handleReset(false);
+                    }}
                     disabled={resetBusy}
                     className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 rounded-t-lg"
                   >
                     Reset Ontology Data
-                    <span className="block text-gray-400 mt-0.5">Keeps documents &amp; chunks</span>
+                    <span className="block text-gray-400 mt-0.5">
+                      Keeps documents &amp; chunks
+                    </span>
                   </button>
                   <button
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { setResetOpen(false); handleReset(true); }}
+                    onClick={() => {
+                      setResetOpen(false);
+                      handleReset(true);
+                    }}
                     disabled={resetBusy}
                     className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 border-t border-gray-100 rounded-b-lg"
                   >
                     Full Reset
-                    <span className="block text-red-400 mt-0.5">Deletes everything</span>
+                    <span className="block text-red-400 mt-0.5">
+                      Deletes everything
+                    </span>
                   </button>
                 </div>
               )}
@@ -193,9 +241,7 @@ function PipelineMonitorInner() {
           {!selectedRunId ? (
             <div className="flex-1 flex items-center justify-center p-8">
               <div className="text-center">
-                <div className="text-4xl text-gray-300 mb-3">
-                  {"\u2B50"}
-                </div>
+                <div className="text-4xl text-gray-300 mb-3">{"\u2B50"}</div>
                 <p className="text-gray-500 text-lg">
                   Select an extraction run to view its pipeline
                 </p>
@@ -225,7 +271,9 @@ function PipelineMonitorInner() {
                         {selectedRunId}
                       </span>
                       <a
-                        href={withBasePath(`/workspace?ontologyId=${selectedRunId}`)}
+                        href={withBasePath(
+                          `/workspace?ontologyId=${selectedRunId}`,
+                        )}
                         className="text-xs px-3 py-1 bg-indigo-600 text-on-accent rounded-lg hover:brightness-90 transition-colors"
                       >
                         Open in Workspace
@@ -269,9 +317,7 @@ function PipelineMonitorInner() {
                   {activeTab === "errors" && (
                     <ErrorLog steps={steps} runId={selectedRunId} />
                   )}
-                  {activeTab === "timeline" && (
-                    <RunTimeline steps={steps} />
-                  )}
+                  {activeTab === "timeline" && <RunTimeline steps={steps} />}
                 </div>
               </div>
             </>

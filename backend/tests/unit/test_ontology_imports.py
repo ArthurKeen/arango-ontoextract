@@ -558,7 +558,16 @@ class TestEffectiveOntologyEndpoint:
             "updated_at": 42,
         }
         _mock_db.collection.return_value = mock_col
-        _mock_db.aql.execute = MagicMock(side_effect=lambda *a, **kw: iter([]))
+
+        # The registry entry now arrives with the imports closure in ONE query
+        # (the traversal only ever needed the target's id), so the fake answers
+        # that combined shape instead of a bare primary-key lookup.
+        def _execute(query, bind_vars=None, **kw):
+            if "LET self = DOCUMENT" in query:
+                return iter([{"self": mock_col.get.return_value, "imported": []}])
+            return iter([])
+
+        _mock_db.aql.execute = MagicMock(side_effect=_execute)
         _mock_db.collections.return_value = [
             {"name": n}
             for n in (

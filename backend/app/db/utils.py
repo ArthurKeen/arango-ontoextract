@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -16,24 +17,64 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+#: How long a collection-name snapshot is reused. Collections are created by
+#: imports and migrations, not by ordinary reads, so the set is close to
+#: static; a few seconds of staleness costs nothing and a fresh snapshot costs
+#: a full round trip. Deliberately short so a newly created collection becomes
+#: visible without a restart.
+_COLLECTION_NAMES_TTL_SECONDS = 15.0
+
+#: ``{database name: (expires_at, names)}``. Keyed by database because one
+#: process serves several (the app database and the shared-memory one).
+_collection_names_cache: dict[str, tuple[float, set[str]]] = {}
+
+
+def invalidate_collection_names(db: StandardDatabase | None = None) -> None:
+    """Drop the cached snapshot, for code that has just created a collection.
+
+    Correctness does not depend on this being called -- the TTL expires on its
+    own -- but calling it makes a new collection visible immediately.
+    """
+    if db is None:
+        _collection_names_cache.clear()
+        return
+    _collection_names_cache.pop(getattr(db, "name", ""), None)
+
+
 def existing_collection_names(db: StandardDatabase) -> set[str] | None:
-    """Snapshot the database's collection names in ONE round-trip.
+    """Snapshot the database's collection names, cached for a few seconds.
 
     python-arango's ``has_collection`` issues a full HTTP request per probe;
     code paths that probe many collections against a remote (cloud/WAN)
     ArangoDB pay ~0.2s per probe. Fetching ``db.collections()`` once and
     membership-testing the returned set replaces N round-trips with one.
 
+    ONE is still too many when the answer barely changes. Measured against the
+    deployment database, ``db.collections()`` costs ~520ms -- the same as any
+    other round trip, since latency dominates -- and the effective-ontology
+    endpoint spent a fifth of its total time on it, every request, to learn a
+    set that had not changed since the last import. It is now cached for
+    ``_COLLECTION_NAMES_TTL_SECONDS``.
+
     Returns ``None`` when the snapshot cannot be taken or comes back empty
     (mocked connections in unit tests iterate as empty, and a real database
     always exposes at least its system collections) so callers can fall back
-    to per-call ``has_collection`` probes.
+    to per-call ``has_collection`` probes. A ``None`` result is never cached:
+    a failed probe should be retried, not remembered.
     """
+    key = getattr(db, "name", "")
+    cached = _collection_names_cache.get(key)
+    if cached is not None and cached[0] > time.monotonic():
+        return cached[1]
+
     try:
         names = {c["name"] for c in db.collections()}  # type: ignore[union-attr]
     except Exception:
         return None
-    return names or None
+    if not names:
+        return None
+    _collection_names_cache[key] = (time.monotonic() + _COLLECTION_NAMES_TTL_SECONDS, names)
+    return names
 
 
 def run_aql(

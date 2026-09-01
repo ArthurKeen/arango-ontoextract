@@ -64,7 +64,7 @@ from arango.database import StandardDatabase
 
 from app.db import lexicon_repo
 from app.db.temporal_constants import NEVER_EXPIRES
-from app.db.utils import run_aql
+from app.db.utils import existing_collection_names, run_aql
 from app.services import label_overlay
 from app.services.edge_confidence import (
     compute_edge_confidence,
@@ -160,7 +160,11 @@ def compute_effective_ontology(
     profile = normalize_include(include)
     safe_depth = max(1, min(int(max_depth), 50))
 
-    self_entry = _get_registry_entry(db, ontology_id)
+    # Registry entry and imports closure in ONE round trip; the traversal only
+    # ever needed the target's id, which we already have.
+    self_entry, imported_rows = _fetch_self_and_closure(
+        db, ontology_id=ontology_id, max_depth=safe_depth
+    )
     if self_entry is None:
         raise ValueError(f"Ontology '{ontology_id}' not found")
     t_meta = time.perf_counter() - t_start
@@ -171,6 +175,7 @@ def compute_effective_ontology(
         self_entry=self_entry,
         max_depth=safe_depth,
         existing=existing,
+        imported_rows=imported_rows,
     )
     t_closure = time.perf_counter() - t
 
@@ -304,6 +309,7 @@ def _compute_source_closure(
     self_entry: dict[str, Any],
     max_depth: int,
     existing: set[str],
+    imported_rows: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Return ``[self] + transitive imports``, each with depth + is_self.
 
@@ -333,30 +339,7 @@ def _compute_source_closure(
     if "imports" not in existing:
         return [self_source]
 
-    target_id = f"ontology_registry/{self_key}"
-    rows = list(
-        run_aql(
-            db,
-            """
-            FOR v, e, p IN 1..@max_depth OUTBOUND @target imports
-              OPTIONS { uniqueVertices: 'global', bfs: true }
-              FILTER e.expired == @never
-              RETURN {
-                _key: v._key,
-                name: v.name || v.label || v._key,
-                tier: v.tier,
-                status: v.status,
-                updated_at: v.updated_at,
-                depth: LENGTH(p.edges)
-              }
-            """,
-            bind_vars={
-                "target": target_id,
-                "never": NEVER_EXPIRES,
-                "max_depth": max_depth,
-            },
-        )
-    )
+    rows = list(imported_rows or [])
 
     seen: dict[str, dict[str, Any]] = {self_key: self_source}
     for row in rows:
@@ -407,36 +390,72 @@ def _fetch_entities_for_ontologies(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Pull live classes / edges / properties for all ontologies in one shot.
 
-    Three AQL round-trips total (one per entity kind), each filtered by
-    ``ontology_id IN @oids``. Compared to a per-ontology fan-out this is
-    O(1) round-trips regardless of closure size, which matters when an
-    ontology imports several large library ontologies.
+    ONE AQL round-trip for all three kinds, each filtered by
+        ``ontology_id IN @oids``. O(1) round-trips regardless of closure size,
+        which matters when an ontology imports several large library ontologies
+        -- and matters far more against a remote database, where a round trip
+        costs ~520ms whatever it carries.
 
-    ``existing`` is the caller's one-shot snapshot of collection names, so
-    collection-existence checks here cost zero extra round-trips. Missing
-    collections contribute no rows, mirroring the behaviour of the
-    per-ontology ``/classes`` and ``/edges`` endpoints on fresh databases.
+        ``existing`` is the caller's one-shot snapshot of collection names, so
+        collection-existence checks here cost zero extra round-trips. Missing
+        collections contribute no rows, mirroring the behaviour of the
+        per-ontology ``/classes`` and ``/edges`` endpoints on fresh databases.
     """
     if not ontology_ids:
         return [], [], []
 
-    classes: list[dict[str, Any]] = []
-    if "ontology_classes" in existing:
-        classes = list(
-            run_aql(
-                db,
-                """
-                FOR c IN ontology_classes
-                  FILTER c.ontology_id IN @oids AND c.expired == @never
-                  SORT c.label ASC
-                  RETURN c
-                """,
-                bind_vars={"oids": ontology_ids, "never": NEVER_EXPIRES},
-            )
-        )
+    # ONE round trip for all three kinds, not three.
+    #
+    # They are independent reads with identical bind variables, so running them
+    # sequentially bought nothing and cost two extra round trips. That is
+    # invisible against a local database and dominant against a remote one:
+    # measured against the deployment ArangoDB, a trivial ``RETURN 1`` costs
+    # ~520ms, so this endpoint spent ~1.05s of its ~2.6s waiting on hops it did
+    # not need to make. Payload and post-processing are unchanged; only the
+    # number of network trips differs.
+    edge_cols = tuple(c for c in LIVE_EDGE_COLLECTIONS if c in existing)
+    prop_cols = tuple(c for c in LIVE_PROP_COLLECTIONS if c in existing)
 
-    edges = _fetch_edges_across_ontologies(db, ontology_ids, existing=existing)
-    properties = _fetch_properties_across_ontologies(db, ontology_ids, existing=existing)
+    class_sub = (
+        """(FOR c IN ontology_classes
+              FILTER c.ontology_id IN @oids AND c.expired == @never
+              SORT c.label ASC RETURN c)"""
+        if "ontology_classes" in existing
+        else "[]"
+    )
+    edge_sub = (
+        "FLATTEN([\n"
+        + ",\n".join(
+            f"(FOR e IN {col} FILTER e.ontology_id IN @oids AND e.expired == @never "
+            f'RETURN MERGE(e, {{edge_type: "{col}"}}))'
+            for col in edge_cols
+        )
+        + "\n], 1)"
+        if edge_cols
+        else "[]"
+    )
+    prop_sub = (
+        "FLATTEN([\n"
+        + ",\n".join(
+            f"(FOR p IN {col} FILTER p.ontology_id IN @oids AND p.expired == @never RETURN p)"
+            for col in prop_cols
+        )
+        + "\n], 1)"
+        if prop_cols
+        else "[]"
+    )
+
+    rows = list(
+        run_aql(
+            db,
+            f"RETURN {{ classes: {class_sub}, edges: {edge_sub}, properties: {prop_sub} }}",
+            bind_vars={"oids": ontology_ids, "never": NEVER_EXPIRES},
+        )
+    )
+    payload = rows[0] if rows else {}
+    classes = [c for c in (payload.get("classes") or []) if isinstance(c, dict)]
+    edges = [e for e in (payload.get("edges") or []) if isinstance(e, dict)]
+    properties = [p for p in (payload.get("properties") or []) if isinstance(p, dict)]
 
     return classes, edges, properties
 
@@ -1032,14 +1051,66 @@ def _get_registry_entry(db: StandardDatabase, ontology_id: str) -> dict[str, Any
     return cast("dict[str, Any] | None", doc)
 
 
+def _fetch_self_and_closure(
+    db: StandardDatabase, *, ontology_id: str, max_depth: int
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """The target's registry entry AND its imports closure, in one round trip.
+
+    These were two sequential reads: a primary-key lookup, then a traversal
+    starting from the document it returned. The traversal never needed the
+    fetched document -- only its id, which the caller already had -- so the
+    first read bought nothing but a round trip. Against the deployment
+    database that is ~520ms of the endpoint's total, on every request.
+    """
+    rows = list(
+        run_aql(
+            db,
+            """
+            LET self = DOCUMENT(CONCAT('ontology_registry/', @oid))
+            LET imported = self == null ? [] : (
+              FOR v, e, p IN 1..@max_depth OUTBOUND self imports
+                OPTIONS { uniqueVertices: 'global', bfs: true }
+                FILTER e.expired == @never
+                RETURN {
+                  _key: v._key,
+                  name: v.name || v.label || v._key,
+                  tier: v.tier,
+                  status: v.status,
+                  updated_at: v.updated_at,
+                  depth: LENGTH(p.edges)
+                }
+            )
+            RETURN { self: self, imported: imported }
+            """,
+            bind_vars={"oid": ontology_id, "never": NEVER_EXPIRES, "max_depth": max_depth},
+        )
+    )
+    payload = rows[0] if rows else {}
+    self_doc = payload.get("self") if isinstance(payload, dict) else None
+    imported = payload.get("imported") if isinstance(payload, dict) else []
+    return (
+        self_doc if isinstance(self_doc, dict) else None,
+        [r for r in (imported or []) if isinstance(r, dict)],
+    )
+
+
 def _existing_collection_names(db: StandardDatabase) -> set[str]:
     """Return the set of collection names that currently exist on ``db``.
+
+    Delegates to the shared, briefly-cached snapshot in ``app.db.utils`` so
+    this endpoint stops paying a full round trip per request to learn a set
+    that changes only when an import creates a collection. Falls back to a
+    direct call when the snapshot is unavailable (mocked connections in unit
+    tests iterate as empty).
 
     python-arango types ``db.collections()`` as a sync-vs-async union
     (``list[dict] | AsyncJob | BatchJob | None``); in synchronous mode it
     always returns the list. Centralising the narrow here keeps the
     callers focussed on intent rather than type plumbing.
     """
+    cached = existing_collection_names(db)
+    if cached is not None:
+        return cached
     collections = cast("list[dict[str, Any]]", db.collections() or [])
     return {col["name"] for col in collections if isinstance(col, dict) and "name" in col}
 

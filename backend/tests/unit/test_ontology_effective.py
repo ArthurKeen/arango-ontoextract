@@ -83,6 +83,50 @@ def _make_db(
     aql_responses = aql_responses or {}
 
     def _execute(query: str, bind_vars: dict[str, Any] | None = None) -> Any:
+        # The registry entry and the imports closure are fetched in ONE query
+        # now -- the traversal only ever needed the target's id, so the prior
+        # primary-key lookup was a wasted round trip (~520ms against the
+        # deployment database). Tests still declare the closure rows under an
+        # "OUTBOUND"-ish key; the fake assembles the combined shape so their
+        # intent is unchanged.
+        if "LET self = DOCUMENT" in query:
+            oid = (bind_vars or {}).get("oid", "")
+            imported: list[Any] = []
+            for needle, rows in aql_responses.items():
+                if "OUTBOUND" in needle or "imports" in needle:
+                    imported = list(rows)
+                    break
+            return iter([{"self": registry_entries.get(oid), "imported": imported}])
+
+        # Classes, edges and properties are likewise fetched in ONE query now
+        # rather than three. Tests still declare them separately, keyed by the
+        # old per-kind needles, so the fake assembles the combined payload.
+        if query.lstrip().startswith("RETURN { classes:"):
+
+            def _rows_for(*needles: str) -> list[Any]:
+                for needle, rows in aql_responses.items():
+                    if any(n in needle for n in needles):
+                        out = list(rows)
+                        # The edge / property queries used to be ``RETURN
+                        # edges`` -- one cursor row that WAS the array -- so
+                        # tests declare them double-wrapped and the old code
+                        # unwrapped with ``rows[0]``. The merged query returns
+                        # the arrays directly, so unwrap here instead.
+                        if len(out) == 1 and isinstance(out[0], list):
+                            return list(out[0])
+                        return out
+                return []
+
+            return iter(
+                [
+                    {
+                        "classes": _rows_for("FOR c IN ontology_classes"),
+                        "edges": _rows_for("LET edges = FLATTEN", "FOR e IN "),
+                        "properties": _rows_for("LET props = FLATTEN", "FOR p IN "),
+                    }
+                ]
+            )
+
         for needle, rows in aql_responses.items():
             if needle in query:
                 return iter(list(rows))
@@ -253,9 +297,12 @@ class TestTransitiveClosure:
 
         called_bind_vars: dict[str, Any] = {}
 
+        # The closure traversal now shares its query with the registry lookup,
+        # so the depth bind var arrives on that combined statement.
         def _execute(query: str, bind_vars: dict[str, Any] | None = None) -> Any:
-            if "OUTBOUND @target imports" in query and bind_vars is not None:
+            if "OUTBOUND" in query and "imports" in query and bind_vars is not None:
                 called_bind_vars.update(bind_vars)
+                return iter([{"self": {"_key": "ont-self", "name": "Self"}, "imported": []}])
             return iter([])
 
         db.aql.execute.side_effect = _execute
@@ -1102,3 +1149,67 @@ class TestRestrictionsAreOptIn:
         assert _compute_etag(**args, include_restrictions=False) != _compute_etag(
             **args, include_restrictions=True
         )
+
+
+class TestRoundTripBudget:
+    """Latency here is round trips, not rows.
+
+    Measured against the deployment ArangoDB, a trivial ``RETURN 1`` costs
+    ~520ms — it is a remote cluster, so every hop is a WAN hop. This endpoint
+    made five (collections, registry, closure, classes, edges, properties) and
+    took ~2.6s to return a 20-class ontology. It now makes two, and the
+    collection snapshot is cached, so the wall clock is ~1.0s.
+
+    A regression here is invisible locally and severe in the deployment, which
+    is exactly the kind that ships. Hence a pinned budget.
+    """
+
+    def test_two_aql_round_trips_and_no_collection_probes(self) -> None:
+        db = _make_db(
+            registry_entries={"ont-self": {"_key": "ont-self", "name": "Solo", "updated_at": 1}},
+            aql_responses={},
+        )
+        from app.db.utils import invalidate_collection_names
+
+        invalidate_collection_names()
+
+        compute_effective_ontology(db, ontology_id="ont-self")
+
+        assert db.aql.execute.call_count == 2, (
+            "expected one query for self+closure and one for all entities"
+        )
+        assert db.has_collection.call_count == 0, "collection existence must come from one snapshot"
+
+    def test_entities_arrive_in_one_query_not_three(self) -> None:
+        db = _make_db(
+            registry_entries={"ont-self": {"_key": "ont-self", "name": "Solo", "updated_at": 1}},
+            aql_responses={},
+        )
+        compute_effective_ontology(db, ontology_id="ont-self")
+
+        entity_queries = [
+            c.args[0]
+            for c in db.aql.execute.call_args_list
+            if "LET self = DOCUMENT" not in c.args[0]
+        ]
+        assert len(entity_queries) == 1
+        one = entity_queries[0]
+        for kind in ("classes:", "edges:", "properties:"):
+            assert kind in one, f"{kind} should be part of the single entity query"
+
+    def test_collection_snapshot_is_reused_across_calls(self) -> None:
+        """It costs a full round trip to learn a set that changes only when an
+        import creates a collection."""
+        from app.db.utils import invalidate_collection_names
+
+        invalidate_collection_names()
+        db = _make_db(
+            registry_entries={"ont-self": {"_key": "ont-self", "name": "Solo", "updated_at": 1}},
+            aql_responses={},
+        )
+
+        compute_effective_ontology(db, ontology_id="ont-self")
+        compute_effective_ontology(db, ontology_id="ont-self")
+        compute_effective_ontology(db, ontology_id="ont-self")
+
+        assert db.collections.call_count == 1, "snapshot should be taken once, then cached"

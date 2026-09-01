@@ -25,8 +25,8 @@ test pattern (see ``test_ontology_dependency.py`` /
 from __future__ import annotations
 
 import sys
-from typing import Any
-from unittest.mock import MagicMock
+from typing import Any, ClassVar
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -948,3 +948,157 @@ class TestTimingTelemetry:
         assert rec.source_count == 1
         assert rec.include == "summary"
         assert "TOTAL=" in rec.message and "classes=1" in rec.message
+
+
+# ---------------------------------------------------------------------------
+# owl:Restriction-derived edges
+# ---------------------------------------------------------------------------
+
+
+class TestRestrictionEdges:
+    """Many ontologies state their structure in restrictions, not properties.
+
+    SSN is the clearest case: ``ssn:Deployment rdfs:subClassOf
+    [ owl:onProperty ssn:deployedSystem ; owl:allValuesFrom ssn:System ]``
+    says a Deployment deploys a System. That axiom landed in
+    ``ontology_constraints`` and never became an edge, so Deployment,
+    Stimulus, Input and Output rendered as orphans on a canvas whose source
+    file connects all four.
+    """
+
+    EXISTING: ClassVar[set[str]] = {"ontology_constraints", "ontology_classes"}
+
+    def _run(self, constraint_rows, class_rows):
+        from app.services.ontology_effective import fetch_restriction_edges
+
+        db = MagicMock()
+        calls = {"n": 0}
+
+        def fake_run_aql(_db, query, bind_vars=None, **kwargs):
+            calls["n"] += 1
+            return iter(class_rows if "ontology_classes" in query else constraint_rows)
+
+        with patch("app.services.ontology_effective.run_aql", side_effect=fake_run_aql):
+            edges = fetch_restriction_edges(db, ["ssn"], existing=self.EXISTING)
+        return edges, calls["n"]
+
+    CLASSES: ClassVar[list[dict[str, str]]] = [
+        {"uri": "http://x/Deployment", "id": "ontology_classes/dep", "oid": "ssn"},
+        {"uri": "http://x/System", "id": "ontology_classes/sys", "oid": "ssn"},
+    ]
+
+    def test_allvaluesfrom_becomes_a_class_to_class_edge(self):
+        rows = [
+            {
+                "on_class": "ontology_classes/dep",
+                "value": "http://x/System",
+                "property_uri": "http://x/deployedSystem",
+                "restriction_type": "allValuesFrom",
+                "ontology_id": "ssn",
+            }
+        ]
+        edges, _ = self._run(rows, self.CLASSES)
+
+        assert len(edges) == 1
+        assert edges[0]["_from"] == "ontology_classes/dep"
+        assert edges[0]["_to"] == "ontology_classes/sys"
+        assert edges[0]["edge_type"] == "owl_restriction"
+        assert edges[0]["restriction_type"] == "allValuesFrom"
+        # Labelled with the property, not the opaque axiom.
+        assert edges[0]["label"] == "deployedSystem"
+
+    def test_cardinality_restrictions_produce_no_edge(self):
+        """Their value is a number. There is no second endpoint to draw."""
+        rows = [
+            {
+                "on_class": "ontology_classes/dep",
+                "value": 1,
+                "property_uri": "http://x/resultTime",
+                "restriction_type": "cardinality",
+                "ontology_id": "ssn",
+            }
+        ]
+        edges, _ = self._run(rows, self.CLASSES)
+
+        assert edges == []
+
+    def test_duplicate_axioms_draw_one_edge(self):
+        """Re-importing an ontology without clearing its constraints leaves
+        several rows saying the same thing."""
+        row = {
+            "on_class": "ontology_classes/dep",
+            "value": "http://x/System",
+            "property_uri": "http://x/deployedSystem",
+            "restriction_type": "allValuesFrom",
+            "ontology_id": "ssn",
+        }
+        edges, _ = self._run([row, dict(row), dict(row)], self.CLASSES)
+
+        assert len(edges) == 1
+
+    def test_constraint_from_a_superseded_import_is_skipped(self):
+        """``on_class`` pointing at a class that no longer exists would
+        otherwise draw an edge from nowhere."""
+        rows = [
+            {
+                "on_class": "ontology_classes/GONE",
+                "value": "http://x/System",
+                "property_uri": "http://x/p",
+                "restriction_type": "allValuesFrom",
+                "ontology_id": "ssn",
+            }
+        ]
+        edges, _ = self._run(rows, self.CLASSES)
+
+        assert edges == []
+
+    def test_value_outside_the_loaded_classes_is_skipped(self):
+        rows = [
+            {
+                "on_class": "ontology_classes/dep",
+                "value": "http://elsewhere/Thing",
+                "property_uri": "http://x/p",
+                "restriction_type": "allValuesFrom",
+                "ontology_id": "ssn",
+            }
+        ]
+        edges, _ = self._run(rows, self.CLASSES)
+
+        assert edges == []
+
+    def test_joins_via_a_uri_map_not_a_correlated_subquery(self):
+        """Two queries, not one per constraint.
+
+        A correlated ``FILTER k.uri == c.restriction_value`` subquery returned
+        null on a cluster for values an identical literal filter matched,
+        reproducibly — as well as being O(N) round-trips.
+        """
+        rows = [
+            {
+                "on_class": "ontology_classes/dep",
+                "value": "http://x/System",
+                "property_uri": "http://x/p",
+                "restriction_type": "allValuesFrom",
+                "ontology_id": "ssn",
+            }
+        ] * 5
+        _, query_count = self._run(rows, self.CLASSES)
+
+        assert query_count == 2
+
+    def test_absent_collections_are_survivable(self):
+        from app.services.ontology_effective import fetch_restriction_edges
+
+        assert fetch_restriction_edges(MagicMock(), ["ssn"], existing=set()) == []
+
+
+class TestRestrictionsAreOptIn:
+    def test_etag_distinguishes_the_two_payloads(self):
+        """They differ by hundreds of edges but share every other ETag input,
+        so without the flag in the key a toggle-on is answered with a 304."""
+        from app.services.ontology_effective import _compute_etag
+
+        args = {"ontology_id": "o", "include": "summary", "sources": [{"_key": "o"}]}
+        assert _compute_etag(**args, include_restrictions=False) != _compute_etag(
+            **args, include_restrictions=True
+        )

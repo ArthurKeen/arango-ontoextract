@@ -180,6 +180,16 @@ function WorkspacePageInner() {
   // Hide / isolate (FR-7.8.17). A VIEW set — nothing is expired or deleted, and
   // reloading the ontology restores everything. Undo is mandatory: the ArangoDB
   // visualizer's remove-others has no way back, which makes it a dead end.
+  // FR: owl:Restriction-derived edges. Off by default — they state something
+  // weaker than an asserted relation, and VSSo alone contributes 508 of them
+  // against its 625 asserted edges. A ref shadows the state so the graph
+  // fetcher can read it without taking it as a dependency and re-running.
+  const [showRestrictions, setShowRestrictions] = useState(false);
+  const showRestrictionsRef = useRef(false);
+  const fetchGraphDataRef = useRef<((id: string) => Promise<void>) | null>(
+    null,
+  );
+  showRestrictionsRef.current = showRestrictions;
   const [hiddenNodeKeys, setHiddenNodeKeys] = useState<Set<string>>(new Set());
 
   // Multi-selection (FR-7.8.18). Shift-click adds; shift-clicking a selected
@@ -641,6 +651,19 @@ function WorkspacePageInner() {
     };
   }, [selectedOntologyId, explorerLibraryNonce]);
 
+  // Toggling restrictions changes which payload we want, so it refetches under
+  // the other cache profile. No invalidation: the two are cached separately and
+  // switching back is instant.
+  const handleToggleRestrictions = useCallback(() => {
+    setShowRestrictions((prev) => {
+      const next = !prev;
+      showRestrictionsRef.current = next;
+      if (selectedOntologyId)
+        void fetchGraphDataRef.current?.(selectedOntologyId);
+      return next;
+    });
+  }, [selectedOntologyId]);
+
   const fetchGraphData = useCallback(async (ontologyId: string) => {
     setGraphLoading(true);
     setGraphError(null);
@@ -668,13 +691,15 @@ function WorkspacePageInner() {
       // delete) call ``invalidateOntologyKind(_, "effective")`` (alongside
       // the existing ``classes`` / ``edges`` invalidations) so a future
       // selection refetches the server's authoritative view.
+      const wantRestrictions = showRestrictionsRef.current;
       const effectiveRes = await fetchOntologyData(
         ontologyId,
         "effective",
-        "summary",
+        wantRestrictions ? "summary+restrictions" : "summary",
         () =>
           api.get<EffectiveOntologyResponse>(
-            `/api/v1/ontology/${ontologyId}/effective?include=summary`,
+            `/api/v1/ontology/${ontologyId}/effective?include=summary` +
+              (wantRestrictions ? "&restrictions=true" : ""),
           ),
       );
       setClasses(effectiveRes.classes ?? []);
@@ -704,6 +729,10 @@ function WorkspacePageInner() {
     }
     fetchGraphData(selectedOntologyId);
   }, [selectedOntologyId, fetchGraphData]);
+
+  // The restrictions toggle needs to re-run the fetcher without taking it as a
+  // dependency (which would rebuild the handler on every graph load).
+  fetchGraphDataRef.current = fetchGraphData;
 
   // Fetch properties when box-arrow mode is active
   useEffect(() => {
@@ -1929,6 +1958,8 @@ function WorkspacePageInner() {
                       activeLens={activeLens}
                       timelineActive={timelineVisibleKeys != null}
                       hasImported={canvasHasImported}
+                      showRestrictions={showRestrictions}
+                      onToggleRestrictions={handleToggleRestrictions}
                     />
                   )}
                 </>

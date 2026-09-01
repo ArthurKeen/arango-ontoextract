@@ -96,6 +96,7 @@ def compute_effective_ontology(
     ontology_id: str,
     include: str = INCLUDE_SUMMARY,
     max_depth: int = DEFAULT_MAX_DEPTH,
+    include_restrictions: bool = False,
 ) -> dict[str, Any]:
     """Compute the effective (self + imported) ontology view.
 
@@ -117,6 +118,12 @@ def compute_effective_ontology(
         Maximum number of ``imports`` hops to traverse when computing the
         closure. Defaults to :data:`DEFAULT_MAX_DEPTH`. Values < 1 are
         clamped to 1; values > 50 are clamped to 50.
+    include_restrictions:
+        Add class-to-class edges recovered from ``owl:Restriction`` axioms
+        (see :func:`fetch_restriction_edges`). OFF by default: they are a
+        different kind of claim from an asserted relation, and there can be
+        many -- VSSo yields 508 against its 625 asserted edges, roughly
+        doubling the graph. The canvas turns them on per view.
 
     Returns
     -------
@@ -175,6 +182,8 @@ def compute_effective_ontology(
     classes_raw, edges_raw, props_raw = _fetch_entities_for_ontologies(
         db, source_keys, existing=existing
     )
+    if include_restrictions:
+        edges_raw = edges_raw + fetch_restriction_edges(db, source_keys, existing=existing)
     t_fetch = time.perf_counter() - t
 
     # Curated labels (PRD §6.20 FR-20.4) overlay the extracted ones FIRST, before
@@ -249,6 +258,7 @@ def compute_effective_ontology(
         ontology_id=ontology_id,
         include=profile,
         sources=sources,
+        include_restrictions=include_restrictions,
     )
     t_etag = time.perf_counter() - t
 
@@ -464,6 +474,113 @@ def _fetch_edges_across_ontologies(
         return []
     raw = cast("list[Any]", rows[0] or [])
     return [e for e in raw if isinstance(e, dict)]
+
+
+def fetch_restriction_edges(
+    db: StandardDatabase,
+    ontology_ids: list[str],
+    *,
+    existing: set[str],
+) -> list[dict[str, Any]]:
+    """Class-to-class edges recovered from ``owl:Restriction`` axioms.
+
+    Many ontologies state most of their structure in restrictions rather than
+    in properties with ``rdfs:domain``/``rdfs:range``. SSN is the clearest
+    case: ``ssn:Deployment rdfs:subClassOf [ owl:onProperty ssn:deployedSystem ;
+    owl:allValuesFrom ssn:System ]`` says a Deployment deploys a System, but
+    the axiom lands in ``ontology_constraints`` and never became an edge, so
+    Deployment, Stimulus, Input and Output rendered as orphans on a canvas
+    whose source file connects all four.
+
+    Only ``allValuesFrom`` / ``someValuesFrom`` produce edges: their value is a
+    CLASS. Cardinality restrictions carry a number and have no second endpoint
+    to draw.
+
+    These are NOT the same claim as an asserted relation and are typed
+    ``owl_restriction`` so a reader can tell them apart. ``allValuesFrom`` is a
+    universal ("if it has one, it is a System"), which does not assert the
+    relation exists at all; ``someValuesFrom`` is existential. Both are worth
+    seeing, neither should masquerade as ``rdfs_range_class``.
+
+    Joined through a URI map built in one pass rather than a correlated
+    subquery: on a cluster, ``FILTER k.uri == c.restriction_value`` inside a
+    per-constraint subquery returned null for values that an identical literal
+    filter matched, reproducibly. The map is also one round-trip instead of N.
+    """
+    if not {"ontology_constraints", "ontology_classes"} <= set(existing):
+        return []
+    if not ontology_ids:
+        return []
+
+    class_rows = list(
+        run_aql(
+            db,
+            "FOR k IN ontology_classes FILTER k.ontology_id IN @oids AND k.expired == @never "
+            "RETURN {uri: k.uri, id: k._id, oid: k.ontology_id}",
+            bind_vars={"oids": ontology_ids, "never": NEVER_EXPIRES},
+        )
+    )
+    id_by_uri = {r["uri"]: r["id"] for r in class_rows if r.get("uri") and r.get("id")}
+    oid_by_id = {r["id"]: r.get("oid") for r in class_rows if r.get("id")}
+    if not id_by_uri:
+        return []
+
+    rows = list(
+        run_aql(
+            db,
+            """
+            FOR c IN ontology_constraints
+              FILTER c.ontology_id IN @oids AND c.expired == @never
+              FILTER c.constraint_type == 'owl:Restriction'
+              FILTER c.restriction_type IN ['allValuesFrom', 'someValuesFrom']
+              RETURN {
+                on_class: c.on_class,
+                value: c.restriction_value,
+                property_uri: c.property_uri,
+                restriction_type: c.restriction_type,
+                ontology_id: c.ontology_id,
+                created: c.created
+              }
+            """,
+            bind_vars={"oids": ontology_ids, "never": NEVER_EXPIRES},
+        )
+    )
+
+    # An ontology re-imported without clearing its constraints leaves several
+    # rows saying the same thing; the canvas should draw one edge, not five.
+    seen: set[tuple[str, str, str, str]] = set()
+    edges: list[dict[str, Any]] = []
+    for row in rows:
+        source = row.get("on_class")
+        target = id_by_uri.get(str(row.get("value") or ""))
+        if not source or not target or source == target:
+            continue
+        if source not in oid_by_id:
+            # ``on_class`` points at a class from a superseded import.
+            continue
+        prop_uri = str(row.get("property_uri") or "")
+        kind = str(row.get("restriction_type") or "")
+        key = (source, prop_uri, target, kind)
+        if key in seen:
+            continue
+        seen.add(key)
+        label = prop_uri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or "owl:Restriction"
+        edges.append(
+            {
+                "_key": f"restriction:{abs(hash(key)) & 0xFFFFFFFF:08x}",
+                "_id": f"owl_restriction/{len(edges)}",
+                "_from": source,
+                "_to": target,
+                "edge_type": "owl_restriction",
+                "label": label,
+                "restriction_type": kind,
+                "property_uri": prop_uri,
+                "ontology_id": row.get("ontology_id") or oid_by_id.get(source),
+                "created": row.get("created"),
+                "expired": NEVER_EXPIRES,
+            }
+        )
+    return edges
 
 
 def _fetch_properties_across_ontologies(
@@ -811,16 +928,26 @@ def _compute_etag(
     ontology_id: str,
     include: str,
     sources: list[dict[str, Any]],
+    include_restrictions: bool = False,
 ) -> str:
-    """Hash of ``(self id, include profile, every source's freshest mtime)``.
+    """Hash of ``(self id, include profile, restrictions flag, source mtimes)``.
 
     Cache invalidates naturally when any participating ontology mutates
     (registry ``updated_at`` bumps) or when the closure changes (add/
     remove an import edge changes the source set membership). Include
     profile is part of the key so ``summary`` and ``full`` cannot
     collide.
+
+    The restrictions flag is part of the key for the same reason: the two
+    payloads differ by hundreds of edges but share every input the rest of
+    this hash reads, so without it, toggling restrictions on would be
+    answered with a 304 and the canvas would never see them.
     """
-    parts: list[str] = [f"oid={ontology_id}", f"include={include}"]
+    parts: list[str] = [
+        f"oid={ontology_id}",
+        f"include={include}",
+        f"restrictions={int(include_restrictions)}",
+    ]
     for src in sources:
         key = src.get("_key") or ""
         mtime = src.get("updated_at")

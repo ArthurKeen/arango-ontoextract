@@ -78,6 +78,15 @@ async def get_effective_ontology(
         le=50,
         description="Maximum number of imports hops to walk (clamped to 1..50).",
     ),
+    restrictions: bool = Query(
+        False,
+        description=(
+            "Include class-to-class edges derived from owl:Restriction axioms "
+            "(allValuesFrom / someValuesFrom), typed ``owl_restriction``. OFF "
+            "by default: they state something weaker than an asserted relation "
+            "and can roughly double the edge count."
+        ),
+    ),
 ) -> Response:
     """Compute the effective ontology view (Stream 1 H.12 + H.13).
 
@@ -117,6 +126,7 @@ async def get_effective_ontology(
             ontology_id=ontology_id,
             include=include,
             max_depth=max_depth,
+            include_restrictions=restrictions,
         )
     except ValueError as exc:
         raise NotFoundError(str(exc)) from exc

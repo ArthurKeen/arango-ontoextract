@@ -104,6 +104,11 @@ EDGE_SUMMARY_FIELDS: Final[tuple[str, ...]] = (
     # relation pair into one drawn edge, and the canvas only ever fetches the
     # summary projection.
     "inverse_of_id",
+    # Which OWL restriction produced an ``owl_restriction`` edge. allValuesFrom
+    # is a universal ("if it has one, it is a System") and someValuesFrom an
+    # existential; they are different claims and the canvas should not present
+    # them identically, nor as an asserted relation.
+    "restriction_type",
     "created",
     "expired",
     # FR-2.20 -- one boolean, not the whole verdict: the canvas only needs to

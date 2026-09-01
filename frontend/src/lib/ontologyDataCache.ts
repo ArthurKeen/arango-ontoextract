@@ -59,7 +59,11 @@
  */
 
 type Kind = "classes" | "edges" | "properties" | "effective";
-type Profile = "summary" | "full";
+// ``summary+restrictions`` is a distinct payload, not a filter over the same
+// one: the server adds hundreds of owl:Restriction-derived edges. It must key
+// the cache separately or toggling would return the cached restriction-free
+// response and appear to do nothing.
+type Profile = "summary" | "full" | "summary+restrictions";
 
 interface CacheEntry<T> {
   data: T;

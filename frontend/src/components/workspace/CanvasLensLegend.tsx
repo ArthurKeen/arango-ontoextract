@@ -9,6 +9,11 @@ import type { LensType } from "@/components/workspace/LensToolbar";
 
 export interface CanvasLensLegendProps {
   activeLens: LensType;
+  /** Whether owl:Restriction-derived edges are currently drawn. */
+  showRestrictions?: boolean;
+  /** Supplied by the workspace to make the restriction row interactive.
+   *  Omitted (e.g. in tests or read-only embeds) the row is not rendered. */
+  onToggleRestrictions?: () => void;
   /** When set, diff lens is showing a timeline-filtered subgraph */
   timelineActive: boolean;
   /**
@@ -37,7 +42,11 @@ const SEMANTIC_SWATCHES: { color: string; label: string }[] = [
 
 const LENS_META: Record<
   LensType,
-  { headline: string; swatches: { color: string; label: string }[]; note?: string }
+  {
+    headline: string;
+    swatches: { color: string; label: string }[];
+    note?: string;
+  }
 > = {
   semantic: {
     headline: "Semantic",
@@ -85,6 +94,8 @@ export default function CanvasLensLegend({
   activeLens,
   timelineActive,
   hasImported = false,
+  showRestrictions,
+  onToggleRestrictions,
 }: CanvasLensLegendProps) {
   const meta = LENS_META[activeLens];
   const note =
@@ -103,7 +114,10 @@ export default function CanvasLensLegend({
       </div>
       <ul className="mt-1.5 space-y-1">
         {meta.swatches.map((s) => (
-          <li key={s.label} className="flex items-center gap-2 text-[10px] text-gray-200">
+          <li
+            key={s.label}
+            className="flex items-center gap-2 text-[10px] text-gray-200"
+          >
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-full border border-white/20"
               style={{ backgroundColor: s.color }}
@@ -111,6 +125,33 @@ export default function CanvasLensLegend({
             <span>{s.label}</span>
           </li>
         ))}
+        {onToggleRestrictions && (
+          <li
+            className="flex items-center gap-2 border-t border-white/10 pt-1.5 mt-1.5 pointer-events-auto"
+            data-testid="canvas-lens-legend-restrictions"
+          >
+            <label className="flex cursor-pointer items-center gap-2 text-[10px] text-gray-200">
+              <input
+                type="checkbox"
+                checked={showRestrictions === true}
+                onChange={onToggleRestrictions}
+                className="h-3 w-3 cursor-pointer accent-indigo-400"
+                data-testid="toggle-restrictions"
+              />
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: ONTOLOGY_EDGE_COLORS.owl_restriction,
+                }}
+              />
+              <span>
+                OWL restrictions — what an axiom permits, not an asserted
+                relation. Off by default; can double the edge count.
+              </span>
+            </label>
+          </li>
+        )}
+
         {hasImported && (
           <li
             className="flex items-center gap-2 text-[10px] text-gray-200 border-t border-white/10 pt-1.5 mt-1.5"
@@ -118,10 +159,14 @@ export default function CanvasLensLegend({
           >
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-full border border-dashed"
-              style={{ backgroundColor: "#475569", borderColor: IMPORTED_NODE_BORDER }}
+              style={{
+                backgroundColor: "#475569",
+                borderColor: IMPORTED_NODE_BORDER,
+              }}
             />
             <span>
-              Imported from another ontology — dashed border, dimmed fill. Right-click to open the source.
+              Imported from another ontology — dashed border, dimmed fill.
+              Right-click to open the source.
             </span>
           </li>
         )}

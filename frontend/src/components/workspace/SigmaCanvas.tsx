@@ -496,14 +496,21 @@ export function buildTopologyGraph(
     const displayLabel = flagged ? `\u26A0 ${rawLabel}` : rawLabel;
 
     const baseEdgeColor = EDGE_COLORS[edgeType] ?? "#94a3b8";
+    // An owl:Restriction edge is thinner and quieter than an asserted
+    // relation: `allValuesFrom` says "if it has one, it is a System", which
+    // does not assert the relation holds at all. Same position on the canvas,
+    // deliberately lower visual weight.
+    const isRestriction = edgeType === "owl_restriction";
     graph.addEdgeWithKey(edge._key, source, target, {
       label: displayLabel,
       baseLabel: displayLabel,
       color: edge.is_imported
         ? dimColorForImported(baseEdgeColor)
         : baseEdgeColor,
-      size: edgeType === "subclass_of" ? 2.5 : 2,
+      size: isRestriction ? 1.2 : edgeType === "subclass_of" ? 2.5 : 2,
       type: "curvedArrow",
+      restrictionType:
+        (edge as unknown as Record<string, unknown>).restriction_type ?? null,
       edgeKey: edge._key,
       edgeType,
       isImported: edge.is_imported === true,

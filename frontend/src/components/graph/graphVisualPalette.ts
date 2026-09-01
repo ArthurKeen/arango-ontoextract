@@ -14,6 +14,10 @@ export const ONTOLOGY_EDGE_COLORS: Record<string, string> = {
   imports: "#f87171",
   // A-box (FR-18.13). Deliberately off the T-box hues above so an instance link
   // is never mistaken for subclass_of / has_property at a glance.
+  // owl:Restriction-derived edges. A muted slate, deliberately quieter than
+  // every asserted-relation hue above: the axiom says "if it has one, it is a
+  // System", which is weaker than asserting the relation exists.
+  owl_restriction: "#8b9dc3",
   rdf_type: "#94a3b8",
   individual_assertion: "#f59e0b",
 };

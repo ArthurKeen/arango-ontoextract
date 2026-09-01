@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 import time
 from typing import Any, cast
 
@@ -47,6 +48,15 @@ __all__ = ["NEVER_EXPIRES"]
 
 _SNAPSHOT_CACHE_TTL = 300  # seconds
 _snapshot_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+# Request handlers are plain `def`, so FastAPI runs them in a worker
+# threadpool and several can touch this cache at the same instant. That
+# was impossible while handlers ran on the single event loop. Reads and
+# writes of one key are atomic under the GIL, but `invalidate_snapshot_cache`
+# ITERATES the dict -- and a concurrent `_snapshot_cache_put` during that
+# iteration raises "dictionary changed size during iteration". Invalidation
+# runs on every ontology write, so that collision is a live 500, not a
+# theoretical one. Guard the whole cache with one lock.
+_snapshot_cache_lock = threading.Lock()
 
 
 def _snapshot_cache_key(ontology_id: str, timestamp: float) -> str:
@@ -56,25 +66,30 @@ def _snapshot_cache_key(ontology_id: str, timestamp: float) -> str:
 
 
 def _snapshot_cache_get(key: str) -> dict[str, Any] | None:
-    entry = _snapshot_cache.get(key)
-    if entry is None:
-        return None
-    stored_at, data = entry
-    if time.time() - stored_at > _SNAPSHOT_CACHE_TTL:
-        _snapshot_cache.pop(key, None)
-        return None
-    return data
+    with _snapshot_cache_lock:
+        entry = _snapshot_cache.get(key)
+        if entry is None:
+            return None
+        stored_at, data = entry
+        if time.time() - stored_at > _SNAPSHOT_CACHE_TTL:
+            _snapshot_cache.pop(key, None)
+            return None
+        return data
 
 
 def _snapshot_cache_put(key: str, data: dict[str, Any]) -> None:
-    _snapshot_cache[key] = (time.time(), data)
+    with _snapshot_cache_lock:
+        _snapshot_cache[key] = (time.time(), data)
 
 
 def invalidate_snapshot_cache(ontology_id: str) -> int:
     """Remove all cached snapshots for an ontology.  Called on any write."""
-    to_remove = [k for k, (_, v) in _snapshot_cache.items() if v.get("ontology_id") == ontology_id]
-    for k in to_remove:
-        _snapshot_cache.pop(k, None)
+    with _snapshot_cache_lock:
+        to_remove = [
+            k for k, (_, v) in _snapshot_cache.items() if v.get("ontology_id") == ontology_id
+        ]
+        for k in to_remove:
+            _snapshot_cache.pop(k, None)
     removed = len(to_remove)
     if removed:
         log.info(

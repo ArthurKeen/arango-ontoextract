@@ -17,6 +17,12 @@
   Changes since v1: promotional lede + Try it CTA; a plain-language primer on the
   database layer (§3); a new §13 on curated names and the re-extraction bug that made
   them survivable; A-box canvas rendering; reverse time-travel playback.
+
+  Changes in v3 (current): CORRECTED the ArangoRDF/PGT claim — arango_rdf was never a
+  declared or installed dependency and the importer is our own rdflib path (commit
+  89663b9); added the subsumption judge (FR-2.20) to §4; new §16 on OWL restrictions
+  rendering as edges and deriving SHACL shapes as warnings (FR-14.8/9/10); the bundled
+  standard-ontology catalog in §2; upper ontology (§6.21) flagged as roadmap, not shipped.
 -->
 
 ---
@@ -78,6 +84,10 @@ flowchart TB
 
 This is what makes the library *compose* rather than sprawl. Cross-tier links are first-class edges in the graph, so "show me every local class that specializes this domain concept" is a one-hop traversal.
 
+And Tier 1 doesn't have to start empty. AOE ships a catalog of **eleven published vocabularies you can import in one click** — BFO, SKOS, FOAF, PROV-O, OWL-Time and DCMI Terms as foundational layers; Schema.org, SOSA/SSN, VSSo and two FIBO finance modules as domain layers. All of them are **bundled with the application**, not fetched at import time, so a first-run works on a locked-down network and can't be broken by someone else's server going down.
+
+Two small things that catalog taught us, both worth stealing. First: the importer originally collected classes from `rdf:type owl:Class` only — but Schema.org declares all ~1,000 of its types as `rdfs:Class`, an RDFS-era convention. So the catalog entry advertising 800 classes imported **zero**, with no error and no warning: an empty ontology and a green checkmark. Reading the union of both declarations took the same entry from 0 to 1,010 classes. Second: the importer stamped every import as *locally authored*, silently overwriting the one field that distinguishes a foundational standard from your own work. A published vocabulary is not something you authored, and a library that can't tell the difference can't tell you what you actually own.
+
 ---
 
 ## 3. The system at a glance
@@ -91,13 +101,13 @@ flowchart TB
     subgraph Backend["Backend — Python / FastAPI"]
         Pipe["LangGraph agentic pipeline"]
         Svc["Ingestion · Extraction · Entity Resolution · Curation services"]
-        Bridge["ArangoRDF PGT bridge"]
+        Bridge["OWL importer (rdflib)"]
         MCPS["MCP server"]
     end
     Backend -->|python-arango driver| DB
     subgraph DB["ArangoDB — multi-model"]
         DocS["Document store"]
-        GraphS["Graph (OWL via PGT)"]
+        GraphS["Graph (OWL, property-graph shaped)"]
         VecS["Vector index"]
         SearchS["ArangoSearch"]
     end
@@ -127,7 +137,9 @@ Two more pieces of vocabulary, because ArangoDB names things slightly differentl
 With that, the load-bearing choices in the diagram above:
 
 - **One store instead of four.** Chunk embeddings, the ontology graph, and the full-text index live side by side. Provenance ("which slide produced this class?"), semantic retrieval, and graph traversal are all the *same* query engine. No syncing, no drift between systems.
-- **ArangoRDF's PGT bridge.** Ontologies are written in OWL/RDFS, which is a *triple* format — everything is (subject, predicate, object). Property graphs are a different shape — nodes with attributes, edges with attributes. **Property Graph Transformation (PGT)** is the mapping between them: it imports OWL into ArangoDB while preserving the OWL structure (class hierarchy, which classes a property connects, cardinality restrictions), so the result is both a valid ontology *and* an ordinary, queryable graph. We get standards compliance without giving up graph performance.
+- **A triple-to-property-graph importer we own.** Ontologies are written in OWL/RDFS, which is a *triple* format — everything is (subject, predicate, object). Property graphs are a different shape — nodes with attributes, edges with attributes. AOE parses the RDF with `rdflib` and materializes it into its own property-graph-aligned collections, preserving the OWL structure (class hierarchy, which classes a property connects, cardinality restrictions), so the result is both a valid ontology *and* an ordinary, queryable graph. Standards compliance without giving up graph performance.
+
+  A note on that, because it's a lesson worth more than the feature: this module spent a long time *claiming* to wrap a third-party RDF-to-ArangoDB library. It never did — the dependency was neither declared nor installed, so every import in every deployment took the code's own path, which its docstring described as a degraded fallback for when the library was missing. Two real defects sat unnoticed in it purely because **the path everyone used was documented as the path nobody used**, and the unit tests asserted against an API that library doesn't even expose. Green tests for a fictional dependency. If your code has a "fallback," verify which branch production actually takes before you trust either the docs or the tests.
 - **LangGraph for orchestration.** Extraction isn't a single prompt; it's a stateful, multi-agent pipeline with retries, parallel branches, and a human-in-the-loop breakpoint — a compiled state machine, not a script.
 
 ---
@@ -147,12 +159,13 @@ flowchart LR
     QJ --> BR["belief_revision<br/>reconcile with prior beliefs"]
     ER --> BR
     BR --> SG["structural_gate<br/>deterministic repair"]
-    SG --> Filt["filter<br/>pre-curation confidence cut"]
+    SG --> SJ["subsumption_judge<br/>is every X a Y?"]
+    SJ --> Filt["filter<br/>pre-curation confidence cut"]
     Filt --> HITL{{"Human-in-the-loop<br/>curation breakpoint"}}
     HITL --> Stage([Staging graph])
 ```
 
-*Figure 3 — The LangGraph extraction pipeline. After consistency checking, quality judging and entity resolution run in parallel, then results are reconciled, structurally repaired, filtered, and paused for human curation before anything is staged.*
+*Figure 3 — The LangGraph extraction pipeline. After consistency checking, quality judging and entity resolution run in parallel, then results are reconciled, structurally repaired, subsumption-checked, filtered, and paused for human curation before anything is staged.*
 
 ![Pipeline monitor: live agent DAG with per-step metrics](images/pipeline-monitor.png)
 *Screenshot — the Pipeline Monitor running a real extraction: each agent's status plus live tokens, cost, confidence, and agreement.*
@@ -166,6 +179,28 @@ Walking the nodes:
 3. **consistency_checker** keeps only concepts that appear across enough passes — a cheap, effective hallucination filter.
 4. **quality_judge** and **er_agent** fork and run *in parallel*: one scores faithfulness with an LLM-as-judge, the other resolves duplicate entities via weighted similarity and union-find clustering.
 5. **belief_revision**, **structural_gate**, and **filter** then reconcile the extraction against what the ontology already believes, apply deterministic evidence-anchored repairs, and drop low-confidence concepts — each detailed below.
+6. **subsumption_judge** sits between the repairs and the human gate, and it exists because of a failure mode worth its own paragraph.
+
+### The one relation an LLM reaches for too often
+
+Give a language model a taxonomy to build and exactly one hierarchical relation to build it with, and it will use that relation for everything. `rdfs:subClassOf` means *is a kind of* — every instance of the child must be an instance of the parent. But an extractor that senses **any** association between two concepts and has only one link available will flatten them all into subsumption:
+
+| What the model writes | What it actually meant |
+|---|---|
+| `Tyre subClassOf Vehicle` | a tyre is *part of* a vehicle |
+| `Speed Rating subClassOf Tyre` | a speed rating is an *attribute of* a tyre |
+| `Tyre Manufacturer Instructions subClassOf Tyre` | a document *describes* a tyre |
+| `Airbag subClassOf Supplementary Restraint System` | *part of*, again |
+
+None of these are is-a. All of them are the kind of thing that quietly poisons every query that walks the hierarchy, because a reasoner will happily conclude that a tyre inherits everything true of a vehicle.
+
+So AOE ships a **subsumption judge**: a secondary LLM pass that tests each proposed `rdfs:subClassOf` against the plain question *"is every X a Y?"* and returns a verdict with a reason. Three design choices matter more than the idea:
+
+- **It flags; it does not delete.** A wrong subclass edge and a missing one are both defects, and an extractor that quietly discards its own output is far harder to debug than one that reports. The verdict reaches the curator at the moment they're deciding what to keep.
+- **It fails open.** No parent, judge disabled, LLM error, batch too short — every one of those leaves the class untouched. A judge that can block an extraction is worse than no judge.
+- **Its prompt is calibrated on observed failures, not an abstract instruction.** It carries a few-shot dictionary of real mistakes from a real corpus alongside genuine passes (*Winter Tyre / Tyre*, *Unleaded Fuel / Fuel Type*), so the baseline is set by behaviour we measured. The same dictionary went into the extraction prompt too — catching a mistake is worth less than not making it.
+
+The deeper fix is on the roadmap, and it's a modelling change rather than a better judge: give the extractor an **upper ontology** — a small curated layer of *kinds* (System, Subsystem, Component, Function, Feature, State, Event) and, crucially, the **relations between those kinds**: `partOf` (transitive), `hasAttribute`, `documentedBy`, `hasFunction`, `exposes`, `hasState`. With those available, *Tyre partOf Tyre System partOf Vehicle* is expressible, and the model stops forcing every association through the one relation it was given. Today the judge reports the problem; the upper layer is what removes the cause.
 
 The pipeline then **pauses** at a human-in-the-loop breakpoint: nothing reaches the curated ontology without a person — or an explicit policy — saying yes. That breakpoint is the philosophical center of the product: **the LLM proposes; the human disposes.**
 
@@ -197,7 +232,7 @@ Two details matter more than they look:
 - **Visual evidence is observable, not silent.** Domain decks often encode taxonomies and process flows in *diagrams*, not selectable text. AOE counts and represents every embedded image, chart, and scanned page — even when OCR/vision is off — so omitted evidence is *visible*, not quietly dropped. When configured, an OCR/vision-caption pass appends clearly-labeled context (`[Visual: slide 4 image 2] ...`) the extractor can cite as evidence.
 - **Provenance is preserved from the first byte.** Each chunk links back to its document, page/slide number, and section heading — the chain that later lets a curator click a class and see the exact slide it came from.
 
-Once the LLM produces OWL/Turtle from those chunks, AOE imports it into ArangoDB via ArangoRDF's PGT transformation and materializes a traversable graph — so ontology semantics become ordinary graph queries.
+Once the LLM produces OWL/Turtle from those chunks, AOE parses it and materializes a traversable graph — so ontology semantics become ordinary graph queries.
 
 ```mermaid
 flowchart LR
@@ -317,7 +352,7 @@ flowchart TB
     Walk --> Map["Map structure to OWL<br/>collection → owl:Class<br/>edge → owl:ObjectProperty (domain/range)<br/>sampled field → owl:DatatypeProperty (XSD)"]
     Map --> Shacl["Schema rules + unique indexes → SHACL constraints"]
     Shacl --> TTL["Generate OWL / Turtle"]
-    TTL --> Import["import_from_file → ArangoDB (PGT)"]
+    TTL --> Import["import_from_file → ArangoDB"]
     Import --> Prov["Stamp per-class provenance<br/>source_db · source_collection · source_host"]
 ```
 
@@ -537,7 +572,38 @@ These aren't vanity numbers. The connectivity and structural-integrity metrics a
 
 ---
 
-## 16. When one document spans many domains: domain detection
+## 16. The constraints were there the whole time
+
+Here's a failure mode that doesn't announce itself: **the system holds information, files it in the wrong shape, and then acts as though it doesn't have it.**
+
+OWL lets you state structure two ways. You can declare a property with a domain and a range — *`deployedSystem` goes from Deployment to System* — or you can state it as a **restriction** on the class:
+
+```
+ssn:Deployment rdfs:subClassOf [ owl:onProperty ssn:deployedSystem ;
+                                 owl:allValuesFrom ssn:System ]
+```
+
+Both say the same thing. Published ontologies lean heavily on the second form — W3C's SOSA/SSN sensor vocabulary states most of its structure that way. AOE imported those axioms correctly, into a constraints collection, and then the graph reader never looked at them. The result: import SOSA/SSN, and `Deployment`, `Stimulus`, `Input` and `Output` render as **isolated dots**. The ontology connects all four. The canvas didn't, and a curator reasonably concluded the import was broken.
+
+Nothing needed re-importing. The information was in the database the whole time, filed as a constraint rather than expressed as a relationship. Restrictions now draw as real edges — and because toggling them is a display decision rather than a different query, turning them on and off never re-runs the layout.
+
+### From constraints to validation — and the line we won't cross
+
+The same rows are also the raw material for **SHACL**, the W3C standard for *validating* graph data: shapes that say "an Order must have at least one line item" in a form a validator can actually execute against real records.
+
+AOE's SHACL export used to emit shapes only for constraints that arrived *as* SHACL in an imported file. In practice every constraint row in a real workspace was an `owl:Restriction` and none were SHACL — so the export returned a couple of hundred bytes of prefixes and nothing else, for every ontology, while the system sat on all the material needed to generate them. It now derives shapes from those restrictions: `minCardinality`/`maxCardinality` become `sh:minCount`/`sh:maxCount`, exact cardinality becomes both, `allValuesFrom` and `someValuesFrom` become `sh:class`, `hasValue` becomes `sh:hasValue`. Restriction kinds with no faithful mapping are **dropped rather than guessed at**.
+
+But the interesting part is the constraint we put on ourselves, because it's a genuine semantic trap rather than an implementation detail.
+
+**OWL is open-world. SHACL is closed-world.** In OWL, `owl:minCardinality 1` licenses an *inference* — an instance of this class has at least one such value, and if you can't see one, you simply haven't been told about it yet. In SHACL, `sh:minCount 1` is a *verdict*: an instance without one is **invalid**. Translating the first mechanically into the second manufactures a claim the source ontology never made. It turns "I know this much" into "everything else is an error."
+
+So every derived shape carries `sh:severity sh:Warning` — never `sh:Violation` — and records the constraint row it came from, so a generated shape can never be mistaken for one the source published. A curator can promote a warning to a violation, and that promotion is a **recorded decision** with attribution, exactly like a curated label (§13). Shapes derived from LLM-extracted restrictions additionally carry the extraction confidence, because "the manual says SHALL" is a model's reading of prose, not an axiom an author wrote. And shapes that arrived as SHACL keep whatever severity their author gave them — they were published as validation and need no reinterpretation.
+
+That's the same rule that governs the structural gate and the belief reviser, applied to a new surface: **the system may reorganize what it was told, and may never upgrade it into something stronger than what it was told.**
+
+---
+
+## 17. When one document spans many domains: domain detection
 
 Real documents — a strategy deck, a regulatory filing — often span *several* domains at once, and a single topic can run across many slides, yet today's pipeline assumes one ontology per run. The roadmap adds **domain detection**: a pre-extraction step that clusters chunks by topic and routes them.
 
@@ -549,13 +615,13 @@ flowchart TB
     Sig --> C["Phase 2 (curator opt-in)<br/>split into per-domain ontologies<br/>+ umbrella that owl:imports them"]
 ```
 
-*Figure 15 — Domain detection roadmap. Detection is shared infrastructure; the default keeps everything in one tagged ontology, while a curator can opt into splitting into clean, reusable per-domain ontologies under an umbrella — reusing the imports machinery that already exists.*
+*Figure 16 — Domain detection roadmap. Detection is shared infrastructure; the default keeps everything in one tagged ontology, while a curator can opt into splitting into clean, reusable per-domain ontologies under an umbrella — reusing the imports machinery that already exists.*
 
 Paired with it is **structure-aware chunking**: slide boundaries never merged, speaker notes kept distinct, and cross-slide topics grouped into one "topic unit" so the extractor reasons over coherent chunks, not arbitrary token windows. Domain splitting and slide grouping are the *same capability at two scales* — segmenting a document into coherent units.
 
 ---
 
-## 17. Governing the release: agents that critique before publish
+## 18. Governing the release: agents that critique before publish
 
 Curation during extraction is one gate. The other — building out next — is the **release** boundary. Ontologies that downstream systems import via `owl:imports` or query over MCP need stable, governed versions, and hand-inspecting every concept before each release doesn't scale. So it gets its own agentic review.
 
@@ -573,7 +639,7 @@ flowchart LR
     Policy -->|"blocking finding"| Esc["Escalate to a human"]
 ```
 
-*Figure 16 — Release governance. Deterministic signals plus an LLM critic produce a findings report; a configurable autonomy policy decides whether a clean candidate auto-publishes or escalates to a person.*
+*Figure 17 — Release governance. Deterministic signals plus an LLM critic produce a findings report; a configurable autonomy policy decides whether a clean candidate auto-publishes or escalates to a person.*
 
 The point is that **autonomy is a dial, not a default**:
 
@@ -585,7 +651,7 @@ Two invariants keep the higher settings honest: **faithfulness is a floor the re
 
 ---
 
-## 18. Closing: ontologies as living systems
+## 19. Closing: ontologies as living systems
 
 The thread running through Arango-OntoExtract is a rejection of the "extract once" mental model. An ontology in AOE is:
 
@@ -599,6 +665,8 @@ The thread running through Arango-OntoExtract is a rejection of the "extract onc
 - **Populated** with grounded individuals (the A-box), not just a schema.
 - **Requirements-driven** — the competency questions it must answer scope what gets aligned and kept.
 - **Named** by people, in decisions that outlive the next extraction rather than being overwritten by it.
+- **Checked** for the one relation LLMs overuse — every `subClassOf` tested against "is every X a Y?" and flagged, never silently dropped.
+- **Validatable** — the OWL restrictions it holds derive SHACL shapes, as warnings that a curator promotes deliberately, never as claims the source never made.
 
 One multi-model database is what makes that economical: the provenance chain, the embeddings, and the graph traversals all live in the same engine. The LLMs do the heavy lifting of *proposing* structure; the architecture does the heavier lifting of making it *trustworthy enough to keep*.
 
@@ -635,11 +703,14 @@ make frontend
 
 Then open **http://localhost:3000** — that's the workspace: upload, extract, curate, scrub the timeline.
 
-**Three things worth doing first**, roughly in increasing order of "huh, that's interesting":
+**Four things worth doing first**, roughly in increasing order of "huh, that's interesting":
 
-1. **Point it at a database you already run.** No LLM, no keys needed for this path, and no hallucination risk — it's a deterministic walk of a live schema. It's the fastest way to a defensible first ontology, and it takes about a minute.
+0. **Import something from the catalog.** One click, no keys, nothing to configure — SOSA/SSN is a good one, because it states most of its structure as OWL restrictions and is the case §16 is about. Thirty seconds to a real ontology on the canvas.
+1. **Point it at a database you already run.** No LLM, no keys needed for this path either, and no hallucination risk — it's a deterministic walk of a live schema. It's the fastest way to a defensible ontology *of your own*, and it takes about a minute.
 2. **Upload a slide deck, then upload a second one on the same subject.** The second extraction won't start over; watch the belief-revision verdicts land, and see which contradictions get routed to the inbox instead of being silently resolved.
 3. **Curate something, then re-extract.** Rename a class, then run extraction again over the same source. That's the mechanism §13 is about, and watching a decision survive a regeneration is more convincing than reading about it.
+
+And if you want to see the system disagree with itself: extract from a dense technical document and look at the **subsumption flags**. The judge marking its own extractor's `subClassOf` assertions as "not an is-a" is the most honest thing in the product.
 
 If you find something broken or want a capability that isn't there, issues and PRs are welcome — the [PRD](https://github.com/arango-solutions/arango-ontoextract/blob/main/PRD.md) is in the repo and is the actual source of truth for what the system is supposed to do, so it's an unusually easy codebase to propose against.
 

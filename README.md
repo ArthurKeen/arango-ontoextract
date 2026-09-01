@@ -2,7 +2,7 @@
 
 LLM-driven ontology extraction and curation platform built on ArangoDB.
 
-AOE ingests unstructured documents (PDF, DOCX, Markdown), extracts formal domain ontologies via large language models, and provides a visual curation dashboard for domain experts to review, edit, and promote extracted knowledge into a production graph. Ontologies are stored in ArangoDB via ArangoRDF's PGT transformation, preserving OWL metamodel semantics while leveraging ArangoDB's multi-model capabilities.
+AOE ingests unstructured documents (PDF, DOCX, Markdown), extracts formal domain ontologies via large language models, and provides a visual curation dashboard for domain experts to review, edit, and promote extracted knowledge into a production graph. Ontologies are parsed with `rdflib` and materialised into property-graph-aligned collections in ArangoDB (ADR-006) — preserving OWL metamodel semantics (class hierarchy, property domains/ranges, restrictions) while making them ordinary, queryable graph data alongside the documents, embeddings and search index they came from.
 
 ![AOE workspace — the object-centric curation canvas with the Financial Services Domain ontology in Semantic view, a class detail panel open on the Account class, the lens legend bottom-left, and the temporal VCR timeline along the bottom edge.](docs/images/workspace-hero.png)
 
@@ -17,7 +17,7 @@ flowchart LR
     MCP["MCP Server<br/>(FastMCP)"]
     AI["AI Agents<br/>(Cursor, Claude)"]
 
-    subgraph Pipeline["LangGraph Pipeline (9 nodes)"]
+    subgraph Pipeline["LangGraph Pipeline (10 nodes)"]
         direction TB
         P1["Strategy"]
         P2["Domain Segmenter"]
@@ -27,12 +27,13 @@ flowchart LR
         P6["ER"]
         P7["Belief Revision"]
         P8["Structural Gate"]
-        P9["Pre-Curation Filter"]
+        P9["Subsumption Judge"]
+        P10["Pre-Curation Filter"]
         P1 --> P2 --> P3 --> P4
         P4 --> P5 & P6
         P5 --> P7
         P6 --> P7
-        P7 --> P8 --> P9
+        P7 --> P8 --> P9 --> P10
     end
 
     subgraph Arango["ArangoDB (multi-model)"]
@@ -82,7 +83,7 @@ Install these before you start:
 
 ```bash
 # 1. Clone and configure
-git clone <repo-url> && cd arango-ontoextract
+git clone https://github.com/arango-solutions/arango-ontoextract.git && cd arango-ontoextract
 cp .env.example .env           # then edit .env: set ANTHROPIC_API_KEY + OPENAI_API_KEY
 
 # 2. Install dependencies (Python venv + npm)
@@ -276,14 +277,29 @@ live Swagger docs at http://localhost:8010/docs.
 | Multi-source ontology alignment | Done | §6.17 / Stream 20: aligns N independently-built source ontologies into a reconciled **master** — candidate generation with an optional **embedding top-k retrieval pre-filter** (vector search over the entity index instead of the full cross-source product), LLM-assisted adjudication, incoherence detection + minimally-destructive repair, a classical-anchor ensemble with hallucination control, a P/R/F1 + OAEI-Interactive evaluation harness, an active-learning **DualLoop** re-rank of the review queue, and iterative refinement (scoped re-align on source change). Exposed via `/api/v1/alignment` and MCP tools. **Spec: PRD §6.17 (FR-17.1–13) + [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md).** |
 | Assertion graph (A-box) | Done | §6.18 / Stream 21: extract typed **individuals** + relationship assertions grounded in the T-box, with char-span provenance on every fact, lightweight coreference canonicalization, SHACL / dangling-type validation, grounding + merge metrics, and approve / reject / edit **curation** over the temporal versioning layer. Optional per run (`extract_abox=true`) and emitted in TTL / JSON-LD export as `owl:NamedIndividual`. |
 | Requirements & competency questions | Done | §6.19 / Stream 22: author use cases + competency questions (CQs); LLM-**suggest** candidate CQs with a VSPO-style pitfall lint (human acceptance required — CQs are never auto-persisted); CQ→AQL formalization; coverage scoring + gap backlog + release gate; and **use-case scoping** that narrows alignment correspondences and A-box individuals to what the CQs actually need. |
+| Subsumption judge | Done | §6.2 / FR-2.20: before `rdfs:subClassOf` is persisted, a secondary judge tests each assertion against *"is every X a Y?"* and returns a verdict with a reason. Sits between the structural gate and the curation breakpoint, so a curator sees flags while deciding what to keep. Failures are **flagged, never silently dropped** — a wrong subclass edge and a missing one are both defects. Fails open (no parent, judge disabled, LLM error → class untouched). Review via `GET /ontology/{id}/subsumption/flagged` + `POST .../{edge_key}/resolve`. |
+| SHACL shape derivation | Done | §6.14 / FR-14.8–14.10: `export?format=shacl` derives shapes from the `owl:Restriction` rows the system already holds — `min/maxCardinality` → `sh:min/maxCount`, `allValuesFrom`/`someValuesFrom` → `sh:class`, `hasValue` → `sh:hasValue`. Unmappable kinds are **dropped, not guessed**. Every derived shape carries `derivedFrom` provenance and `sh:severity sh:Warning` — never `sh:Violation` — because OWL is open-world and SHACL is closed-world, so promoting one to a violation is a curator's recorded decision (FR-20.3), not an automatic translation. Now offered in the library export menu. |
+| Standard-ontology catalog | Done | One-click import of 11 published vocabularies, **all bundled offline** (no network fetch at import): BFO 2020, SKOS, FOAF, PROV-O, OWL-Time, DCMI Terms (core tier) and Schema.org, SOSA/SSN, VSSo, FIBO Foundations Agents/Accounting (domain tier). The importer reads both `owl:Class` **and** `rdfs:Class`, and each entry keeps its catalog tier instead of being stamped `local`. |
+| Restriction edges on the canvas | Done | Structure stated as OWL restrictions (`owl:onProperty` + `allValuesFrom`/`someValuesFrom`) renders as real relationships rather than sitting invisible in `ontology_constraints` — SOSA/SSN's `Deployment`, `Stimulus`, `Input` and `Output` stop drawing as orphans. Toggling visibility is an edge-reducer decision, so it never re-runs layout. |
 | Staging → Production | Done | Promote approved entities with temporal versioning |
-| Import/Export | Done | OWL/TTL import and TTL/JSON-LD/CSV export (TTL/JSON-LD include the A-box — `owl:NamedIndividual` + `rdf:type` + object assertions) |
+| Import/Export | Done | OWL/TTL/RDF-XML/JSON-LD import (own `rdflib` importer — see ADR-006; AOE does **not** depend on `arango-rdf`) and TTL/JSON-LD/CSV/**SHACL** export (TTL/JSON-LD include the A-box — `owl:NamedIndividual` + `rdf:type` + object assertions) |
 | MCP Server | Done | 32 tools for AI agent integration (stdio + SSE) |
 | Pipeline Monitor | Done | Real-time Agent DAG with WebSocket events |
 | ArangoDB Visualizer | Done | Custom themes, canvas actions, saved queries |
 | Auth (JWT + RBAC) | Done | 4 roles, org-scoped, API key auth for MCP |
 | Notifications | Done | In-app notification queue with WebSocket |
 | Observability | Done | Structured logging (`structlog`), Prometheus metrics (`/api/v1/metrics`), OpenTelemetry tracing (default-off; flip `OTEL_ENABLED=true` + point at an OTLP collector), production alert rules in `infra/monitoring/alerts.yml` for extraction failure rate / API p95 / queue depth / DB connectivity. See [docs/operations/production-deployment.md](docs/operations/production-deployment.md). |
+
+### On the roadmap
+
+Specified in the PRD, not yet implemented — listed here so the table above stays honest about
+what "Done" means:
+
+| Planned | Spec | What it addresses |
+|---------|------|-------------------|
+| Upper ontology (System / Function / State layer) | §6.21, FR-21.1–21.7 | A curated layer of *kinds* (System, Subsystem, Component, Function, Feature, State, Event, Procedure, Actor) imported like any other ontology, plus the **relation vocabulary between them** — `partOf` (transitive), `hasAttribute`, `documentedBy`, `hasFunction`, `exposes`, `hasState`, `monitors`, `triggers`. With exactly one hierarchical relation available, an extractor flattens every association it senses into `rdfs:subClassOf`; giving it the right relations is the fix the subsumption judge currently only *reports* on. Blocked on Q15 (whether to hand-author the layer or align it to a standard). |
+| Property hierarchy (`rdfs:subPropertyOf`) | FR-8b.8 | A `subproperty_of` taxonomy mirroring `subclass_of`, with RDFS entailment and export support. Needed for sources with large relation vocabularies, and what makes edge roll-up sound rather than lossy. |
+| Hierarchy roll-up + tree view | FR-7.8.16 | Collapse classes to their ancestor at depth *k* with member counts, and an indented-tree/dendrogram canvas for `subClassOf` and partonomy — a force-directed layout is the wrong instrument for a hierarchy. Community-detection clustering is explicitly rejected: its groups are artefacts of edge density, unstable across runs, and not defensible as ontology structure. |
 
 ## Project Structure
 

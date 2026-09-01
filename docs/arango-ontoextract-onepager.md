@@ -1,6 +1,8 @@
 # Arango-OntoExtract: Living Ontologies from Documents and Databases
 
-*An LLM-driven platform that turns prose and schemas into formal, governed knowledge graphs on a single multi-model database — where oversight is a dial that runs from expert sign-off to agent-reviewed auto-release.*
+*An open-source, LLM-driven platform that turns prose and schemas into formal, governed knowledge graphs on a single multi-model database — where oversight is a dial that runs from expert sign-off to agent-reviewed auto-release.*
+
+**[github.com/arango-solutions/arango-ontoextract](https://github.com/arango-solutions/arango-ontoextract)** · MIT licence
 
 **The problem.** Every organization's knowledge is trapped in two places: **documents** (PDFs, decks, specs) that describe how the business thinks, and **databases** whose schemas already encode a working model — but only physically. A formal ontology (OWL 2 / RDFS classes, properties, hierarchies, constraints) is the bridge to machine reasoning, yet authoring one by hand is slow, expensive, and rots the moment the sources change.
 
@@ -16,7 +18,8 @@ flowchart LR
     Q --> B["belief revision"]
     R --> B
     B --> G["structural gate<br/>(deterministic repair)"]
-    G --> F["filter"] --> H{{"human curation"}} --> KG([Curated ontology])
+    G --> J["subsumption judge<br/>(is every X a Y?)"]
+    J --> F["filter"] --> H{{"human curation"}} --> KG([Curated ontology])
 ```
 
 Every class and relationship carries the **evidence** — the exact source chunks — that justifies it. Quality judging and entity resolution run in parallel, results are reconciled against what the ontology already believes, structurally repaired, then **paused for human review** before anything is committed.
@@ -33,6 +36,11 @@ Every class and relationship carries the **evidence** — the exact source chunk
 - **Driven by the questions it must answer.** Author (or have an LLM propose) the *competency questions* the ontology exists to answer; coverage is scored and gated, and those questions **scope** which cross-source correspondences and which instances actually matter — a use-case-shaped knowledge graph, not an everything-graph.
 - **Governed release, configurable autonomy.** Agents critique a release candidate (rule-engine violations, quality metrics, an LLM critic) into a readiness report; a per-org policy ranges from advisory sign-off to gated auto-publish — with faithfulness as a non-waivable floor and every release reversible. Human *on* the loop, not stuck *in* it.
 - **Bootstrap from a database.** Reverse-engineer an ontology directly from a schema you already run — ArangoDB (collections to classes, edges to object properties, constraints to SHACL; labeled-property-graph shapes where types live in a field are handled too) or a relational (SQL) database — with full provenance back to the source table or collection.
+- **Checked, not just generated.** LLMs overuse `rdfs:subClassOf` — flattening *part-of*, *attribute-of* and *documented-by* into *is-a*, which quietly poisons every query that walks the hierarchy. A subsumption judge tests each proposed edge against "is every X a Y?" and **flags rather than deletes**, because a wrong subclass edge and a missing one are both defects. It fails open: a judge that can block an extraction is worse than no judge.
+- **Constraints become runnable validation — carefully.** OWL restrictions the system already holds now render as real edges on the canvas *and* derive **SHACL** shapes. But OWL is open-world and SHACL is closed-world, so a derived shape is always `sh:Warning`, never `sh:Violation`, and carries provenance back to the row it came from; promoting one is a curator's recorded decision. The system may reorganize what it was told and may never upgrade it into a stronger claim.
+- **Standards on day one.** Eleven published vocabularies — BFO, SKOS, FOAF, PROV-O, OWL-Time, DCMI Terms, Schema.org, SOSA/SSN, VSSo, two FIBO modules — import in one click and ship **bundled**, so first run works on a locked-down network.
 - **One multi-model engine.** Documents, the OWL graph, vector embeddings, and search live together in ArangoDB, so provenance, RAG, and graph traversal share one store. AI agents can drive the whole platform over MCP.
 
 **The bet.** The future of ontology engineering isn't a better one-shot extractor. It's a living system that proposes, grounds, versions, and revises — with a human holding the pen.
+
+**Try it:** `git clone https://github.com/arango-solutions/arango-ontoextract` → `make setup && make infra && make migrate && make backend` → open `localhost:3000`. Fastest first result needs no API keys at all: import a catalog ontology, or point AOE at a database schema you already run.

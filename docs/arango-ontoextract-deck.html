@@ -664,6 +664,7 @@ table.grid tr:last-child td { border-bottom: 0; }
           <span class="arrow">→</span>
           <span class="chip">belief revision</span><span class="arrow">→</span>
           <span class="chip">structural gate</span><span class="arrow">→</span>
+          <span class="chip">subsumption judge</span><span class="arrow">→</span>
           <span class="chip">filter</span><span class="arrow">→</span>
           <span class="chip on">human curation</span>
         </div>
@@ -729,7 +730,32 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 13 · ACT III DIVIDER ══════════════════ -->
+    <!-- ══════════════════ 13 · CATALOG ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">Don't start from zero</div>
+      <h2>Eleven published vocabularies, one click, offline</h2>
+      <p class="deck">Your own ontology shouldn't redefine what the world already standardised. The catalog imports established vocabularies as a foundation your work extends.</p>
+      <div class="grow">
+        <div class="flow" style="gap:8px">
+          <span class="chip on">BFO 2020</span><span class="chip on">SKOS</span><span class="chip on">FOAF</span>
+          <span class="chip on">PROV-O</span><span class="chip on">OWL-Time</span><span class="chip on">DCMI Terms</span>
+        </div>
+        <div class="flow" style="gap:8px; margin-top:10px">
+          <span class="chip">Schema.org</span><span class="chip">SOSA/SSN</span><span class="chip">VSSo</span>
+          <span class="chip">FIBO Agents</span><span class="chip">FIBO Accounting</span>
+        </div>
+        <div class="card" style="margin-top:26px">
+          <h3>Bundled, not fetched</h3>
+          <p>Every entry ships <strong>inside the application</strong>. A first run works on a locked-down network, and can't be broken by someone else's server being down. Each keeps its tier — a published standard is never stamped as your own work.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Top row is foundational (core tier), bottom row domain. Both import through the same <code>owl:imports</code> machinery as anything else, so they're versioned and curatable like any other ontology.</p>
+        <p><b>War story worth telling if the room is technical:</b> the importer originally read classes from <code>rdf:type owl:Class</code> only. Schema.org declares all ~1,000 of its types as <code>rdfs:Class</code> — an RDFS-era convention — so the entry advertising 800 classes imported <i>zero</i>. No error, no warning: an empty ontology and a green checkmark. Reading the union of both took it from 0 to 1,010 classes. Silent-success bugs are the expensive kind.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 14 · ACT III DIVIDER ══════════════════ -->
     <section class="slide divider" data-act="3">
       <div class="act-no">Part three</div>
       <h2>Making it trustworthy enough to keep</h2>
@@ -737,7 +763,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       <aside class="notes"><p>The heart of the talk. Everything here exists because automation without reversibility is unusable in an enterprise.</p></aside>
     </section>
 
-    <!-- ══════════════════ 14 · TIME TRAVEL ══════════════════ -->
+    <!-- ══════════════════ 15 · TIME TRAVEL ══════════════════ -->
     <section class="slide" data-act="3">
       <div class="eyebrow">Temporal versioning</div>
       <h2>Nothing is overwritten. Ever.</h2>
@@ -761,7 +787,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 15 · BELIEF REVISION ══════════════════ -->
+    <!-- ══════════════════ 16 · BELIEF REVISION ══════════════════ -->
     <section class="slide" data-act="3">
       <div class="eyebrow">Belief revision</div>
       <h2>The second document shouldn't start over</h2>
@@ -782,7 +808,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 16 · STRUCTURAL GATE ══════════════════ -->
+    <!-- ══════════════════ 17 · STRUCTURAL GATE ══════════════════ -->
     <section class="slide" data-act="3">
       <div class="eyebrow">Self-repair</div>
       <h2>Fix the graph before it's a graph</h2>
@@ -815,7 +841,63 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 17 · ALIGNMENT + ABOX ══════════════════ -->
+    <!-- ══════════════════ 18 · SUBSUMPTION JUDGE ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">Checked, not just generated</div>
+      <h2>The one relation an LLM reaches for too often</h2>
+      <p class="deck" style="margin-bottom:16px">Give a model one hierarchical relation and it uses it for everything. <code>subClassOf</code> means <em>is a kind of</em> — but any association the model senses gets flattened into it.</p>
+      <div class="grow">
+        <table class="grid">
+          <thead><tr><th style="width:46%">What the model writes</th><th>What it actually meant</th></tr></thead>
+          <tbody>
+            <tr><td>Tyre &nbsp;subClassOf&nbsp; Vehicle</td><td>a tyre is <strong>part of</strong> a vehicle</td></tr>
+            <tr><td>Speed Rating &nbsp;subClassOf&nbsp; Tyre</td><td>a speed rating is an <strong>attribute of</strong> a tyre</td></tr>
+            <tr><td>Manufacturer Instructions &nbsp;subClassOf&nbsp; Tyre</td><td>a document <strong>describes</strong> a tyre</td></tr>
+          </tbody>
+        </table>
+        <div class="card" style="margin-top:22px">
+          <h3>So a second judge tests every one</h3>
+          <p>Each proposed edge is checked against the plain question <strong>"is every X a Y?"</strong>, with a reason. It <strong>flags rather than deletes</strong> — a wrong subclass edge and a missing one are both defects — and it <strong>fails open</strong>: a judge that can block an extraction is worse than no judge.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Why it matters beyond tidiness: a reasoner walking a poisoned hierarchy will conclude a tyre inherits everything true of a vehicle. Bad subsumption doesn't just look wrong, it produces wrong answers downstream.</p>
+        <p>The judge's prompt carries a few-shot dictionary of real observed failures alongside genuine passes (Winter Tyre/Tyre, Unleaded Fuel/Fuel Type) — calibrated on measured behaviour, not an abstract instruction. The same dictionary went into the extraction prompt: not making the mistake beats catching it.</p>
+        <p><b>Roadmap, if asked:</b> the real fix is an upper ontology giving the extractor <code>partOf</code> (transitive), <code>hasAttribute</code> and <code>documentedBy</code> to reach for, so associations stop being forced through the one relation available. Today the judge reports; that layer removes the cause. Specified in the PRD, not yet built.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 19 · SHACL / OPEN WORLD ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">From constraints to validation</div>
+      <h2>OWL is open-world. SHACL is not.</h2>
+      <div class="body-cols" style="margin-top:14px">
+        <div class="stack">
+          <div class="card">
+            <h3>The material was already there</h3>
+            <p>Published ontologies state much of their structure as <strong>OWL restrictions</strong> rather than plain properties. AOE imported them correctly — into a constraints table nothing ever read.</p>
+            <p>SOSA/SSN therefore drew four of its classes as <strong>isolated dots</strong>. They now render as real edges, toggled without re-running layout.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h3>And they derive SHACL shapes</h3>
+            <p>Cardinality becomes <code>sh:minCount</code>/<code>maxCount</code>; <code>allValuesFrom</code> becomes <code>sh:class</code>. Kinds with no faithful mapping are <strong>dropped, not guessed</strong>.</p>
+          </div>
+        </div>
+      </div>
+      <div class="card alarm" style="margin-top:20px">
+        <h3>The line we won't cross</h3>
+        <p><code>owl:minCardinality 1</code> licenses an <em>inference</em>: there's at least one, and if you can't see it you just haven't been told. <code>sh:minCount 1</code> is a <em>verdict</em>: an instance without one is invalid. So every derived shape is <strong>sh:Warning, never sh:Violation</strong>, and carries provenance. Promotion is a curator's recorded decision. <strong>The system may reorganize what it was told; it may never upgrade it into a stronger claim.</strong></p>
+      </div>
+      <aside class="notes">
+        <p>This is the single most defensible slide in the deck for a semantics-literate audience — mechanically translating OWL cardinality into SHACL constraints is a common and genuinely wrong shortcut.</p>
+        <p>Shapes derived from LLM-extracted restrictions also carry the extraction confidence: "the manual says SHALL" is a model's reading of prose, not an axiom an author wrote. Shapes that arrived as SHACL keep their author's severity — they were published as validation and need no reinterpretation.</p>
+        <p>Same rule as the structural gate and the belief reviser, on a new surface. That consistency is the argument.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 20 · ALIGNMENT + ABOX ══════════════════ -->
     <section class="slide" data-act="3">
       <div class="eyebrow">Two more capabilities, briefly</div>
       <h2>Many sources, one master — and facts, not just schema</h2>
@@ -842,7 +924,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 18 · ACT IV DIVIDER ══════════════════ -->
+    <!-- ══════════════════ 21 · ACT IV DIVIDER ══════════════════ -->
     <section class="slide divider" data-act="4">
       <div class="act-no">Part four</div>
       <h2>The result that changed how we spend effort</h2>
@@ -850,7 +932,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       <aside class="notes"><p>Slow down here. This act is the reason the talk is worth giving — everything before it is architecture, and architecture is cheap to claim.</p></aside>
     </section>
 
-    <!-- ══════════════════ 19 · CQs ══════════════════ -->
+    <!-- ══════════════════ 22 · CQs ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">Requirements-driven</div>
       <h2>An ontology exists to answer questions — so start there</h2>
@@ -869,7 +951,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 20 · THE RESULT ══════════════════ -->
+    <!-- ══════════════════ 23 · THE RESULT ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">Measured — 71-question benchmark</div>
       <h2>Human curation is the highest-leverage input</h2>
@@ -900,7 +982,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 21 · LEXICON ══════════════════ -->
+    <!-- ══════════════════ 24 · LEXICON ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">The curated lexicon</div>
       <h2>What a thing is called is a domain judgement</h2>
@@ -928,7 +1010,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 22 · THE BUG ══════════════════ -->
+    <!-- ══════════════════ 25 · THE BUG ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">Durability by design</div>
       <h2>A curated decision has to survive the next refresh</h2>
@@ -957,7 +1039,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 23 · THE LESSON ══════════════════ -->
+    <!-- ══════════════════ 26 · THE LESSON ══════════════════ -->
     <section class="slide" data-act="4">
       <div class="eyebrow">The principle</div>
       <h2>Ask any tool in this category one question</h2>
@@ -983,7 +1065,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 24 · ACT V DIVIDER ══════════════════ -->
+    <!-- ══════════════════ 27 · ACT V DIVIDER ══════════════════ -->
     <section class="slide divider" data-act="5">
       <div class="act-no">Part five</div>
       <h2>Where it goes</h2>
@@ -991,7 +1073,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       <aside class="notes"><p>Short landing. Two slides and the close.</p></aside>
     </section>
 
-    <!-- ══════════════════ 25 · TRUST MEASURED ══════════════════ -->
+    <!-- ══════════════════ 28 · TRUST MEASURED ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">Legibility</div>
       <h2>Because it's automated, it has to be measurable</h2>
@@ -1012,7 +1094,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 26 · AUTONOMY DIAL ══════════════════ -->
+    <!-- ══════════════════ 29 · AUTONOMY DIAL ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">Governance</div>
       <h2>Autonomy is a dial, not a default</h2>
@@ -1034,7 +1116,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 27 · CLOSE ══════════════════ -->
+    <!-- ══════════════════ 30 · CLOSE ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">The bet</div>
       <h2>The future isn't a better one-shot extractor</h2>
@@ -1057,7 +1139,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       </aside>
     </section>
 
-    <!-- ══════════════════ 28 · GET IT ══════════════════ -->
+    <!-- ══════════════════ 31 · GET IT ══════════════════ -->
     <section class="slide" data-act="5">
       <div class="eyebrow">It's open source</div>
       <h2 style="max-width:26ch">All of this is in the repo</h2>
@@ -1090,7 +1172,7 @@ table.grid tr:last-child td { border-bottom: 0; }
       <span id="rail-act">Title</span>
       <span id="rail-bar"></span>
       <span id="rail-repo">github.com/arango-solutions/arango-ontoextract</span>
-      <span id="rail-no">01 / 28</span>
+      <span id="rail-no">01 / 31</span>
     </div>
   </div>
 </div>

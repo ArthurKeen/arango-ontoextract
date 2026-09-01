@@ -307,6 +307,10 @@ export interface SigmaCanvasProps {
    *  axis (no edge-level filter — every edge whose endpoints are visible is
    *  drawn). */
   visibleEdgeKeys?: Set<string> | null;
+  /** Hide ``owl_restriction`` edges without removing them from the graph.
+   *  They are toggled through the edge reducer rather than by refetching, so
+   *  the canvas never discards its layout and blanks. */
+  hideRestrictions?: boolean;
   /** Externally-driven node selection (e.g. sidebar click). Highlighted with a ring. */
   selectedNodeKey?: string | null;
   /** Externally-driven edge selection (e.g. sidebar click). */
@@ -742,6 +746,7 @@ export default function SigmaCanvas({
   selectedEdgeKey,
   focusNodeKey,
   focusHops = 1,
+  hideRestrictions = false,
   multiSelectedKeys,
   onNodeShiftSelect,
   onStageClick,
@@ -1225,6 +1230,7 @@ export default function SigmaCanvas({
     );
 
     const needsReducer =
+      hideRestrictions ||
       hasVisFilter ||
       hasEdgeVisFilter ||
       hasNodeSel ||
@@ -1288,6 +1294,12 @@ export default function SigmaCanvas({
               return { ...data, hidden: true };
             }
           }
+          // Restrictions toggle WITHOUT rebuilding the graph. Once fetched
+          // they live in it permanently; showing and hiding them is a reducer
+          // decision, so the canvas never discards its layout and blanks.
+          if (hideRestrictions && data.edgeType === "owl_restriction") {
+            return { ...data, hidden: true };
+          }
           if (hasEdgeVisFilter) {
             const attrs = g.getEdgeAttributes(edge);
             // ``edgeKey`` is the domain key (e.g. ``150170542``); the graphology
@@ -1322,6 +1334,7 @@ export default function SigmaCanvas({
     focusNodeKey,
     focusHops,
     multiSelectedKeys,
+    hideRestrictions,
     reportFocusCoverage,
   ]);
 

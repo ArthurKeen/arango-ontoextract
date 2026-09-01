@@ -185,11 +185,12 @@ function WorkspacePageInner() {
   // against its 625 asserted edges. A ref shadows the state so the graph
   // fetcher can read it without taking it as a dependency and re-running.
   const [showRestrictions, setShowRestrictions] = useState(false);
-  const showRestrictionsRef = useRef(false);
+  // Sticky: whether the payload should CARRY restriction edges. Turning the
+  // toggle off hides them, it does not evict them, so switching back is free.
+  const restrictionsEverRequestedRef = useRef(false);
   const fetchGraphDataRef = useRef<((id: string) => Promise<void>) | null>(
     null,
   );
-  showRestrictionsRef.current = showRestrictions;
   const [hiddenNodeKeys, setHiddenNodeKeys] = useState<Set<string>>(new Set());
 
   // Multi-selection (FR-7.8.18). Shift-click adds; shift-clicking a selected
@@ -651,15 +652,18 @@ function WorkspacePageInner() {
     };
   }, [selectedOntologyId, explorerLibraryNonce]);
 
-  // Toggling restrictions changes which payload we want, so it refetches under
-  // the other cache profile. No invalidation: the two are cached separately and
-  // switching back is instant.
+  // Toggling restrictions is a VISIBILITY change, not a data change. The edges
+  // stay in the graph once fetched and the canvas hides them through its edge
+  // reducer, so there is no rebuild, no relayout and no blank canvas. Only the
+  // first request needs data.
   const handleToggleRestrictions = useCallback(() => {
     setShowRestrictions((prev) => {
       const next = !prev;
-      showRestrictionsRef.current = next;
-      if (selectedOntologyId)
-        void fetchGraphDataRef.current?.(selectedOntologyId);
+      if (next && !restrictionsEverRequestedRef.current) {
+        restrictionsEverRequestedRef.current = true;
+        if (selectedOntologyId)
+          void fetchGraphDataRef.current?.(selectedOntologyId);
+      }
       return next;
     });
   }, [selectedOntologyId]);
@@ -691,7 +695,11 @@ function WorkspacePageInner() {
       // delete) call ``invalidateOntologyKind(_, "effective")`` (alongside
       // the existing ``classes`` / ``edges`` invalidations) so a future
       // selection refetches the server's authoritative view.
-      const wantRestrictions = showRestrictionsRef.current;
+      // Once restrictions have been asked for, KEEP fetching them: they stay
+      // in the graph and the toggle only changes their visibility. Refetching
+      // to drop them would discard the layout and blank the canvas — the very
+      // thing the toggle is meant to avoid.
+      const wantRestrictions = restrictionsEverRequestedRef.current;
       const effectiveRes = await fetchOntologyData(
         ontologyId,
         "effective",
@@ -1947,6 +1955,7 @@ function WorkspacePageInner() {
                       focusNodeKey={selectedNodeKey}
                       focusHops={focusHops}
                       multiSelectedKeys={multiSelectedKeys}
+                      hideRestrictions={!showRestrictions}
                       onNodeShiftSelect={handleNodeShiftSelect}
                       onStageClick={handleStageClick}
                       onLassoSelect={handleLassoSelect}

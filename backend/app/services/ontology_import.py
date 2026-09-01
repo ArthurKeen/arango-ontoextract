@@ -83,6 +83,50 @@ _SCHEMA_RANGE_INCLUDES = (
 )
 
 
+#: Predicates that make a class declaration a DEFINITION rather than a passing
+#: reference. A file that merely names someone else's class still has to type
+#: it ``owl:Class`` for the document to parse; that alone says nothing about it.
+_DEFINING_PREDICATES: tuple[URIRef, ...] = (
+    RDFS.label,
+    RDFS.comment,
+    RDFS.subClassOf,
+    OWL.equivalentClass,
+    OWL.disjointWith,
+    RDFS.isDefinedBy,
+    OWL.unionOf,
+    OWL.intersectionOf,
+)
+
+
+def _is_reference_only(rdf_graph: RDFGraph, class_uri: URIRef) -> bool:
+    """True when the document names this class but does not define it.
+
+    SOSA/SSN types ``foaf:Agent`` and ``voaf:Vocabulary`` as ``owl:Class`` and
+    says nothing else about either. They belong to FOAF and VOAF. Minting local
+    copies put two permanently disconnected nodes on the canvas that no axiom
+    in the file could ever attach to anything -- and worse, forked the
+    identity: edit "Agent" here and you have edited a stub, not FOAF's class.
+
+    Deliberately conservative. A single label, comment, superclass or
+    equivalence is enough to count as a definition, because a partial
+    definition is still this document's own statement about the class and
+    dropping it would lose information. Only a bare ``a owl:Class``, with the
+    class also unused as a property's domain or range here, is a reference.
+    """
+    for predicate in _DEFINING_PREDICATES:
+        if next(rdf_graph.objects(class_uri, predicate), None) is not None:
+            return False
+    # Does anything in this document point AT the class? A property's
+    # rdfs:domain / rdfs:range, a restriction's allValuesFrom, an equivalence
+    # from elsewhere -- any of those mean the file leans on it structurally,
+    # and dropping it would strand that statement on a missing endpoint.
+    # ``rdf:type`` is excluded because that is the bare declaration itself.
+    for _subject, pointing_predicate in rdf_graph.subject_predicates(class_uri):
+        if pointing_predicate != RDF.type:
+            return False
+    return True
+
+
 def _inverse_index(rdf_graph: RDFGraph) -> dict[str, str]:
     """Map each property URI to its ``owl:inverseOf`` partner, BOTH ways.
 
@@ -829,9 +873,16 @@ def _materialize_rdf_graph(
     # without this filter two thirds of the imported "ontology" is noise the
     # curator then has to recognise and delete. Matches the filter already
     # applied when collecting class URIs for the hierarchy edges above.
+    skipped_references: list[str] = []
     for class_uri in sorted(
         {str(s) for s in rdf_graph.subjects(RDF.type, OWL.Class) if isinstance(s, URIRef)}
     ):
+        # A class this document only NAMES belongs to whoever defines it. See
+        # ``_is_reference_only``: minting a local copy forks the identity and
+        # strands a node on the canvas that nothing here can connect.
+        if _is_reference_only(rdf_graph, URIRef(class_uri)):
+            skipped_references.append(class_uri)
+            continue
         doc = create_class(
             db,
             ontology_id=ontology_id,
@@ -846,6 +897,13 @@ def _materialize_rdf_graph(
             created_by="import",
         )
         class_ids[class_uri] = doc["_id"]
+
+    if skipped_references:
+        log.info(
+            "skipped %d referenced-but-undefined class(es) on import",
+            len(skipped_references),
+            extra={"ontology_id": ontology_id, "classes": skipped_references[:20]},
+        )
 
     prop_type_map: dict[str, tuple[str, str]] = {
         "object": ("ontology_object_properties", "owl:ObjectProperty"),

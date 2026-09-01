@@ -589,7 +589,14 @@ class TestAnonymousClassExpressionsAreSkipped:
         assert labels == ["Tyre"], f"anonymous restriction leaked in: {labels}"
 
     def test_named_classes_still_import(self):
-        ttl = _PREFIXES + ":Tyre a owl:Class . :Vehicle a owl:Class .\n"
+        # Labelled, so these are DEFINITIONS. A bare ``:Tyre a owl:Class .``
+        # with no other assertion is now treated as a reference to someone
+        # else's class and skipped -- see TestReferenceOnlyClassesAreNotMinted.
+        ttl = (
+            _PREFIXES
+            + ':Tyre a owl:Class ; rdfs:label "Tyre" .\n'
+            + ':Vehicle a owl:Class ; rdfs:label "Vehicle" .\n'
+        )
         assert sorted(c["label"] for c in self._run(ttl)) == ["Tyre", "Vehicle"]
 
     def test_intersection_members_do_not_become_classes(self):
@@ -840,3 +847,120 @@ class TestInverseOfImport:
         assert declared >= 30, f"SOSA bundle declares only {declared} inverse pairs"
         # Symmetric closure: every partner resolves back to its source.
         assert all(index[partner] == prop for prop, partner in index.items())
+
+
+class TestReferenceOnlyClassesAreNotMinted:
+    """A class a document only NAMES belongs to whoever defines it.
+
+    SOSA/SSN types ``foaf:Agent`` and ``voaf:Vocabulary`` as ``owl:Class`` and
+    says nothing else about either. Importing them made two permanently
+    disconnected nodes that no axiom in the file could attach to anything —
+    and forked the identity, so editing "Agent" here edited a stub rather than
+    FOAF's class.
+    """
+
+    def _labels(self, ttl: str) -> list[str]:
+        from app.services.ontology_import import _materialize_rdf_graph
+
+        db = MagicMock()
+        db.has_collection.return_value = True
+        created: list[str] = []
+
+        def _create_class(_db, *, ontology_id, data, created_by):
+            created.append(data["uri"])
+            return {"_id": f"ontology_classes/{data['uri']}"}
+
+        with (
+            patch("app.services.ontology_import.create_class", side_effect=_create_class),
+            patch("app.services.ontology_import.create_property", return_value={"_id": "p/1"}),
+            patch("app.services.ontology_import.create_edge", return_value={"_id": "e/1"}),
+            patch("app.services.ontology_import._ensure_import_collections"),
+        ):
+            _materialize_rdf_graph(db, rdf_graph=_parse(ttl), ontology_id="o1")
+        return created
+
+    def test_bare_declaration_of_a_foreign_class_is_skipped(self):
+        ttl = (
+            _PREFIXES
+            + """
+        @prefix foaf: <http://xmlns.com/foaf/0.1/> .
+        :Sensor a owl:Class ; rdfs:label "Sensor" .
+        foaf:Agent a owl:Class .
+        """
+        )
+        assert self._labels(ttl) == ["http://example.org/onto#Sensor"]
+
+    def test_a_single_label_makes_it_a_definition(self):
+        """Conservative on purpose: a partial definition is still this
+        document's own statement, and dropping it would lose information."""
+        ttl = (
+            _PREFIXES
+            + """
+        @prefix foaf: <http://xmlns.com/foaf/0.1/> .
+        foaf:Agent a owl:Class ; rdfs:label "Agent" .
+        """
+        )
+        assert self._labels(ttl) == ["http://xmlns.com/foaf/0.1/Agent"]
+
+    def test_a_subclass_axiom_makes_it_a_definition(self):
+        ttl = (
+            _PREFIXES
+            + """
+        :Thing a owl:Class .
+        :Sub a owl:Class ; rdfs:subClassOf :Thing .
+        """
+        )
+        # :Thing is bare, but :Sub points at it — it is load-bearing here.
+        assert sorted(self._labels(ttl)) == [
+            "http://example.org/onto#Sub",
+            "http://example.org/onto#Thing",
+        ]
+
+    def test_a_class_used_as_a_property_range_is_kept(self):
+        """Dropping it would leave the range edge with no endpoint."""
+        ttl = (
+            _PREFIXES
+            + """
+        @prefix time: <http://www.w3.org/2006/time#> .
+        :Observation a owl:Class ; rdfs:label "Observation" .
+        time:TemporalEntity a owl:Class .
+        :phenomenonTime a owl:ObjectProperty ;
+            rdfs:domain :Observation ; rdfs:range time:TemporalEntity .
+        """
+        )
+        assert "http://www.w3.org/2006/time#TemporalEntity" in self._labels(ttl)
+
+    def test_a_class_named_by_a_restriction_is_kept(self):
+        ttl = (
+            _PREFIXES
+            + """
+        @prefix ext: <http://other.example/> .
+        ext:System a owl:Class .
+        :Deployment a owl:Class ;
+            rdfs:subClassOf [ a owl:Restriction ;
+                              owl:onProperty :deployedSystem ;
+                              owl:allValuesFrom ext:System ] .
+        :deployedSystem a owl:ObjectProperty .
+        """
+        )
+        assert "http://other.example/System" in self._labels(ttl)
+
+    def test_the_real_sosa_bundle_skips_exactly_the_two_foreign_stubs(self):
+        import importlib.resources as _resources
+
+        from rdflib import URIRef
+
+        from app.services.ontology_import import _is_reference_only
+
+        raw = _resources.files("app.data.ontologies").joinpath("sosa_ssn.ttl").read_bytes()
+        g = _parse(raw.decode("utf-8"))
+        from rdflib import OWL as _OWL
+        from rdflib import RDF as _RDF
+
+        named = [c for c in g.subjects(_RDF.type, _OWL.Class) if isinstance(c, URIRef)]
+        skipped = {str(c) for c in named if _is_reference_only(g, c)}
+
+        assert skipped == {
+            "http://xmlns.com/foaf/0.1/Agent",
+            "http://purl.org/vocommons/voaf#Vocabulary",
+        }

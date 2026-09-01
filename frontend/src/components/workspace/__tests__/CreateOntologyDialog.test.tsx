@@ -18,8 +18,15 @@ jest.mock("@/lib/api-client", () => ({
       imports_created: [],
       warnings: [],
     }),
+    put: jest.fn().mockResolvedValue({}),
   },
 }));
+
+// Handle to the mocked PUT, for the competency-question tests below.
+const { api: mockedApi } = require("@/lib/api-client") as {
+  api: { put: jest.Mock };
+};
+const apiPut = mockedApi.put;
 
 jest.mock("@/lib/auth", () => ({
   getToken: jest.fn().mockReturnValue(null),
@@ -159,5 +166,94 @@ describe("CreateOntologyDialog", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(mockClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("competency questions at creation", () => {
+  // Authorable here because this is the moment they can still steer the FIRST
+  // extraction (FR-19.4 injects their term set into the prompt). Previously
+  // they could only be added afterwards, by right-clicking an ontology that
+  // had usually already been extracted into.
+  const mockClose = jest.fn();
+  const mockCreated = jest.fn();
+
+  beforeEach(() => jest.clearAllMocks());
+
+  function open() {
+    render(
+      <CreateOntologyDialog
+        open={true}
+        onClose={mockClose}
+        onCreated={mockCreated}
+      />,
+    );
+  }
+
+  it("saves the questions against the new ontology", async () => {
+    open();
+    fireEvent.change(screen.getByPlaceholderText(/Financial Services/), {
+      target: { value: "Tyres" },
+    });
+    fireEvent.change(screen.getByTestId("cq-input-0"), {
+      target: { value: "Which tyres are due for replacement?" },
+    });
+    fireEvent.click(screen.getByTestId("cq-add"));
+    fireEvent.change(screen.getByTestId("cq-input-1"), {
+      target: { value: "What is the speed rating of a tyre?" },
+    });
+    fireEvent.click(screen.getByText("Create Ontology"));
+
+    await waitFor(() => expect(apiPut).toHaveBeenCalled());
+    const [url, body] = apiPut.mock.calls.at(-1)!;
+    expect(url).toContain("/requirements");
+    const cqs = body.use_cases[0].competency_questions.map(
+      (q: { text: string }) => q.text,
+    );
+    expect(cqs).toEqual([
+      "Which tyres are due for replacement?",
+      "What is the speed rating of a tyre?",
+    ]);
+  });
+
+  it("does not call the requirements API when none were entered", async () => {
+    open();
+    fireEvent.change(screen.getByPlaceholderText(/Financial Services/), {
+      target: { value: "Empty" },
+    });
+    fireEvent.click(screen.getByText("Create Ontology"));
+
+    await waitFor(() => expect(mockCreated).toHaveBeenCalled());
+    expect(apiPut).not.toHaveBeenCalled();
+  });
+
+  it("ignores blank rows rather than saving empty questions", async () => {
+    open();
+    fireEvent.change(screen.getByPlaceholderText(/Financial Services/), {
+      target: { value: "Tyres" },
+    });
+    fireEvent.change(screen.getByTestId("cq-input-0"), {
+      target: { value: "   " },
+    });
+    fireEvent.click(screen.getByText("Create Ontology"));
+
+    await waitFor(() => expect(mockCreated).toHaveBeenCalled());
+    expect(apiPut).not.toHaveBeenCalled();
+  });
+
+  it("still reports the ontology as created when saving questions fails", async () => {
+    // The ontology exists by then. A failure to attach questions must not read
+    // as "create failed", or the user retries and makes a second ontology.
+    apiPut.mockRejectedValueOnce(new Error("boom"));
+    open();
+    fireEvent.change(screen.getByPlaceholderText(/Financial Services/), {
+      target: { value: "Tyres" },
+    });
+    fireEvent.change(screen.getByTestId("cq-input-0"), {
+      target: { value: "Which tyres are due?" },
+    });
+    fireEvent.click(screen.getByText("Create Ontology"));
+
+    await waitFor(() => expect(mockCreated).toHaveBeenCalled());
+    expect(mockClose).toHaveBeenCalled();
   });
 });

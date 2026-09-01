@@ -32,6 +32,7 @@ import {
 import { ONTOLOGY_EDGE_COLORS as EDGE_COLORS } from "@/components/graph/graphVisualPalette";
 import {
   confidenceNodeColor,
+  UNMEASURED_CONFIDENCE_COLOR,
   normalizeConfidence01,
 } from "@/components/workspace/confidenceLensPalette";
 import {
@@ -112,7 +113,10 @@ function lensNodeColor(
 ): string {
   switch (lens) {
     case "confidence":
-      return confidenceNodeColor(cls.confidence ?? 0.5);
+      // Unmeasured is not mid-range. See UNMEASURED_CONFIDENCE_COLOR.
+      return cls.confidence == null || Number.isNaN(cls.confidence)
+        ? UNMEASURED_CONFIDENCE_COLOR
+        : confidenceNodeColor(cls.confidence);
     case "curation":
       return STATUS_NODE_COLORS[cls.status ?? "pending"] ?? "#94a3b8";
     case "diff":

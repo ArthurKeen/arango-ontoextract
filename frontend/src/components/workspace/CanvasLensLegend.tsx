@@ -4,6 +4,7 @@ import {
   ONTOLOGY_EDGE_COLORS,
   SEMANTIC_EDGE_LEGEND,
 } from "@/components/graph/graphVisualPalette";
+import { UNMEASURED_CONFIDENCE_COLOR } from "@/components/workspace/confidenceLensPalette";
 import { IMPORTED_NODE_BORDER } from "@/components/workspace/importedEntityStyle";
 import type { LensType } from "@/components/workspace/LensToolbar";
 
@@ -59,6 +60,10 @@ const LENS_META: Record<
       { color: "#22c55e", label: "High (≥70%)" },
       { color: "#eab308", label: "Medium (50–70%)" },
       { color: "#ef4444", label: "Low (below 50%)" },
+      {
+        color: UNMEASURED_CONFIDENCE_COLOR,
+        label: "Not measured — imported, threshold does not apply",
+      },
     ],
     note: "Class fill + size reflect class confidence; labels append a %. Edge color and stroke width reflect the mean of per-evidence confidences, and the relation label appends a % too. Edges with no evidence keep their relation-type color and show the bare label. Use the slider below the canvas to hide entities below a confidence threshold (composes with the time slider).",
   },

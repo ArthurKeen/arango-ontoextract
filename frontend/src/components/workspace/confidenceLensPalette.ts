@@ -16,3 +16,14 @@ export function confidenceNodeColor(confidence: number): string {
   if (c >= 0.5) return "#eab308";
   return "#ef4444";
 }
+
+/**
+ * An entity nothing ever measured — every class of every imported ontology.
+ *
+ * Deliberately OUTSIDE the red/amber/green ramp, not a point on it. Painting
+ * an unmeasured class at 0.5 made BFO and schema.org render solid amber, which
+ * reads as "we checked and it is middling" when the truth is that no
+ * extraction happened and there was no inference to be confident about. Slate
+ * says "not on this scale".
+ */
+export const UNMEASURED_CONFIDENCE_COLOR = "#64748b";

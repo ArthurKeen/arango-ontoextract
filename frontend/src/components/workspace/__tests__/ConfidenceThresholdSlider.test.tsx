@@ -60,10 +60,12 @@ describe("ConfidenceThresholdSlider", () => {
     const counts = screen.getByTestId("confidence-threshold-counts");
     expect(counts).toHaveTextContent("Showing 4 of 4 classes");
     expect(counts).toHaveTextContent("3 of 3 edges");
-    expect(screen.getByTestId("confidence-threshold-value")).toHaveTextContent("0%");
+    expect(screen.getByTestId("confidence-threshold-value")).toHaveTextContent(
+      "0%",
+    );
   });
 
-  it("dragging to 50% emits a class set keeping >=0.5 confidence and an edge set keeping >=0.5 (no-confidence edges hidden)", () => {
+  it("dragging to 50% keeps >=0.5 and everything unmeasured", () => {
     const onClasses = jest.fn();
     const onEdges = jest.fn();
     render(
@@ -79,18 +81,23 @@ describe("ConfidenceThresholdSlider", () => {
       target: { value: "50" },
     });
 
-    const lastClassesCall = onClasses.mock.calls.at(-1)![0] as Set<string> | null;
+    const lastClassesCall = onClasses.mock.calls.at(
+      -1,
+    )![0] as Set<string> | null;
     const lastEdgesCall = onEdges.mock.calls.at(-1)![0] as Set<string> | null;
     expect(lastClassesCall).not.toBeNull();
     expect(lastEdgesCall).not.toBeNull();
     expect([...lastClassesCall!].sort()).toEqual(["hi", "med"]);
-    expect([...lastEdgesCall!].sort()).toEqual(["e_hi"]);
+    // ``e_unk`` has NO confidence and is exempt: a threshold filters things
+    // that were measured, and nothing measured that edge. Every class of every
+    // imported ontology is in this position, so hiding them made the slider
+    // empty the canvas for BFO, SKOS and schema.org at the first notch.
+    expect([...lastEdgesCall!].sort()).toEqual(["e_hi", "e_unk"]);
 
     const counts = screen.getByTestId("confidence-threshold-counts");
     expect(counts).toHaveTextContent("Showing 2 of 4 classes");
-    expect(counts).toHaveTextContent("1 of 3 edges");
-    // The amber callout fires once a no-confidence edge is being hidden.
-    expect(counts).toHaveTextContent(/edge.*have no confidence and are hidden/i);
+    expect(counts).toHaveTextContent("2 of 3 edges");
+    expect(counts).toHaveTextContent(/not measured/i);
   });
 
   it("dragging to 100% leaves only the high-confidence class visible", () => {
@@ -109,10 +116,14 @@ describe("ConfidenceThresholdSlider", () => {
       target: { value: "100" },
     });
 
-    const lastClassesCall = onClasses.mock.calls.at(-1)![0] as Set<string> | null;
+    const lastClassesCall = onClasses.mock.calls.at(
+      -1,
+    )![0] as Set<string> | null;
     expect([...lastClassesCall!].sort()).toEqual([]); // 0.9 < 1.0
+    // Even at 100% the unmeasured edge stays: it is outside the filter's
+    // remit at every setting, not merely below the bar.
     const lastEdgesCall = onEdges.mock.calls.at(-1)![0] as Set<string> | null;
-    expect([...lastEdgesCall!].sort()).toEqual([]);
+    expect([...lastEdgesCall!].sort()).toEqual(["e_unk"]);
   });
 
   it("Reset button returns to 0% and re-emits null sets", () => {
@@ -132,7 +143,9 @@ describe("ConfidenceThresholdSlider", () => {
     });
     fireEvent.click(screen.getByTestId("confidence-threshold-reset"));
 
-    expect(screen.getByTestId("confidence-threshold-value")).toHaveTextContent("0%");
+    expect(screen.getByTestId("confidence-threshold-value")).toHaveTextContent(
+      "0%",
+    );
     expect(onClasses).toHaveBeenLastCalledWith(null);
     expect(onEdges).toHaveBeenLastCalledWith(null);
   });
@@ -151,8 +164,12 @@ describe("ConfidenceThresholdSlider", () => {
 
     fireEvent.click(screen.getByTestId("confidence-threshold-tick-70"));
 
-    expect(screen.getByTestId("confidence-threshold-value")).toHaveTextContent("70%");
-    const lastClassesCall = onClasses.mock.calls.at(-1)![0] as Set<string> | null;
+    expect(screen.getByTestId("confidence-threshold-value")).toHaveTextContent(
+      "70%",
+    );
+    const lastClassesCall = onClasses.mock.calls.at(
+      -1,
+    )![0] as Set<string> | null;
     expect([...lastClassesCall!].sort()).toEqual(["hi"]);
   });
 
@@ -178,5 +195,63 @@ describe("ConfidenceThresholdSlider", () => {
 
     expect(onClasses).toHaveBeenLastCalledWith(null);
     expect(onEdges).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("an entity nothing measured is exempt from the threshold", () => {
+  // Every class of every imported ontology has null confidence — BFO, SKOS,
+  // FOAF, schema.org, VSSo, all of them. Treating that as 0 meant one notch on
+  // the slider emptied the canvas for the entire third-party library.
+  const importedClasses = [
+    makeClass("Continuant", undefined as unknown as number),
+    makeClass("Occurrent", undefined as unknown as number),
+  ];
+  const importedEdges = [makeEdge("bfo_e1", undefined)];
+
+  function emit(pct: string) {
+    const onClasses = jest.fn();
+    const onEdges = jest.fn();
+    render(
+      <ConfidenceThresholdSlider
+        classes={importedClasses}
+        edges={importedEdges}
+        onVisibleClassesChange={onClasses}
+        onVisibleEdgesChange={onEdges}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("confidence-threshold-input"), {
+      target: { value: pct },
+    });
+    return {
+      classes: onClasses.mock.calls.at(-1)![0] as Set<string> | null,
+      edges: onEdges.mock.calls.at(-1)![0] as Set<string> | null,
+    };
+  }
+
+  it.each(["1", "50", "100"])(
+    "keeps an unmeasured ontology fully visible at %s%%",
+    (pct) => {
+      const { classes: c, edges: e } = emit(pct);
+      expect([...c!].sort()).toEqual(["Continuant", "Occurrent"]);
+      expect([...e!]).toEqual(["bfo_e1"]);
+    },
+  );
+
+  it("says the threshold did not apply, rather than implying it passed", () => {
+    render(
+      <ConfidenceThresholdSlider
+        classes={importedClasses}
+        edges={importedEdges}
+        onVisibleClassesChange={jest.fn()}
+        onVisibleEdgesChange={jest.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("confidence-threshold-input"), {
+      target: { value: "80" },
+    });
+
+    const counts = screen.getByTestId("confidence-threshold-counts");
+    expect(counts).toHaveTextContent("Showing 2 of 2 classes");
+    expect(counts).toHaveTextContent(/3 not measured/);
   });
 });

@@ -45,10 +45,11 @@ export interface ConfidenceThresholdSliderProps {
   onVisibleClassesChange: (visible: Set<string> | null) => void;
   /** Receives the set of *edge* ``_key``s passing the threshold (from
    *  ``edge.confidence`` populated by the backend's ``compute_edge_confidence``).
-   *  ``null`` means "no filtering". Edges with no confidence are kept visible
-   *  whenever the threshold is 0; once the threshold rises above 0 they are
-   *  hidden so the lens stays internally consistent ("show only entities at
-   *  ≥ X%" can't include entities we never measured). */
+   *  ``null`` means "no filtering". An entity with NO confidence is exempt
+   *  from the threshold entirely, at any setting: never-measured is not the
+   *  same as measured-low. Every class of every imported ontology has null
+   *  confidence, so filtering them out made the slider empty the canvas for
+   *  BFO, SKOS, schema.org and the rest at the first notch. */
   onVisibleEdgesChange: (visible: Set<string> | null) => void;
 }
 
@@ -64,9 +65,13 @@ export default function ConfidenceThresholdSlider({
    *  ``normalizeConfidence01``) once per ``classes`` change so the slider
    *  drag stays cheap on large ontologies. */
   const classConfidence = useMemo(() => {
-    const m = new Map<string, number>();
+    const m = new Map<string, number | null>();
     for (const c of classes) {
-      m.set(c._key, normalizeConfidence01(c.confidence ?? 0));
+      const conf = c.confidence;
+      m.set(
+        c._key,
+        conf == null || Number.isNaN(conf) ? null : normalizeConfidence01(conf),
+      );
     }
     return m;
   }, [classes]);
@@ -97,13 +102,23 @@ export default function ConfidenceThresholdSlider({
       onVisibleEdgesChange(null);
       return;
     }
+    // NEVER MEASURED IS NOT LOW. An imported ontology carries no confidence at
+    // all -- BFO, SKOS, schema.org and every other third-party vocabulary have
+    // null on every class, because nothing extracted them and there was no
+    // inference to be confident about. Treating that as 0 (classes) or as
+    // "fails the test" (edges) meant raising the slider one notch emptied the
+    // canvas completely for those ontologies.
+    //
+    // A confidence threshold filters things that HAVE a confidence. Anything
+    // unmeasured is outside its remit and stays visible; the lens still paints
+    // it distinctly, so it reads as "not measured" rather than "scored high".
     const visibleClasses = new Set<string>();
     classConfidence.forEach((conf, key) => {
-      if (conf >= threshold01) visibleClasses.add(key);
+      if (conf == null || conf >= threshold01) visibleClasses.add(key);
     });
     const visibleEdges = new Set<string>();
     edgeConfidence.forEach((conf, key) => {
-      if (conf != null && conf >= threshold01) visibleEdges.add(key);
+      if (conf == null || conf >= threshold01) visibleEdges.add(key);
     });
     onVisibleClassesChange(visibleClasses);
     onVisibleEdgesChange(visibleEdges);
@@ -151,7 +166,7 @@ export default function ConfidenceThresholdSlider({
     if (thresholdPct === 0) return totalClasses;
     let n = 0;
     classConfidence.forEach((conf) => {
-      if (conf >= threshold01) n += 1;
+      if (conf == null || conf >= threshold01) n += 1;
     });
     return n;
   }, [thresholdPct, threshold01, classConfidence, totalClasses]);
@@ -159,18 +174,25 @@ export default function ConfidenceThresholdSlider({
     if (thresholdPct === 0) return totalEdges;
     let n = 0;
     edgeConfidence.forEach((conf) => {
-      if (conf != null && conf >= threshold01) n += 1;
+      if (conf == null || conf >= threshold01) n += 1;
     });
     return n;
   }, [thresholdPct, threshold01, edgeConfidence, totalEdges]);
 
-  const edgesWithoutConfidence = useMemo(() => {
+  /** How much of what is on screen the threshold cannot speak for. Counted
+   *  across classes AND edges: for an imported ontology that is everything,
+   *  and saying so is the difference between "the filter found these" and
+   *  "the filter had nothing to say about these". */
+  const unmeasuredCount = useMemo(() => {
     let n = 0;
+    classConfidence.forEach((conf) => {
+      if (conf == null) n += 1;
+    });
     edgeConfidence.forEach((conf) => {
       if (conf == null) n += 1;
     });
     return n;
-  }, [edgeConfidence]);
+  }, [classConfidence, edgeConfidence]);
 
   return (
     <div
@@ -206,11 +228,10 @@ export default function ConfidenceThresholdSlider({
         >
           Showing {visibleClassCount} of {totalClasses} classes ·{" "}
           {visibleEdgeCount} of {totalEdges} edges
-          {edgesWithoutConfidence > 0 && thresholdPct > 0 && (
+          {unmeasuredCount > 0 && thresholdPct > 0 && (
             <span className="ml-1 text-amber-400/80">
-              ({edgesWithoutConfidence} edge
-              {edgesWithoutConfidence === 1 ? "" : "s"} have no confidence and
-              are hidden above 0%)
+              (incl. {unmeasuredCount} not measured — imported, so the threshold
+              does not apply)
             </span>
           )}
         </div>

@@ -1,0 +1,856 @@
+<title>OntoExtract Demo Intro</title>
+
+<style>
+/* ============================================================
+   TOKENS — light is the base; dark redefines tokens only.
+   ============================================================ */
+:root {
+  --paper:      #F7FAF6;
+  --paper-2:    #EDF3EC;
+  --ink:        #10241A;
+  --ink-2:      #3D5446;
+  --muted:      #6B7F72;
+  --rule:       #CBD9CE;
+  --rule-soft:  #DFE8E0;
+  --accent:     #006532;
+  --accent-2:   #43B06B;
+  --accent-wash:#E4F3E8;
+  --alarm:      #B71419;
+  --alarm-wash: #FBE9EA;
+  --stage:      #FFFFFF;
+
+  --f-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+            "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --f-mono: "Courier New", Courier, ui-monospace, SFMono-Regular, Menlo,
+            Monaco, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #060F0A;
+    --paper-2:    #12261A;
+    --ink:        #E9F1EA;
+    --ink-2:      #B3C5B8;
+    --muted:      #7E9585;
+    --rule:       #24382C;
+    --rule-soft:  #1A2A20;
+    --accent:     #5FD08A;
+    --accent-2:   #43B06B;
+    --accent-wash:#11291B;
+    --alarm:      #FF6B6F;
+    --alarm-wash: #2A1214;
+    --stage:      #0B1811;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #060F0A;
+  --paper-2:    #12261A;
+  --ink:        #E9F1EA;
+  --ink-2:      #B3C5B8;
+  --muted:      #7E9585;
+  --rule:       #24382C;
+  --rule-soft:  #1A2A20;
+  --accent:     #5FD08A;
+  --accent-2:   #43B06B;
+  --accent-wash:#11291B;
+  --alarm:      #FF6B6F;
+  --alarm-wash: #2A1214;
+  --stage:      #0B1811;
+}
+
+/* ============================================================
+   SHELL
+   ============================================================ */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-sans);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#viewport {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+#stage {
+  width: 1280px;
+  height: 720px;
+  position: relative;
+  transform-origin: center center;
+  background: var(--stage);
+  overflow: hidden;
+  box-shadow: 0 1px 0 var(--rule), 0 24px 60px -30px rgba(4, 24, 12, .45);
+}
+
+/* ============================================================
+   SLIDES
+   ============================================================ */
+.slide {
+  position: absolute;
+  inset: 0;
+  padding: 66px 84px 92px;
+  display: none;
+  flex-direction: column;
+}
+.slide.is-active { display: flex; }
+
+.slide > .notes { display: none; }
+
+/* --- eyebrow / act label --- */
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+h1 {
+  font-size: 76px;
+  line-height: 1.02;
+  letter-spacing: -.035em;
+  font-weight: 800;
+  margin: 0 0 22px;
+  text-wrap: balance;
+  max-width: 20ch;
+}
+
+h2 {
+  font-size: 46px;
+  line-height: 1.08;
+  letter-spacing: -.028em;
+  font-weight: 750;
+  margin: 0 0 14px;
+  text-wrap: balance;
+  max-width: 22ch;
+}
+
+.deck { font-size: 22px; line-height: 1.45; color: var(--ink-2); max-width: 62ch; margin: 0 0 26px; }
+.deck strong { color: var(--ink); font-weight: 650; }
+.kicker { font-size: 26px; line-height: 1.35; color: var(--ink-2); max-width: 48ch; margin: 0; }
+.kicker strong { color: var(--ink); font-weight: 650; }
+
+.body-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; min-height: 0; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.grow  { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+
+/* --- bullets --- */
+ul.pts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 15px; }
+ul.pts li {
+  position: relative;
+  padding-left: 26px;
+  font-size: 21px;
+  line-height: 1.42;
+  color: var(--ink-2);
+  max-width: 56ch;
+}
+ul.pts li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: .58em;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--accent);
+  transform: rotate(45deg);
+}
+ul.pts li b { color: var(--ink); font-weight: 700; }
+
+/* --- table --- */
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 18px;
+}
+table.grid th {
+  text-align: left;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  padding: 0 14px 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+table.grid td {
+  padding: 13px 14px 13px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ink-2);
+  vertical-align: top;
+  line-height: 1.35;
+}
+table.grid td:first-child { color: var(--ink); font-weight: 650; }
+table.grid tr:last-child td { border-bottom: 0; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* --- node / chip motif (the deck is about graphs) --- */
+.chip {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  letter-spacing: .02em;
+  padding: 9px 13px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper-2);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.chip.on   { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
+.chip.warn { border-color: var(--alarm);  color: var(--alarm);  background: var(--alarm-wash); }
+.chip.ghost{ color: var(--muted); border-style: dashed; background: transparent; }
+
+.code {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+  padding: 14px 16px;
+  margin: 0;
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: pre;
+}
+.code b { color: var(--accent); font-weight: 700; }
+
+.flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.arrow { color: var(--rule); font-size: 18px; line-height: 1; }
+
+/* --- callout card --- */
+.card {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--paper-2);
+  padding: 20px 22px;
+  border-radius: 2px;
+}
+.card.alarm { border-left-color: var(--alarm); background: var(--alarm-wash); }
+.card h3 {
+  margin: 0 0 8px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 400;
+}
+.card.alarm h3 { color: var(--alarm); }
+.card p { margin: 0; font-size: 18px; line-height: 1.45; color: var(--ink-2); }
+.card p + p { margin-top: 10px; }
+
+/* --- big stat --- */
+.stats { display: flex; gap: 56px; align-items: flex-end; }
+.stat .val {
+  font-size: 92px;
+  font-weight: 800;
+  letter-spacing: -.045em;
+  line-height: .92;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.stat .val .was {
+  font-size: 40px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: -.02em;
+}
+.stat .val .to { font-size: 34px; color: var(--rule); font-weight: 400; }
+.stat .lab {
+  margin-top: 12px;
+  font-family: var(--f-mono);
+  font-size: 13px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  max-width: 24ch;
+  line-height: 1.5;
+}
+
+/* --- title slide --- */
+.slide.title { padding: 0; }
+.slide.title canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.title-inner {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding: 74px 84px 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.wordmark {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 30px;
+}
+.title-inner h1 { font-size: 92px; max-width: 16ch; }
+.title-rule { width: 96px; height: 3px; background: var(--accent); margin: 26px 0 24px; }
+.byline {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  letter-spacing: .1em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* --- section divider slide --- */
+.slide.divider { justify-content: center; }
+.slide.divider .act-no {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  letter-spacing: .3em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+.slide.divider h2 { font-size: 62px; max-width: 20ch; }
+.slide.divider .kicker { font-size: 23px; margin-top: 14px; }
+
+/* ============================================================
+   RAIL (bottom chrome)
+   ============================================================ */
+#rail {
+  position: absolute;
+  left: 84px;
+  right: 84px;
+  bottom: 34px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  z-index: 5;
+}
+#rail-act { min-width: 190px; color: var(--ink-2); }
+#rail-bar { flex: 1; display: flex; gap: 4px; height: 3px; }
+#rail-bar .seg { flex: 1; background: var(--rule-soft); position: relative; overflow: hidden; }
+#rail-bar .seg i { position: absolute; inset: 0; width: 0; background: var(--accent); transition: width .28s ease; }
+/* The repo URL rides every slide: a photographed slide should be actionable. */
+#rail-repo { color: var(--accent); letter-spacing: .06em; text-transform: none; }
+#rail-no { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+/* ============================================================
+   NOTES DRAWER + JUMP PANEL
+   ============================================================ */
+#notes {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-height: 42vh;
+  overflow-y: auto;
+  background: var(--paper-2);
+  border-top: 1px solid var(--rule);
+  padding: 20px 28px 24px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  z-index: 20;
+  display: none;
+}
+#notes.open { display: block; }
+#notes h4 {
+  margin: 0 0 8px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 400;
+}
+#notes p { margin: 0 0 10px; max-width: 100ch; }
+#notes p:last-child { margin-bottom: 0; }
+
+#jump {
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  z-index: 30;
+  padding: 44px 56px;
+  overflow-y: auto;
+  display: none;
+}
+#jump.open { display: block; }
+#jump h4 {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 22px;
+  font-weight: 400;
+}
+.jump-act { margin-bottom: 26px; }
+.jump-act > span {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 10px;
+}
+.jump-act ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 44px; }
+.jump-act li { break-inside: avoid; }
+.jump-act button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  padding: 7px 8px;
+  border-radius: 2px;
+  font-size: 17px;
+  color: var(--ink-2);
+  width: 100%;
+}
+.jump-act button:hover { background: var(--accent-wash); color: var(--ink); }
+.jump-act button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.jump-act button b { font-family: var(--f-mono); font-size: 13px; color: var(--muted); font-weight: 400; min-width: 22px; }
+
+#help {
+  position: fixed;
+  right: 14px;
+  bottom: 12px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  color: var(--muted);
+  z-index: 15;
+  opacity: .75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+@media print {
+  body { overflow: visible; background: #fff; }
+  #rail, #help, #jump, #notes { display: none !important; }
+  #viewport { position: static; display: block; }
+  #stage { transform: none !important; width: 100%; height: auto; box-shadow: none; }
+  .slide { display: flex !important; position: relative; height: 720px; page-break-after: always; }
+}
+</style>
+
+<div id="viewport">
+  <div id="stage">
+
+    <!-- ══════════════════ 1 · TITLE ══════════════════ -->
+    <section class="slide title" data-act="0">
+      <canvas id="constellation" aria-hidden="true"></canvas>
+      <div class="title-inner">
+        <div class="wordmark">Arango-OntoExtract</div>
+        <h1>Living ontologies from documents and databases</h1>
+        <div class="title-rule"></div>
+        <p class="kicker">Turning the model of your business that nobody wrote down into something machines can query, validate and reason over.</p>
+        <div style="flex:1"></div>
+        <div class="flow" style="gap:10px">
+          <span class="chip on">OntoExtract — talk + demo</span>
+          <span class="arrow">→</span>
+          <span class="chip">CDF</span>
+        </div>
+      </div>
+      <aside class="notes">
+        <p><b>~30s.</b> "Every company has a model of its own business that exists nowhere a machine can read. It's in the decks, and it's implied by the database schema. This is a system that goes and gets it."</p>
+        <p>Set the shape of the session: about five minutes of framing, then straight into the running system. Then CDF.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 2 · THE PROBLEM ══════════════════ -->
+    <section class="slide" data-act="1">
+      <div class="eyebrow">The problem</div>
+      <h2>The knowledge is already yours. Nothing can use it.</h2>
+      <div class="body-cols" style="margin-top:16px">
+        <div class="stack">
+          <div class="card">
+            <h3>Documents</h3>
+            <p>PDFs, decks, specs. They describe how the business <em>thinks</em> — but it's prose. You can search it; you can't reason over it.</p>
+          </div>
+          <div class="card">
+            <h3>Database schemas</h3>
+            <p>Tables and keys already encode a working model — but only <em>physically</em>. Nothing says "a Customer is a kind of Party."</p>
+          </div>
+        </div>
+        <div class="stack" style="justify-content:center">
+          <div class="card">
+            <h3>An ontology is the bridge</h3>
+            <p>A machine-readable model of what exists and how it relates: <strong>classes</strong>, the <strong>properties</strong> between them, the <strong>hierarchy</strong>, and the <strong>constraints</strong>.</p>
+            <p>Think of it as a schema that carries <em>meaning</em> instead of storage layout.</p>
+            <p><strong>The catch:</strong> authoring one by hand is slow, expensive, needs rare expertise — and it rots the moment the sources change.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p><b>~60s.</b> Don't teach OWL. The line that lands: "a database schema that carries meaning instead of just storage layout."</p>
+        <p>Ask the room: could you produce one diagram, machine-readable, saying what your core business entities are and how they relate? Almost nobody can. That's the gap.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 3 · WHAT IT DOES ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">What AOE does</div>
+      <h2>The LLM proposes. The human disposes.</h2>
+      <p class="deck" style="margin-bottom:18px">Not one prompt — a pipeline of specialised agents, with a mandatory stop before anything is committed.</p>
+      <div class="grow">
+        <div class="flow">
+          <span class="chip">extract</span><span class="arrow">→</span>
+          <span class="chip">check consistency</span><span class="arrow">→</span>
+          <span class="chip">judge quality</span><span class="arrow">→</span>
+          <span class="chip">resolve duplicates</span>
+        </div>
+        <div class="flow" style="margin-top:10px">
+          <span class="arrow">→</span>
+          <span class="chip">reconcile beliefs</span><span class="arrow">→</span>
+          <span class="chip">repair structure</span><span class="arrow">→</span>
+          <span class="chip">test every is-a</span><span class="arrow">→</span>
+          <span class="chip on">human curation</span>
+        </div>
+        <div class="card" style="margin-top:26px">
+          <h3>The one rule everything follows</h3>
+          <p>Every class and relationship carries the <strong>evidence</strong> that justifies it — the exact chunk, slide or table. Nothing reaches the curated ontology without a person, or an explicit written policy, saying yes.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        <p><b>~60s.</b> Don't walk all eight nodes. The point is the <i>shape</i>: specialised steps, each auditable, ending at a human gate.</p>
+        <p>"Propose / dispose" is the phrase to repeat — everything in the demo follows from taking it literally.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 4 · WHY TRUST IT ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">Why it's trustworthy enough to keep</div>
+      <h2>Four guarantees you'll see in the demo</h2>
+      <div class="grow">
+        <table class="grid">
+          <tr><td style="width:26%">Grounded</td><td>Click any concept and trace it to the slide or table it came from.</td></tr>
+          <tr><td>Reversible</td><td>Nothing is overwritten. Every class is versioned in time — scrub the timeline and watch the graph redraw as it stood.</td></tr>
+          <tr><td>Revised, not redone</td><td>A second document <em>updates</em> what the ontology already believes. Only genuine contradictions reach a human.</td></tr>
+          <tr><td>Durable curation</td><td>A curator's decision <strong>survives the next re-extraction</strong> — structurally, not by convention.</td></tr>
+        </table>
+      </div>
+      <aside class="notes">
+        <p><b>~75s.</b> This is the slide that earns the demo. Each row maps to something they will literally watch happen.</p>
+        <p>The differentiator question to leave with them: <b>"ask any tool in this category what happens to a human's correction the next time the machine runs."</b> Most cannot answer it.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 5 · ON-RAMPS ══════════════════ -->
+    <section class="slide" data-act="2">
+      <div class="eyebrow">Getting started is not the hard part</div>
+      <h2>Three ways in — two need no LLM at all</h2>
+      <div class="grow">
+        <table class="grid">
+          <tr><td style="width:30%"><span class="chip on">A database you run</span></td><td>Tables become classes, foreign keys relationships, columns attributes. A deterministic walk of a live schema — <strong>nothing to hallucinate</strong>. Relational and ArangoDB.</td></tr>
+          <tr><td><span class="chip on">Published standards</span></td><td>Eleven vocabularies — BFO, SKOS, PROV-O, Schema.org, SOSA/SSN, FIBO — one click, bundled offline.</td></tr>
+          <tr><td><span class="chip">Your documents</span></td><td>PDFs, decks, specs — including the taxonomies that only exist inside diagrams.</td></tr>
+        </table>
+      </div>
+      <p class="deck" style="margin:22px 0 0">Most people's fastest first result is a schema they already own — a defensible ontology in about a minute.</p>
+      <aside class="notes">
+        <p><b>~60s.</b> Useful for the commercial question "how long before we see anything?" Answer: minutes, and the first path needs no API key.</p>
+      </aside>
+    </section>
+
+    <!-- ══════════════════ 6 · DEMO HANDOFF ══════════════════ -->
+    <section class="slide" data-act="3">
+      <div class="eyebrow">Over to the system</div>
+      <h2>What to watch for</h2>
+      <div class="grow">
+        <table class="grid">
+          <tr><td style="width:8%; color:var(--accent)">1</td><td>A document becomes a <strong>proposed</strong> ontology — and every concept shows its evidence.</td></tr>
+          <tr><td style="color:var(--accent)">2</td><td>The curator's gate: approve, reject, rename, reparent — on one canvas, no wizard.</td></tr>
+          <tr><td style="color:var(--accent)">3</td><td>The <strong>timeline</strong> — scrub back and see the ontology as it was.</td></tr>
+          <tr><td style="color:var(--accent)">4</td><td>A second source: <strong>beliefs update</strong> instead of starting over.</td></tr>
+          <tr><td style="color:var(--accent)">5</td><td>Everything is queryable, exportable, and drivable by an AI agent over MCP.</td></tr>
+        </table>
+      </div>
+      <p class="deck" style="margin:20px 0 0"><strong>github.com/arango-solutions/arango-ontoextract</strong> — open source, MIT.</p>
+      <aside class="notes">
+        <p><b>~45s, then demo.</b> Leave this slide up while you switch — it's the audience's map for the next ten minutes.</p>
+        <p>If you're short on time, cut beat 5 and mention MCP verbally. If you're very short, beats 1, 2 and 4 are the irreducible story: propose, dispose, revise.</p>
+        <p>Handoff line: "and then we'll pick this up in CDF."</p>
+      </aside>
+    </section>
+
+    <div id="rail">
+      <span id="rail-act">Title</span>
+      <span id="rail-bar"></span>
+      <span id="rail-repo">github.com/arango-solutions/arango-ontoextract</span>
+      <span id="rail-no">01 / 6</span>
+    </div>
+  </div>
+</div>
+
+<div id="notes" aria-live="polite"><h4>Speaker notes</h4><div id="notes-body"></div></div>
+
+<div id="jump" role="dialog" aria-label="Jump to slide">
+  <h4>Jump to slide &nbsp;·&nbsp; press O or Esc to close</h4>
+  <div id="jump-body"></div>
+</div>
+
+<div id="help">← → navigate &nbsp;·&nbsp; N notes &nbsp;·&nbsp; O overview</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ACTS = [
+    "Arango-OntoExtract",
+    "Why",
+    "What it does",
+    "Demo"
+  ];
+
+  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var stage  = document.getElementById("stage");
+  var railAct = document.getElementById("rail-act");
+  var railNo  = document.getElementById("rail-no");
+  var railBar = document.getElementById("rail-bar");
+  var notes   = document.getElementById("notes");
+  var notesBody = document.getElementById("notes-body");
+  var jump    = document.getElementById("jump");
+  var current = 0;
+  var notesOpen = false;
+
+  /* ---- build the act-segmented progress rail --------------------------- */
+  var actCounts = ACTS.map(function () { return 0; });
+  slides.forEach(function (s) { actCounts[+s.dataset.act] += 1; });
+
+  var segs = ACTS.map(function (_, i) {
+    var seg = document.createElement("span");
+    seg.className = "seg";
+    seg.style.flexGrow = String(actCounts[i]);
+    var fill = document.createElement("i");
+    seg.appendChild(fill);
+    railBar.appendChild(seg);
+    return fill;
+  });
+
+  /* ---- jump panel ------------------------------------------------------ */
+  (function buildJump() {
+    var body = document.getElementById("jump-body");
+    ACTS.forEach(function (actName, ai) {
+      var members = slides
+        .map(function (s, i) { return { s: s, i: i }; })
+        .filter(function (o) { return +o.s.dataset.act === ai; });
+      if (!members.length) return;
+
+      var wrap = document.createElement("div");
+      wrap.className = "jump-act";
+      var lab = document.createElement("span");
+      lab.textContent = actName;
+      wrap.appendChild(lab);
+
+      var ol = document.createElement("ol");
+      members.forEach(function (o) {
+        var h = o.s.querySelector("h1, h2");
+        var li = document.createElement("li");
+        var btn = document.createElement("button");
+        btn.type = "button";
+        var n = document.createElement("b");
+        n.textContent = String(o.i + 1).padStart(2, "0");
+        var t = document.createElement("span");
+        t.textContent = h ? h.textContent : "Slide " + (o.i + 1);
+        btn.appendChild(n);
+        btn.appendChild(t);
+        btn.addEventListener("click", function () { go(o.i); closeJump(); });
+        li.appendChild(btn);
+        ol.appendChild(li);
+      });
+      wrap.appendChild(ol);
+      body.appendChild(wrap);
+    });
+  })();
+
+  function closeJump() { jump.classList.remove("open"); }
+
+  /* ---- scale the fixed 16:9 stage to the viewport ---------------------- */
+  function fit() {
+    var pad = 26;
+    var availH = window.innerHeight - pad * 2 - (notesOpen ? window.innerHeight * 0.42 : 0);
+    var availW = window.innerWidth - pad * 2;
+    var scale = Math.min(availW / 1280, availH / 720);
+    if (!isFinite(scale) || scale <= 0) scale = 0.2;
+    stage.style.transform = "scale(" + scale + ")";
+    document.getElementById("viewport").style.alignItems = notesOpen ? "flex-start" : "center";
+    document.getElementById("viewport").style.paddingTop = notesOpen ? pad + "px" : "0";
+  }
+
+  /* ---- navigation ------------------------------------------------------ */
+  function go(n) {
+    current = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function (s, i) { s.classList.toggle("is-active", i === current); });
+
+    var act = +slides[current].dataset.act;
+    railAct.textContent = ACTS[act];
+    railNo.textContent = String(current + 1).padStart(2, "0") + " / " + slides.length;
+
+    // fill each act segment by how far through that act we are
+    var seen = ACTS.map(function () { return 0; });
+    for (var i = 0; i <= current; i++) seen[+slides[i].dataset.act] += 1;
+    segs.forEach(function (fill, ai) {
+      var pct = actCounts[ai] ? Math.min(1, seen[ai] / actCounts[ai]) : 0;
+      fill.style.width = (pct * 100) + "%";
+    });
+
+    var note = slides[current].querySelector(".notes");
+    notesBody.innerHTML = note ? note.innerHTML : "<p>—</p>";
+    try {
+      if (location.hash !== "#" + (current + 1)) {
+        history.replaceState(null, "", "#" + (current + 1));
+      }
+    } catch (err) { /* sandboxed history is not fatal to navigation */ }
+  }
+
+  function toggleNotes() {
+    notesOpen = !notesOpen;
+    notes.classList.toggle("open", notesOpen);
+    fit();
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (k === "ArrowRight" || k === "PageDown" || k === " " || k === "Enter") { e.preventDefault(); go(current + 1); }
+    else if (k === "ArrowLeft" || k === "PageUp" || k === "Backspace") { e.preventDefault(); go(current - 1); }
+    else if (k === "Home") { e.preventDefault(); go(0); }
+    else if (k === "End") { e.preventDefault(); go(slides.length - 1); }
+    else if (k === "n" || k === "N" || k === "s" || k === "S") { e.preventDefault(); toggleNotes(); }
+    else if (k === "o" || k === "O") { e.preventDefault(); jump.classList.toggle("open"); }
+    else if (k === "Escape") { closeJump(); }
+  });
+
+  stage.addEventListener("click", function (e) {
+    if (jump.classList.contains("open")) return;
+    var r = stage.getBoundingClientRect();
+    go(e.clientX < r.left + r.width * 0.28 ? current - 1 : current + 1);
+  });
+
+  window.addEventListener("resize", fit);
+
+  /* ---- title-slide constellation (the subject is a graph) -------------- */
+  (function constellation() {
+    var cv = document.getElementById("constellation");
+    if (!cv) return;
+    var ctx = cv.getContext("2d");
+    var W = 1280, H = 720;
+    cv.width = W; cv.height = H;
+
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var N = 34;
+    var pts = [];
+    // deterministic pseudo-random so the composition is stable across reloads
+    var seed = 20260817;
+    function rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
+    for (var i = 0; i < N; i++) {
+      pts.push({
+        x: 470 + rnd() * (W - 520),
+        y: 40 + rnd() * (H - 80),
+        vx: (rnd() - 0.5) * 0.14,
+        vy: (rnd() - 0.5) * 0.14,
+        r: 1.6 + rnd() * 2.2
+      });
+    }
+
+    function colors() {
+      var cs = getComputedStyle(document.documentElement);
+      return {
+        edge: cs.getPropertyValue("--rule").trim() || "#CBD9CE",
+        node: cs.getPropertyValue("--accent-2").trim() || "#43B06B"
+      };
+    }
+
+    function draw() {
+      var c = colors();
+      ctx.clearRect(0, 0, W, H);
+      ctx.lineWidth = 1;
+      for (var i = 0; i < N; i++) {
+        for (var j = i + 1; j < N; j++) {
+          var dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 148) {
+            ctx.globalAlpha = 0.55 * (1 - d / 148);
+            ctx.strokeStyle = c.edge;
+            ctx.beginPath();
+            ctx.moveTo(pts[i].x, pts[i].y);
+            ctx.lineTo(pts[j].x, pts[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+      ctx.globalAlpha = 0.65;
+      ctx.fillStyle = c.node;
+      for (var k = 0; k < N; k++) {
+        ctx.beginPath();
+        ctx.arc(pts[k].x, pts[k].y, pts[k].r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function tick() {
+      for (var i = 0; i < N; i++) {
+        var p = pts[i];
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 440 || p.x > W - 30) p.vx *= -1;
+        if (p.y < 24 || p.y > H - 24) p.vy *= -1;
+      }
+      draw();
+      if (slides[current] && slides[current].classList.contains("title")) {
+        requestAnimationFrame(tick);
+      } else {
+        running = false;
+      }
+    }
+
+    var running = false;
+    draw();
+    if (!reduce) {
+      var kick = function () {
+        if (!running && slides[current] && slides[current].classList.contains("title")) {
+          running = true;
+          requestAnimationFrame(tick);
+        }
+      };
+      kick();
+      document.addEventListener("keydown", function () { setTimeout(kick, 0); });
+      stage.addEventListener("click", function () { setTimeout(kick, 0); });
+    }
+  })();
+
+  /* ---- boot ------------------------------------------------------------ */
+  var fromHash = parseInt((location.hash || "").replace("#", ""), 10);
+  go(isFinite(fromHash) && fromHash > 0 ? fromHash - 1 : 0);
+  fit();
+})();
+</script>

@@ -25,6 +25,7 @@ from app.api.ontology import (
     library,
     mutations,
     requirements,
+    schema_csi,
     schema_relational,
     schema_temporal,
     subsumption,
@@ -42,6 +43,7 @@ router.include_router(mutations.router)
 router.include_router(imports_io.router)
 router.include_router(imports.router)
 router.include_router(schema_relational.router)
+router.include_router(schema_csi.router)
 router.include_router(schema_temporal.router)
 router.include_router(requirements.router)
 router.include_router(individuals.router)

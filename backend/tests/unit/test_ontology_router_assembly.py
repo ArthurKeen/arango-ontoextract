@@ -50,7 +50,9 @@ ONTOLOGY_PREFIX = "/api/v1/ontology"
 # + 1 bulk-reparent undo (FR-7.8.21).
 # + 2 subsumption review (FR-2.20): flagged list + resolve.
 # + 1 orphan-property resolve (reject / set_range).
-EXPECTED_ROUTE_COUNT = 90
+# + 2 CSI v1 import (schema/csi/preview + schema/csi/import) — the read side of
+#   the portfolio's interchange artifact (CDF unified-architecture paper, step 3).
+EXPECTED_ROUTE_COUNT = 92
 
 
 def _ontology_openapi_paths() -> dict[str, list[str]]:

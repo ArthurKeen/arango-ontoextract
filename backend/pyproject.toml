@@ -24,7 +24,12 @@ dependencies = [
     "tiktoken>=0.9",
     "openai>=1.60",
     "redis>=5.2",
-    "mcp>=1.0",
+    # Band-limited to the v1 SDK: mcp 2.x removed ``mcp.server.fastmcp`` and renamed
+    # FastMCP to MCPServer (https://py.sdk.modelcontextprotocol.io/v2/migration/), so
+    # every tool module here fails to import — and mypy fails — on 2.x. CI installs the
+    # newest release and has been red on this since 2026-07-31. Migrating the eleven
+    # import sites to MCPServer is a separate change; until then the band is honest.
+    "mcp>=1.0,<2",
     "langgraph>=0.2",
     "rdflib>=7.0",
     "arango-entity-resolution>=0.1",

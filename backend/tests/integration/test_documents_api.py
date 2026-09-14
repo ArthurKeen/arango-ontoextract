@@ -56,8 +56,29 @@ class TestUploadDocument:
         mock_repo.create_document.assert_called_once()
 
     @patch("app.api.documents.documents_repo")
-    def test_upload_duplicate_returns_409(self, mock_repo: MagicMock, test_client):
-        mock_repo.find_document_by_hash.return_value = _make_mock_doc()
+    def test_upload_duplicate_reuses_existing_document(self, mock_repo: MagicMock, test_client):
+        """Identical content returns the EXISTING document with ``reused: true`` (3ac0405):
+        a document is not owned by an ontology, so re-uploading it to extract into another
+        ontology is a normal request, not a conflict. This test previously expected 409 and
+        went unseen for six weeks because the Integration job was skipped behind a red lint."""
+        mock_repo.find_document_by_hash.return_value = _make_mock_doc(status="ready")
+
+        pdf_content = b"%PDF-1.4 fake content"
+        files = {"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")}
+        response = test_client.post("/api/v1/documents/upload", files=files)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["doc_id"] == "doc1"
+        assert data["reused"] is True
+        mock_repo.create_document.assert_not_called()
+
+    @patch("app.api.documents.documents_repo")
+    def test_upload_duplicate_of_deleted_document_returns_409(
+        self, mock_repo: MagicMock, test_client
+    ):
+        """Deletion was a deliberate act; silently resurrecting the record would undo it."""
+        mock_repo.find_document_by_hash.return_value = _make_mock_doc(status="deleted")
 
         pdf_content = b"%PDF-1.4 fake content"
         files = {"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")}
@@ -65,6 +86,7 @@ class TestUploadDocument:
 
         assert response.status_code == 409
         assert response.json()["error"]["code"] == "CONFLICT"
+        assert response.json()["error"]["details"]["existing_doc_id"] == "doc1"
 
     def test_upload_unsupported_type_returns_error(self, test_client):
         files = {"file": ("test.exe", io.BytesIO(b"binary"), "application/octet-stream")}

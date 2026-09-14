@@ -233,7 +233,13 @@ _SchemaAnalyzerComponents = tuple[
 
 
 def _try_import_schema_mapper() -> _SchemaAnalyzerComponents | None:
-    """Return (AgenticSchemaAnalyzer, export_owl, fingerprint_fn, snapshot_fn) or None."""
+    """Return (AgenticSchemaAnalyzer, export_owl, fingerprint_fn, snapshot_fn) or None.
+
+    ``arangodb-schema-analyzer`` is an OPTIONAL accelerator, not a
+    requirement: it is deliberately absent from ``pyproject.toml`` and
+    returning ``None`` here is the normal, supported case. The caller then
+    uses :func:`_direct_extract_schema`, which is the default path.
+    """
     try:
         from schema_analyzer import AgenticSchemaAnalyzer
         from schema_analyzer.owl_export import export_conceptual_model_as_owl_turtle
@@ -246,9 +252,16 @@ def _try_import_schema_mapper() -> _SchemaAnalyzerComponents | None:
             snapshot_physical_schema,
         )
     except ImportError:
-        log.warning(
+        # Was `log.warning(... "will use stub implementation")`, which is
+        # how it read when the fallback really WAS `_stub_extract_schema`.
+        # Stream 5 PR 1 (0826471) replaced that stub with the full
+        # named-graph-aware `_direct_extract_schema` and made it the
+        # default; the message was never updated, so a normal run has been
+        # reporting degraded output that never happened. Downgraded to
+        # info and reworded to say what actually runs.
+        log.info(
             "schema_analyzer (arangodb-schema-analyzer) not installed; "
-            "schema extraction will use stub implementation"
+            "using the built-in direct extraction path (the default)"
         )
         return None
 

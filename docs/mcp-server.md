@@ -210,6 +210,67 @@ See [ADR-008](./adr/008-belief-revision-substrate.md) for the IBR design.
 - `get_circuit_breaker_state` should be polled before submitting a batch of
   decisions if you suspect the upstream LLM agent is being rate-limited.
 
+### Relational Schema Tools
+
+Mirror the [relational schema REST routes](./api-reference.md#ontology--schema-import-csi-v1--relational).
+The SQL→OWL/SHACL mapping is AOE's own; `relational-schema-analyzer` is a read-only
+physical-schema introspector and must be installed on the server (otherwise the
+tools return an `{"error": ...}` payload with an install hint).
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `preview_relational_schema` | Preview a relational database's tables, columns, and foreign keys (read-only) | `source_type: str`, `url: str`, `schema_name: str = "public"`, `source_params: dict \| None` |
+| `extract_relational_schema` | Extract an ontology from a relational database and import it into AOE | `source_type: str`, `url: str`, `schema_name: str = "public"`, `db_label: str \| None`, `ontology_label: str \| None`, `ontology_id: str \| None`, `imports: list[str] \| None`, `extract_constraints: bool = True`, `source_params: dict \| None` |
+
+### CSI Import Tools
+
+Bring the portfolio's interchange artifact — a **CSI v1 document**, as written by
+`r2g export-csi` or `arangodb-schema-analyzer` — into AOE as a new ontology. The
+document is passed as a JSON string, unchanged. The importer **records the
+analyzer's type-detection answer** (each entity's `arangoPhysicalMapping.style`,
+e.g. `LABEL` / `GENERIC_WITH_TYPE`); it does not re-detect. Errors come back as
+`{"error": ...}` payloads, matching the other tool modules.
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `preview_csi_document` | Validate a CSI v1 document and summarise what importing it would create (read-only; use before `import_csi_document`) | `document_json: str` |
+| `import_csi_document` | Import a CSI v1 document as a new AOE ontology: entities → classes, entity properties → datatype properties (physical field kept as provenance), relationships → object properties; producer + bitemporal stamps kept | `document_json: str`, `db_label: str \| None`, `ontology_id: str \| None`, `ontology_label: str \| None`, `imports: list[str] \| None` |
+
+**Example — `preview_csi_document`:**
+
+```json
+{
+  "valid": true,
+  "errors": [],
+  "db_label": "northwind",
+  "entity_count": 2,
+  "property_count": 11,
+  "relationship_count": 1,
+  "entity_mapping_styles": {"LABEL": 1, "GENERIC_WITH_TYPE": 1},
+  "provenance": {"producer": "...", "source_kind": "..."}
+}
+```
+
+An invalid document returns `{"valid": false, "errors": [...]}` rather than an error payload.
+
+### Alignment Tools
+
+Mirror `/api/v1/alignment` (PRD §6.17 / Stream 20): align N independently-built
+source ontologies into a reconciled master.
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `align_ontologies` | Create an alignment session over ≥2 ontologies and generate candidates | `source_ontology_ids: list[str]`, `min_score: float = 0.5`, `weights: dict[str, float] \| None` |
+| `adjudicate_alignment` | Adjudicate a session's candidates: auto-accept high-confidence, LLM the rest | `session_id: str`, `auto_accept_band: float \| None` |
+| `list_correspondences` | List a session's candidate correspondences, optionally filtered | `session_id: str`, `status: str \| None`, `min_confidence: float = 0.0`, `limit: int = 100`, `offset: int = 0` |
+| `accept_correspondence` | Accept (confirm) a candidate correspondence | `correspondence_key: str` |
+| `reject_correspondence` | Reject a candidate correspondence | `correspondence_key: str` |
+| `materialize_master` | Materialize a reconciled master ontology from the session's accepted pairs | `session_id: str`, `name: str \| None` |
+
+The catalog above lists all **34** registered tools: introspection 3, ontology 4,
+pipeline 3, relational 2, CSI 2, temporal 3, export/provenance 2, entity
+resolution 3, belief revision 6, alignment 6.
+
 ## Resource Catalog
 
 MCP resources provide read-only data summaries.

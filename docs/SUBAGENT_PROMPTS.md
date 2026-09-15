@@ -747,7 +747,7 @@ FILES YOU OWN:
 
 ```
 Tasks 20.1–20.6 from IMPLEMENTATION_PLAN.md. OWL/TTL import via ArangoRDF,
-export via rdflib, schema extraction via arango-schema-mapper.
+export via rdflib, schema extraction via arangodb-schema-analyzer.
 Own: backend/app/services/export.py, schema_extraction.py, ontology API extensions.
 ```
 

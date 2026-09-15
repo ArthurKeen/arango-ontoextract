@@ -268,7 +268,7 @@ live Swagger docs at http://localhost:8010/docs.
 |---------|--------|-------------|
 | Document Ingestion | Done | Upload PDF/DOCX/Markdown → parse → chunk → embed |
 | LLM Extraction | Done | N-pass extraction with self-correction via LangGraph |
-| Schema → Ontology (structured) | Done | Structured sources → OWL/SHACL: ArangoDB collection schemas (including **labeled property graphs** — a single `Node`/`relations` shape where entity/relationship *types* live in a discriminator field, read via full-scan analysis with a configurable label format) and relational (SQL) schemas mapped to classes/properties/constraints. AOE owns the SQL→OWL/SHACL mapping; `relational-schema-analyzer` is a read-only physical-schema introspector. |
+| Schema → Ontology (structured) | Done | Structured sources → OWL/SHACL: ArangoDB collection schemas (including **labeled property graphs** — a single `Node`/`relations` shape where entity/relationship *types* live in a discriminator field, read via full-scan analysis with a configurable label format) and relational (SQL) schemas mapped to classes/properties/constraints. The SQL→OWL/SHACL mapping is **AOE's own product feature** (`relational-schema-analyzer` is a read-only physical-schema introspector) — it is *not* the contextual-data-fabric structured path, where r2g + `relational-schema-analyzer` emit CSI/R2RML and `arangodb-schema-analyzer` emits Arango CSI. AOE **imports CSI v1 documents** (`POST /api/v1/ontology/schema/csi/preview` + `/import`, MCP `preview_csi_document` / `import_csi_document`, service `csi_import.py`), recording the analyzer's type-detection answer rather than re-detecting; in the target design AOE's curated output is what CDF's catalog ingests. `arangodb-schema-analyzer` 0.14.0 is the portfolio owner of LPG type detection; AOE's own LPG detector is still live but is slated to consume ASA's `LABEL` / `GENERIC_WITH_TYPE` answer via CSI import. |
 | Visual Curation | Done | Object-centric `/workspace` canvas (Sigma.js + box-arrow UML view) with context-menu actions, lenses, and floating detail panels |
 | VCR Timeline | Done | Temporal time travel with point-in-time snapshots |
 | Belief revision | Done | §6.16 / ADR-008: per-concept touchpoint verdicts (REINFORCED / REFINED / GAP-FILLING / REDUNDANT / CONTRADICTED / UNCERTAIN), Levi-identity revisions on the temporal substrate, Revisions Inbox + consolidation passes, LLM revision agent behind a circuit breaker, 6 MCP tools. Source-*change* cascade (schema/doc updates or deletions propagating retractions) is the remaining gap — planned as work item AL.12, see [docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md](docs/IMPLEMENTATION_PLAN_ALIGNMENT_ABOX_CQ.md). |
@@ -283,7 +283,7 @@ live Swagger docs at http://localhost:8010/docs.
 | Restriction edges on the canvas | Done | Structure stated as OWL restrictions (`owl:onProperty` + `allValuesFrom`/`someValuesFrom`) renders as real relationships rather than sitting invisible in `ontology_constraints` — SOSA/SSN's `Deployment`, `Stimulus`, `Input` and `Output` stop drawing as orphans. Toggling visibility is an edge-reducer decision, so it never re-runs layout. |
 | Staging → Production | Done | Promote approved entities with temporal versioning |
 | Import/Export | Done | OWL/TTL/RDF-XML/JSON-LD import (own `rdflib` importer — see ADR-006; AOE does **not** depend on `arango-rdf`) and TTL/JSON-LD/CSV/**SHACL** export (TTL/JSON-LD include the A-box — `owl:NamedIndividual` + `rdf:type` + object assertions) |
-| MCP Server | Done | 32 tools for AI agent integration (stdio + SSE) |
+| MCP Server | Done | 34 tools for AI agent integration (stdio + SSE) |
 | Pipeline Monitor | Done | Real-time Agent DAG with WebSocket events |
 | ArangoDB Visualizer | Done | Custom themes, canvas actions, saved queries |
 | Auth (JWT + RBAC) | Done | 4 roles, org-scoped, API key auth for MCP |
@@ -437,6 +437,14 @@ make clean             # Remove caches and build artifacts
 | `POST` | `/api/v1/ontology/class/{key}/revert` | Revert to version |
 | `POST` | `/api/v1/ontology/import` | Import OWL/TTL (query: `ontology_id`, optional `ontology_label`) |
 | `GET` | `/api/v1/ontology/{id}/export` | Export ontology (formats: `turtle`, `jsonld`, `csv`) |
+| `POST` | `/api/v1/ontology/schema/graphs` | Discover named graphs + loose collections on an external ArangoDB |
+| `POST` | `/api/v1/ontology/schema/extract` | Extract ontology from an external ArangoDB schema |
+| `GET` | `/api/v1/ontology/schema/extract/{run_id}` | Schema-extraction run status |
+| `GET` | `/api/v1/ontology/schema/diff` | Diff two schema-derived ontologies (query: `a`, `b`) |
+| `POST` | `/api/v1/ontology/schema/relational/tables` | Preview a relational source's tables / columns / FKs |
+| `POST` | `/api/v1/ontology/schema/relational/extract` | Extract ontology from a relational DB |
+| `POST` | `/api/v1/ontology/schema/csi/preview` | Validate + summarise a CSI v1 document (read-only) |
+| `POST` | `/api/v1/ontology/schema/csi/import` | Import a CSI v1 document as a new ontology |
 
 ### Curation
 
@@ -531,7 +539,7 @@ Full interactive docs at `/docs`. Full static reference: [docs/api-reference.md]
 
 ## MCP Tools
 
-The AOE MCP server exposes 32 tools to AI agents. Connect via stdio (Cursor/Claude Desktop) or SSE (custom clients).
+The AOE MCP server exposes 34 tools to AI agents. Connect via stdio (Cursor/Claude Desktop) or SSE (custom clients).
 
 | Tool | Description |
 |------|-------------|
@@ -555,6 +563,8 @@ The AOE MCP server exposes 32 tools to AI agents. Connect via stdio (Cursor/Clau
 | `get_entity_clusters` | WCC clusters |
 | `preview_relational_schema` | Preview a relational DB's tables/columns/FKs |
 | `extract_relational_schema` | Extract an ontology from a relational DB |
+| `preview_csi_document` | Validate a CSI v1 document and summarise what import would create |
+| `import_csi_document` | Import a CSI v1 document as a new ontology |
 | `list_revisions_inbox` | Pending belief-revision items for curation |
 | `list_recent_revisions` | Recent revisions (newest-first, filterable) |
 | `get_revision` | Fetch one revision record |

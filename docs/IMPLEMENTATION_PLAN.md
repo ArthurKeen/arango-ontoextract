@@ -311,7 +311,7 @@
 | 20.1 | OWL/TTL import service | `backend/app/services/ontology_import.py` | 6.1 | Import via UI or API; creates registry entry; per-ontology named graph; `ontology_id` tagging |
 | 20.2 | OWL/TTL/JSON-LD export service | `backend/app/services/export.py` | 6.5 | Export any ontology graph as valid OWL 2 Turtle, JSON-LD, or CSV |
 | 20.3 | Import/export API endpoints | `backend/app/api/ontology.py` | 20.1, 20.2 | `POST /import` (file upload), `GET /export?format=ttl` |
-| 20.4 | Schema extraction service | `backend/app/services/schema_extraction.py` | — | Wraps `arango-schema-mapper`; connects to external ArangoDB; extracts → OWL → AOE import pipeline |
+| 20.4 | Schema extraction service | `backend/app/services/schema_extraction.py` | — | Wraps `arangodb-schema-analyzer`; connects to external ArangoDB; extracts → OWL → AOE import pipeline |
 | 20.5 | Schema extraction API endpoints | `backend/app/api/ontology.py` | 20.4 | `POST /schema/extract`, `GET /schema/extract/{run_id}` |
 | 20.6 | Integration tests: import/export roundtrip | `backend/tests/integration/test_import_export.py` | 20.1, 20.2 | Import `aws.ttl` → export as TTL → re-import → verify equivalence |
 

@@ -15,13 +15,14 @@ Interactive documentation (Swagger UI) is available at `http://localhost:8000/do
 5. [Ontology — Domain and Local](#ontology--domain-and-local)
 6. [Ontology — Temporal](#ontology--temporal)
 7. [Ontology — Import and Export](#ontology--import-and-export)
-8. [Quality metrics](#quality-metrics)
-9. [Curation](#curation)
-10. [Entity Resolution](#entity-resolution)
-11. [Belief Revision](#belief-revision)
-12. [WebSocket](#websocket)
-13. [Error Format](#error-format)
-14. [Pagination](#pagination)
+8. [Ontology — Schema Import (CSI v1 / relational)](#ontology--schema-import-csi-v1--relational)
+9. [Quality metrics](#quality-metrics)
+10. [Curation](#curation)
+11. [Entity Resolution](#entity-resolution)
+12. [Belief Revision](#belief-revision)
+13. [WebSocket](#websocket)
+14. [Error Format](#error-format)
+15. [Pagination](#pagination)
 
 ---
 
@@ -414,8 +415,10 @@ clients that only consume direct dependents; new clients should read
 |--------|------|-------------|------|
 | `POST` | `/api/v1/ontology/import` | Import OWL/TTL/RDF-XML/JSON-LD (multipart file) | Yes |
 | `GET` | `/api/v1/ontology/{ontology_id}/export` | Export one ontology (Turtle, JSON-LD, CSV) | Yes |
+| `POST` | `/api/v1/ontology/schema/graphs` | Discover named graphs + loose collections on an external ArangoDB (preview topology) | Yes |
 | `POST` | `/api/v1/ontology/schema/extract` | Extract ontology from ArangoDB schema | Yes |
 | `GET` | `/api/v1/ontology/schema/extract/{run_id}` | Get schema extraction status | Yes |
+| `GET` | `/api/v1/ontology/schema/diff` | Diff two schema-derived ontologies (query: `a` = before, `b` = after) | Yes |
 
 ### POST /api/v1/ontology/import
 
@@ -436,6 +439,129 @@ clients that only consume direct dependents; new clients should read
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `format` | string | `turtle` | `turtle`, `jsonld`, or `csv` |
+
+---
+
+## Ontology — Schema Import (CSI v1 / relational)
+
+Structured-source paths that build an ontology without an LLM. Both mirror each
+other: a read-only **preview** route, then an **import/extract** route that runs
+build-OWL → the standard `import_from_file` pipeline → per-class provenance
+stamping and returns the run summary.
+
+The SQL→OWL/SHACL mapping is AOE's own product feature (`relational-schema-analyzer`
+is only a read-only physical-schema introspector). It is **not** the
+contextual-data-fabric structured path — there, r2g + `relational-schema-analyzer`
+emit CSI/R2RML and `arangodb-schema-analyzer` emits Arango CSI. AOE **reads** CSI
+via the routes below and, in the target design, its curated output is what CDF's
+catalog ingests.
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| `POST` | `/api/v1/ontology/schema/relational/tables` | Preview a relational source's tables / columns / foreign keys (read-only) | Yes |
+| `POST` | `/api/v1/ontology/schema/relational/extract` | Introspect → SQL→OWL/SHACL → import as a new ontology | Yes |
+| `POST` | `/api/v1/ontology/schema/csi/preview` | Validate a CSI v1 document and summarise what importing it would create (read-only) | Yes |
+| `POST` | `/api/v1/ontology/schema/csi/import` | Import a CSI v1 document as a new ontology | Yes |
+
+### POST /api/v1/ontology/schema/relational/tables
+
+**Request body** (`RelationalSchemaExtractionConfig`; credentials are never echoed back):
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `source_type` | string | Yes | `postgresql` \| `mysql` \| `sqlserver` \| `snowflake` \| `duckdb` \| `databricks` \| `csv` |
+| `url` | string | Yes | Connection string / DSN / path (CSV directory) |
+| `schema_name` | string | No | Source schema / namespace (default `public`) |
+| `source_params` | object | No | Type-specific options (e.g. CSV `delimiter` / `has_header`) |
+
+**Errors:** `501` — `relational-schema-analyzer` not installed (install hint in `detail`);
+`400` — bad config (`ValueError`); `502` — upstream database unreachable / auth failure.
+
+### POST /api/v1/ontology/schema/relational/extract
+
+**Request body:** the fields above plus
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `db_label` | string | No | Logical source name for the namespace + provenance |
+| `source_host` | string | No | Host recorded in provenance |
+| `extract_constraints` | bool | No | NOT NULL / UNIQUE / CHECK → SHACL (default `true`) |
+| `imports` | string[] | No | AOE ontology IDs to declare as `owl:imports` |
+| `ontology_id` | string | No | Explicit registry `_key` |
+| `ontology_label` | string | No | Display name |
+
+**Response:** `run_id`, `status`, `ontology_id`, `import_stats`, `provenance`,
+`provenance_stamped`, `elapsed_ms`. **Errors:** as for `/tables`.
+
+### POST /api/v1/ontology/schema/csi/preview
+
+Validates a CSI v1 document (what `r2g export-csi` or `arangodb-schema-analyzer`
+wrote, posted inline and unchanged) and summarises the import. Never writes.
+Structural problems are reported in the body, not as an HTTP error, so a curator
+sees every issue at once.
+
+**Request:**
+
+```json
+{"document": { "...": "a CSI v1 document" }}
+```
+
+**Response (valid):**
+
+```json
+{
+  "valid": true,
+  "errors": [],
+  "db_label": "northwind",
+  "entities": ["Customer", "Order"],
+  "entity_count": 2,
+  "property_count": 11,
+  "relationships": [{"type": "placed", "from": "Customer", "to": "Order"}],
+  "relationship_count": 1,
+  "join_keys": ["customer_id"],
+  "entity_mapping_styles": {"LABEL": 1, "GENERIC_WITH_TYPE": 1},
+  "provenance": {"producer": "...", "source_kind": "...", "...": "..."}
+}
+```
+
+**Response (invalid):** `{"valid": false, "errors": ["<structural problem>", …]}` with HTTP `200`.
+
+`entity_mapping_styles` counts the analyzer's `arangoPhysicalMapping.style` per
+entity as written — the importer **records the analyzer's type-detection answer,
+it does not re-detect**.
+
+### POST /api/v1/ontology/schema/csi/import
+
+**Request body** (`CsiImportConfig`):
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `document` | object | Yes | A CSI v1 document as emitted by r2g, `arangodb-schema-analyzer` or RSA |
+| `db_label` | string | No | Logical source name; defaults to `provenance.source.ref`, then `provenance.source.kind` |
+| `source_host` | string | No | Host recorded in provenance |
+| `imports` | string[] | No | AOE ontology IDs to declare as `owl:imports` |
+| `ontology_id` | string | No | Explicit registry `_key` |
+| `ontology_label` | string | No | Display name |
+
+Every entity becomes a class, every entity property a datatype property (with the
+physical field it maps to recorded as provenance), every relationship an object
+property; the document's producer and bitemporal stamps are kept.
+
+**Response:**
+
+```json
+{
+  "run_id": "run_…",
+  "status": "completed",
+  "ontology_id": "northwind_csi",
+  "import_stats": {"...": "..."},
+  "provenance": {"...": "...", "db_label": "northwind", "auto_imports": []},
+  "provenance_stamped": 12,
+  "elapsed_ms": 340
+}
+```
+
+**Errors:** `400` — unreadable document (`ValueError`); `500` — any other failure during build/import (`CSI import error: …`).
 
 ---
 

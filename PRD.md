@@ -1615,11 +1615,11 @@ The graph editor and curation dashboard include a toggle: **"Show OWL Foundation
 
 ### 6.9 Schema Extraction from ArangoDB Databases
 
-**Description:** Extract ontologies from existing ArangoDB database schemas using `arango-schema-mapper`. This provides a "reverse engineering" path — organizations that already have data in ArangoDB can generate ontologies from their live database structure rather than from documents.
+**Description:** Extract ontologies from existing ArangoDB database schemas using `arangodb-schema-analyzer`. This provides a "reverse engineering" path — organizations that already have data in ArangoDB can generate ontologies from their live database structure rather than from documents.
 
 **How it works:**
 
-The `arango-schema-mapper` library (`arangodb-schema-analyzer`) introspects a live ArangoDB database and produces a conceptual model:
+The `arangodb-schema-analyzer` library (repo `arango-schema-analyzer`) introspects a live ArangoDB database and produces a conceptual model:
 
 ```
 Live ArangoDB Database
@@ -1652,18 +1652,19 @@ Ontology in the AOE Library
 | FR-9.1 | Connect to any ArangoDB instance and extract schema | User provides connection URL + credentials; system produces physical schema snapshot |
 | FR-9.2 | Optional LLM enhancement for semantic inference | Without LLM: the deterministic named-graph-aware direct extractor (provenance, SHACL, auto-imports) is the baseline. With LLM (`use_llm_inference`): the optional `arango-schema-analyzer` library runs as an **additive enrichment layer over** the direct extraction — it generates a human-readable **Markdown domain description** (stored on the registry entry and shown in the schema-extraction overlay) plus natural-language `rdfs:comment` descriptions merged onto the direct TTL by collection↔entity name. The analyzer never *replaces* the direct path, so enrichment cannot regress provenance / SHACL / `owl:imports`. The library remains an optional dependency behind an import guard; when absent, extraction silently uses the deterministic baseline. See Stream 5 PR 4. |
 | FR-9.3 | Schema snapshot cacheable and diffable | Physical schema fingerprinted; re-extraction only triggers on structural changes |
-| FR-9.4 | Extracted conceptual model importable as ontology | OWL/Turtle export from schema-mapper feeds into AOE's OWL import pipeline |
+| FR-9.4 | Extracted conceptual model importable as ontology | OWL/Turtle export from `arangodb-schema-analyzer` feeds into AOE's OWL import pipeline |
 | FR-9.5 | Schema extraction results land in staging | Same human-in-the-loop curation as document-extracted ontologies |
 | FR-9.6 | Provenance tracks source database | Extracted classes link back to source database URL + collection name, not document chunks |
-| FR-9.7 | Validate against tool contract v1 | Uses arango-schema-mapper's structured JSON request/response contract for integration |
+| FR-9.7 | Validate against tool contract v1 | Uses `arangodb-schema-analyzer`'s structured JSON request/response contract for integration |
 | FR-9.8 | Graph-schema extraction distinct from document pipeline | API request includes `extraction_source` defaulting to `arango_graph_schema` (live DB introspection vs document → chunk extraction elsewhere). Successful responses include `provenance` with `physical_schema_fingerprint` and optional `schema_analyzer_metadata` when `arangodb-schema-analyzer` is installed |
 | FR-9.9 | Named graph-aware extraction | When the target ArangoDB database defines named graphs (via `db.graphs()`), the system reads each graph's **edge definitions** (edge collection + from/to vertex collections) and maps them directly to ontology relationships. Each named graph can be extracted as a separate ontology or merged into one. The extraction produces richer relationships than collection-only scanning because edge definitions explicitly declare which vertex types connect via which edge types. |
-| FR-9.10 | Direct graph-to-ontology mapping (no `schema_analyzer` required) | A built-in fallback path that works without the optional `arangodb-schema-analyzer` library. It reads: (a) document collections → `owl:Class`, (b) edge collections → `owl:ObjectProperty` with `rdfs:domain`/`rdfs:range` inferred from edge definition `from`/`to` collections, (c) sampled document fields → `owl:DatatypeProperty` with `rdfs:domain` set to the parent collection's class and `rdfs:range` inferred from field value types (string, number, boolean, array, object). The result is a structurally complete ontology without requiring LLM enhancement. |
+| FR-9.10 | Direct graph-to-ontology mapping (no `schema_analyzer` required) | A built-in fallback path that works without the optional `arangodb-schema-analyzer` library. It reads: (a) document collections → `owl:Class`, (b) edge collections → `owl:ObjectProperty` with `rdfs:domain`/`rdfs:range` inferred from edge definition `from`/`to` collections, (c) sampled document fields → `owl:DatatypeProperty` with `rdfs:domain` set to the parent collection's class and `rdfs:range` inferred from field value types (string, number, boolean, array, object). The result is a structurally complete ontology without requiring LLM enhancement. **Ownership note (2026-09-15):** as of `arangodb-schema-analyzer` 0.14.0, LPG type detection (tier-1 type-field names accepted on coverage alone; candidates `@type` / `entity_type` / `category` / `predicate`; `_fromType` / `_toType` endpoint resolution) is owned by the analyzer for the whole portfolio. AOE's built-in detector on this path (and FR-9.14) remains live, but is to be **retired** in favour of consuming the analyzer's `LABEL` / `GENERIC_WITH_TYPE` answer through the CSI v1 import of FR-9.16; that retirement has **not** happened yet. |
 | FR-9.11 | Schema-derived ontology auto-imports | When extracting from a graph schema, the user can optionally select existing ontologies from the library to import. The schema-derived ontology gets `imports` edges to the selected ontologies. Entity resolution runs between the schema-derived classes and imported classes to suggest `owl:equivalentClass` or `rdfs:subClassOf` alignments (e.g., a `customers` collection maps to `schema:Person` from Schema.org). |
 | FR-9.12 | Index and constraint mapping | ArangoDB persistent/hash/fulltext/geo/TTL indexes on collections are mapped to ontology constraints: unique indexes → cardinality restrictions, required fields (from schema validation rules if present) → `owl:minCardinality 1`, geo indexes → GeoSPARQL property hints. These feed into the `ontology_constraints` collection (§6.14). |
 | FR-9.13 | Schema extraction UI with graph selection | The schema extraction UI displays discovered named graphs from the target database. Users select which graph(s) to extract, preview the vertex/edge collection mapping, and optionally select base ontologies to import. A "Preview" step shows the proposed class/property/edge mapping before committing to extraction. |
 | FR-9.14 | Labeled property graph (LPG) extraction | When entity and relationship *types* are encoded as a **discriminator field on a single collection** — the Neo4j-style LPG / "one `Node` vertex collection + one `relations` edge collection" pattern — rather than as separate collections, the extractor derives **classes from the distinct values of a vertex type field** (auto-detect candidates: `label`, `type`, `@type`, `_type`; user-overridable) and **object properties from the distinct values of an edge label field** (candidates: `label`, `type`, `relation`), with `rdfs:domain`/`rdfs:range` inferred by sampling each predicate's endpoint node types. LPG mode is **auto-detected** (a vertex collection carrying a high-cardinality categorical field and/or an edge collection whose from/to is a single generic vertex collection) and **opt-in/overridable** in the UI; when off, the collection-per-type mapping (FR-9.10) applies. Without this, a single-collection LPG collapses to one catch-all class per collection (e.g., a `Node` collection → a single `Node` class), silently losing every domain type — a correctness failure, not a cosmetic one. |
 | FR-9.15 | Configurable class/property label source + format | The extraction UI lets the user specify **which field supplies the class label and which supplies the property/predicate label** (the LPG discriminator fields of FR-9.14, defaulting to the auto-detected field but overridable), and a **label format** applied to the derived labels — one of `raw` (verbatim), `title_case`, `snake_case`, `camel_case` (default: `raw`), with optional namespace/prefix stripping. The preview reflects the chosen field + format before extraction commits. In collection-per-type mode the format applies to collection-derived labels; in LPG mode it applies to the discriminator values. |
+| FR-9.16 | CSI v1 document import (added 2026-09-14) | AOE ingests the portfolio's interchange artifact — a **CSI v1 document** as written by `r2g export-csi` or `arangodb-schema-analyzer`, posted inline and unchanged — as a new ontology. Service `backend/app/services/csi_import.py`; routes `POST /api/v1/ontology/schema/csi/preview` (validate + summarise, read-only; structural problems returned as `valid: false` + `errors`, not as an HTTP error) and `POST /api/v1/ontology/schema/csi/import` (CSI → OWL → standard `import_from_file` pipeline → per-class provenance stamping; `400` on an unreadable document, `500` otherwise); MCP tools `preview_csi_document` and `import_csi_document`. Entities → `owl:Class`, entity properties → `owl:DatatypeProperty` with the mapped physical field recorded as provenance, relationships → `owl:ObjectProperty`; the document's producer and bitemporal stamps are kept. The importer **records the analyzer's type-detection answer** (each entity's `arangoPhysicalMapping.style`) — it does not re-detect. Scope boundary: AOE is **not** contextual-data-fabric's structured-schema pipeline (there, r2g + `relational-schema-analyzer` produce CSI/R2RML and `arangodb-schema-analyzer` produces Arango CSI); AOE *reads* CSI here, and in the target design its curated output is what CDF's catalog ingests. |
 
 **Named Graph Extraction Model:**
 
@@ -3587,7 +3588,7 @@ Long-running operations (extraction, entity resolution) and curation workflows r
 | Temporal queries | Point-in-time snapshots, version history, temporal diffs, TTL behavior | Test database with seeded temporal data |
 | OWL import | rdflib parse of OWL/TTL files into the PGT-aligned ontology collections | Test database + sample OWL files from `aws_ontology` |
 | Entity resolution pipeline | Full blocking → scoring → clustering → merge flow | Test database + pre-loaded candidate pairs |
-| Schema extraction | `arango-schema-mapper` against a test database | Separate source database with known schema |
+| Schema extraction | `arangodb-schema-analyzer` against a test database | Separate source database with known schema |
 | Named graph operations | Graph creation, traversal, staging → production promotion | Test database with named graphs |
 | API endpoints | Full request → response cycle via `httpx.AsyncClient` (TestClient) | FastAPI `TestClient` + test database |
 
@@ -3641,7 +3642,7 @@ backend/tests/
 │   ├── test_temporal_queries.py   # Point-in-time snapshots, diffs, history
 │   ├── test_arangordf_import.py   # PGT import of OWL files
 │   ├── test_er_pipeline.py        # Full ER blocking → scoring → clustering
-│   ├── test_schema_extraction.py  # arango-schema-mapper integration
+│   ├── test_schema_extraction.py  # arangodb-schema-analyzer integration
 │   ├── test_named_graphs.py       # Graph creation, traversal, promotion
 │   └── test_api_endpoints.py      # Full HTTP request/response cycle
 └── e2e/
@@ -3760,7 +3761,7 @@ A feature is not complete until:
 
 ## 9. Leveraging Existing Codebases
 
-### 9.1 `arango-schema-mapper` → Schema Extraction + Document Extraction Service
+### 9.1 `arangodb-schema-analyzer` (repo `arango-schema-analyzer`) → Schema Extraction + Document Extraction Service
 
 **Role:** Two capabilities — (a) reverse-engineer ontologies from live ArangoDB databases, and (b) provide LLM extraction patterns for document-based extraction.
 
@@ -3770,7 +3771,7 @@ A feature is not complete until:
 | `schema_analyzer/analyzer.py` | `AgenticSchemaAnalyzer` with optional LLM semantic inference | Use for schema-to-ontology reverse engineering (Section 6.9) |
 | `schema_analyzer/owl_export.py` | OWL/Turtle export of conceptual model | Feed output into the OWL import pipeline |
 | `schema_analyzer/baseline.py` | No-LLM deterministic inference from snapshot | Fallback when LLM is unavailable or for cost savings |
-| `tool_contract_v1.py` | Structured JSON request/response schemas | Use for AOE ↔ schema-mapper integration contract |
+| `tool_contract_v1.py` | Structured JSON request/response schemas | Use for AOE ↔ schema-analyzer integration contract |
 | `schema_analyzer/workflow.py` | Generate → validate → repair loop for LLM outputs | Reuse pattern for document extraction agent's self-correction |
 | Prompt construction (`_build_prompt`) | System prompt + snapshot → structured JSON | Adapt pattern for document-based ontology extraction prompts |
 
@@ -4072,7 +4073,7 @@ A feature is not complete until:
 | **Ontology Registry** | A catalog collection in ArangoDB tracking all imported/extracted ontologies, their metadata, and lifecycle status |
 | **Ontology Library** | The managed collection of all Domain Ontologies available for organizations to compose their Tier 2 extensions against |
 | **Schema Extraction** | Reverse-engineering an ontology from a live ArangoDB database's physical structure (collections, edges, sampled documents) |
-| **arango-schema-mapper** | Python library (`arangodb-schema-analyzer`) that introspects ArangoDB databases and produces conceptual models with optional LLM enhancement |
+| **arangodb-schema-analyzer** | Python package (repo `arango-schema-analyzer`; 0.14.0 as of 2026-09) that introspects ArangoDB databases and produces conceptual models / CSI v1 documents with optional LLM enhancement; as of 0.14.0 the portfolio's owner of LPG type detection. Retired names for the same library: `arango-schema-mapper`, `arango-schema-extractor`. |
 | **ArangoRDF** | Third-party Python library (`arango_rdf`) for storing RDF in ArangoDB. **AOE does not use or depend on it** — historical PRD text said otherwise; see FR-2.5. Import is handled in-tree by `ontology_import.py` on `rdflib`. |
 | **IRI** | Internationalized Resource Identifier — the unique identifier for an ontology concept (e.g., `http://xmlns.com/foaf/0.1/Person`) |
 | **ArangoDB Graph Visualizer** | Built-in web UI for exploring named graphs in ArangoDB, supporting custom themes, canvas actions (right-click menu), saved queries, and viewpoints |

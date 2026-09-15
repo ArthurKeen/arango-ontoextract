@@ -686,7 +686,7 @@ curl -X POST http://localhost:8010/api/v1/ontology/schema/extract \
   -d '{"connection": {"host": "http://remote-arango:8529", "db": "target_db"}}'
 ```
 
-Uses `arango-schema-mapper` to reverse-engineer the database schema into OWL, then imports it into AOE.
+Uses `arangodb-schema-analyzer` (optional, import-guarded; the deterministic built-in mapper is the baseline) to reverse-engineer the database schema into OWL, then imports it into AOE.
 
 ---
 
@@ -755,6 +755,22 @@ python -m app.mcp.server --transport sse --port 8001
 | ER | `run_entity_resolution` | Trigger ER pipeline |
 | ER | `explain_entity_match` | Field-by-field similarity |
 | ER | `get_entity_clusters` | WCC entity clusters |
+| Relational | `preview_relational_schema` | Preview a relational DB's tables / columns / FKs |
+| Relational | `extract_relational_schema` | Extract an ontology from a relational DB |
+| CSI import | `preview_csi_document` | Validate a CSI v1 document and summarise the import (read-only) |
+| CSI import | `import_csi_document` | Import a CSI v1 document as a new ontology |
+| Belief revision | `list_revisions_inbox` | Pending revisions awaiting curation |
+| Belief revision | `list_recent_revisions` | Recent revisions, filterable |
+| Belief revision | `get_revision` | One revision record |
+| Belief revision | `decide_revision` | Accept / reject / modify a revision |
+| Belief revision | `run_consolidation` | Ontology-wide consolidation pass (dry-run by default) |
+| Belief revision | `get_circuit_breaker_state` | LLM revision-agent circuit-breaker state |
+| Alignment | `align_ontologies` | Create an alignment session over ≥2 ontologies |
+| Alignment | `adjudicate_alignment` | Auto-accept high-confidence, LLM the rest |
+| Alignment | `list_correspondences` | List a session's candidate correspondences |
+| Alignment | `accept_correspondence` | Accept a candidate correspondence |
+| Alignment | `reject_correspondence` | Reject a candidate correspondence |
+| Alignment | `materialize_master` | Build the reconciled master ontology |
 
 For the full MCP tool catalog with parameters and examples, see [docs/mcp-server.md](mcp-server.md).
 

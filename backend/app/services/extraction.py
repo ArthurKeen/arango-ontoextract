@@ -40,7 +40,7 @@ from app.services.domain_detection import (
     detected_domains_from_segments,
 )
 from app.services.edge_repair import resolve_range_class
-from app.services.ontology_uri import normalize_uri
+from app.services.ontology_uri import class_document_key, normalize_uri
 from app.services.visual_extraction import (
     aggregate_document_visual_diagnostics,
     build_orphan_risk_warning,
@@ -1301,7 +1301,11 @@ def _materialize_to_graph(
         # invalid RDF on export and collides across ontologies in the §6.20
         # decision store (which joins on concept_uri).
         uri = normalize_uri(cls_data.get("uri"), ontology_id=ontology_id, label=label)
-        key = uri.split("#")[-1].split("/")[-1]
+        # Scope the storage key by ontology. Keying on the bare IRI fragment let
+        # a second extraction of the same document claim the first's class
+        # documents via ``overwrite=True`` below -- see
+        # ``ontology_uri.class_document_key``.
+        key = class_document_key(ontology_id, uri, label=label)
 
         class_doc = {
             "_key": key,
@@ -1334,7 +1338,11 @@ def _materialize_to_graph(
         # Index by URI fragment (post ``#`` / final path segment) so the
         # range resolver can find a class by fragment even when its label
         # diverges from the URI suffix (the common LLM case).
-        fragment_to_key[key] = key
+        # Index by the IRI FRAGMENT, not by the storage key. These were the same
+        # string until keys became ontology-scoped; keying this map on `key`
+        # instead would make every fragment lookup miss, and the parent resolver
+        # would silently stop emitting subclass_of edges.
+        fragment_to_key[uri.split("#")[-1].split("/")[-1]] = key
 
         parent_uri = cls_data.get("parent_uri")
         if parent_uri:

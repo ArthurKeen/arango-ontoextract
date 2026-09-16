@@ -1964,7 +1964,10 @@ class TestMaterializeToGraph:
         cls_col = cols["ontology_classes"]
         assert cls_col.insert.call_count == 1
         cls_doc = cls_col.insert.call_args[0][0]
-        assert cls_doc["_key"] == "Animal"
+        assert cls_doc["_key"] == "onto_1__Animal", (
+            "class keys are scoped by ontology so two extractions of one document "
+            "cannot claim each other's documents -- see test_ontology_key_scoping"
+        )
         assert cls_doc["label"] == "Animal"
         assert cls_doc["ontology_id"] == "onto_1"
         assert cls_doc["confidence"] == 0.85
@@ -1987,7 +1990,7 @@ class TestMaterializeToGraph:
         ef_col = cols["extracted_from"]
         assert ef_col.insert.call_count == 1
         ef_doc = ef_col.insert.call_args[0][0]
-        assert ef_doc["_from"] == "ontology_classes/Animal"
+        assert ef_doc["_from"] == "ontology_classes/onto_1__Animal"
         assert ef_doc["_to"] == "documents/doc_1"
 
     def test_persists_domain_tag_when_present(self):
@@ -2073,8 +2076,8 @@ class TestMaterializeToGraph:
         sub_col = cols["subclass_of"]
         assert sub_col.insert.call_count == 1
         edge = sub_col.insert.call_args[0][0]
-        assert edge["_from"] == "ontology_classes/Animal"
-        assert edge["_to"] == "ontology_classes/LivingThing"
+        assert edge["_from"] == "ontology_classes/onto_1__Animal"
+        assert edge["_to"] == "ontology_classes/onto_1__LivingThing"
         assert edge["evidence"] == parent_evidence
 
     def test_handles_class_insert_failure_gracefully(self):
@@ -2293,10 +2296,10 @@ class TestMaterializeConstraints:
         docs = [c[0][0] for c in cc.insert.call_args_list]
         for d in docs:
             assert d["constraint_type"] == "owl:Restriction"
-            assert d["on_class"] == "ontology_classes/Account"
+            assert d["on_class"] == "ontology_classes/onto_1__Account"
             assert d["property_uri"] == "http://ex.org/onto#holder"
             # Relationship URI -> object_properties collection.
-            assert d["property_id"] == "ontology_object_properties/Account_holder"
+            assert d["property_id"] == "ontology_object_properties/onto_1__Account_holder"
             assert d["ontology_id"] == "onto_1"
             assert d["extraction_run_id"] == "run_1"
             assert d["expired"] == NEVER_EXPIRES
@@ -2350,7 +2353,7 @@ class TestMaterializeConstraints:
         doc = cc.insert.call_args[0][0]
         assert doc["restriction_type"] == "cardinality"
         # Attribute URI -> datatype_properties collection.
-        assert doc["property_id"] == "ontology_datatype_properties/Customer_email"
+        assert doc["property_id"] == "ontology_datatype_properties/onto_1__Customer_email"
         assert doc["restriction_value"] == 1
 
     def test_unresolved_property_uri_persists_with_null_property_id(self, caplog):
@@ -2443,7 +2446,7 @@ class TestMaterializeConstraints:
         cc = cols["ontology_constraints"]
         assert cc.insert.call_count == 1
         doc = cc.insert.call_args[0][0]
-        assert doc["property_id"] == "ontology_datatype_properties/Customer_email"
+        assert doc["property_id"] == "ontology_datatype_properties/onto_1__Customer_email"
 
     def test_no_constraints_writes_nothing(self):
         from app.services.extraction import _materialize_to_graph

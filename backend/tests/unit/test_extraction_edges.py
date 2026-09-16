@@ -203,7 +203,9 @@ class TestSubsumptionVerdictOnSubclassEdge:
             result=result,
         )
         edges = [call[0][0] for call in cols["subclass_of"].insert.call_args_list]
-        return [e for e in edges if e["_from"].endswith("/Airbag")]
+        # Class keys are ontology-scoped ("onto_1__Airbag"), so match the
+        # local name rather than the whole path segment.
+        return [e for e in edges if e["_from"].endswith("__Airbag")]
 
     def test_rejected_edge_is_written_with_its_verdict(self):
         verdict = {"is_a": False, "relation": "part-of", "reason": "component of"}

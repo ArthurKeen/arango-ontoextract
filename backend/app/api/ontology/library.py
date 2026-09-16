@@ -416,6 +416,32 @@ def list_ontology_releases(
     return {"data": rows}
 
 
+#: Ontology-owned document collections, in the order delete walks them. Shared
+#: by the soft-expiry pass and ``purge`` so the two can never drift apart —
+#: a collection missing from one list is a silent leak in the other.
+_CONTENT_COLLECTIONS = (
+    "ontology_classes",
+    "ontology_properties",
+    "ontology_object_properties",
+    "ontology_datatype_properties",
+    "ontology_constraints",
+)
+
+_CONTENT_EDGE_COLLECTIONS = (
+    "subclass_of",
+    "has_property",
+    "has_constraint",
+    "related_to",
+    "equivalent_class",
+    "extracted_from",
+    "extends_domain",
+    "has_chunk",
+    "produced_by",
+    "rdfs_domain",
+    "rdfs_range_class",
+)
+
+
 @router.delete("/library/{ontology_id}")
 def delete_ontology(
     ontology_id: str,
@@ -423,6 +449,18 @@ def delete_ontology(
     hard_delete: bool = Query(
         False,
         description="When true, also remove the ontology_registry entry after expiring contents",
+    ),
+    purge: bool = Query(
+        False,
+        description=(
+            "DESTRUCTIVE and irreversible. Physically REMOVE this ontology's classes, "
+            "properties, constraints and edges instead of only expiring them. Without "
+            "it (including with hard_delete=true) the documents remain on disk and keep "
+            "owning their `_key`s, so the VCR timeline still resolves them — but a "
+            "re-extraction of the same source can no longer inherit them once keys are "
+            "ontology-scoped. Use for test/duplicate cleanup; never on curated data you "
+            "may want to time-travel."
+        ),
     ),
 ) -> dict[str, Any]:
     """Delete or deprecate an ontology with cascade analysis (PRD FR-8.13).
@@ -434,6 +472,13 @@ def delete_ontology(
     are expired, which is useful for cleaning up test/duplicate ontologies.
     Per-ontology named graph is removed (it references the same shared
     collections, and expired entities are filtered out by queries).
+
+    **``hard_delete`` does NOT remove content.** It drops the registry row, so
+    the ontology vanishes from the library while every class, property and edge
+    stays on disk, merely expired. That is deliberate — it is what keeps the VCR
+    timeline able to replay a deleted ontology — but it surprised us in practice:
+    a "hard" delete of two ontologies left 3,412 documents behind (2026-09-16).
+    Pass ``purge=true`` when you actually want the storage freed.
 
     Without ``?confirm=true``, returns dependent ontologies (dry-run).
     """
@@ -471,13 +516,7 @@ def delete_ontology(
 
     expired_counts: dict[str, int] = {}
 
-    for col_name in (
-        "ontology_classes",
-        "ontology_properties",
-        "ontology_object_properties",
-        "ontology_datatype_properties",
-        "ontology_constraints",
-    ):
+    for col_name in _CONTENT_COLLECTIONS:
         if db.has_collection(col_name):
             result = list(
                 _shared.run_aql(
@@ -491,19 +530,7 @@ def delete_ontology(
             )
             expired_counts[col_name] = len(result)
 
-    for edge_col in (
-        "subclass_of",
-        "has_property",
-        "has_constraint",
-        "related_to",
-        "equivalent_class",
-        "extracted_from",
-        "extends_domain",
-        "has_chunk",
-        "produced_by",
-        "rdfs_domain",
-        "rdfs_range_class",
-    ):
+    for edge_col in _CONTENT_EDGE_COLLECTIONS:
         if db.has_collection(edge_col):
             result = list(
                 _shared.run_aql(
@@ -558,6 +585,28 @@ def delete_ontology(
 
     graph_deleted = delete_ontology_graph(ontology_id, db=db)
 
+    # ``purge`` is the only path that actually frees storage AND the ``_key``
+    # namespace. Soft-expiry leaves every document in place, so an ontology that
+    # looks gone from the library still owns its class keys -- which is how a
+    # re-extraction of the same document used to inherit a deleted ontology's
+    # documents. Destructive and irreversible, hence opt-in and gated on
+    # ``hard_delete`` (which on its own only drops the registry row).
+    purged_counts: dict[str, int] = {}
+    if purge:
+        for col_name in _CONTENT_COLLECTIONS + _CONTENT_EDGE_COLLECTIONS:
+            if not db.has_collection(col_name):
+                continue
+            removed = list(
+                _shared.run_aql(
+                    db,
+                    f"FOR doc IN {col_name} FILTER doc.ontology_id == @oid "
+                    f"REMOVE doc IN {col_name} RETURN 1",
+                    bind_vars={"oid": ontology_id},
+                )
+            )
+            if removed:
+                purged_counts[col_name] = len(removed)
+
     if hard_delete:
         registry_deleted = _shared.registry_repo.delete_registry_entry(ontology_id)
         status = "deleted"
@@ -571,6 +620,7 @@ def delete_ontology(
         "status": status,
         "expired_at": now,
         "expired_counts": expired_counts,
+        "purged_counts": purged_counts,
         "graph_deleted": graph_deleted,
         "registry_deleted": registry_deleted,
         "dependent_ontologies": dependents,

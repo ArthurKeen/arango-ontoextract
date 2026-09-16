@@ -118,6 +118,78 @@ class TestDeleteOntology:
         registry_repo.delete_registry_entry.assert_called_once_with("test_onto")
         registry_repo.deprecate_registry_entry.assert_not_called()
 
+    def test_hard_delete_alone_leaves_content_on_disk(self, client):
+        """`hard_delete` drops the registry row ONLY -- documents stay.
+
+        Deliberate (the VCR timeline replays deleted ontologies), but it
+        surprised us: a "hard" delete of two ontologies left 3,412 documents
+        behind on 2026-09-16, still owning their class `_key`s. Pinned so the
+        distinction from `purge` stays explicit.
+        """
+        issued: list[str] = []
+
+        def _spy_aql(_db, query, **_kw):
+            issued.append(query)
+            return []
+
+        with (
+            patch("app.api.ontology._shared.registry_repo") as registry_repo,
+            patch("app.api.ontology._shared.run_aql", side_effect=_spy_aql),
+            patch("app.services.ontology_graphs.delete_ontology_graph", return_value=True),
+        ):
+            registry_repo.get_registry_entry.return_value = {
+                "_key": "test_onto",
+                "name": "Test Ontology",
+                "status": "active",
+            }
+            registry_repo.delete_registry_entry.return_value = True
+            resp = client.delete("/api/v1/ontology/library/test_onto?confirm=true&hard_delete=true")
+
+        assert resp.status_code == 200
+        assert resp.json()["purged_counts"] == {}
+        assert not any("REMOVE" in q for q in issued), (
+            "hard_delete must not physically remove documents -- that is purge's job"
+        )
+
+    def test_purge_physically_removes_every_content_collection(self, client):
+        """`purge=true` is the only path that frees storage and the key namespace."""
+        from app.api.ontology.library import (
+            _CONTENT_COLLECTIONS,
+            _CONTENT_EDGE_COLLECTIONS,
+        )
+
+        removed_from: list[str] = []
+
+        def _spy_aql(_db, query, **_kw):
+            if "REMOVE" in query:
+                # "FOR doc IN <col> FILTER ... REMOVE doc IN <col> RETURN 1"
+                removed_from.append(query.split(" IN ")[1].split(" ")[0])
+                return [1, 1]
+            return []
+
+        with (
+            patch("app.api.ontology._shared.registry_repo") as registry_repo,
+            patch("app.api.ontology._shared.run_aql", side_effect=_spy_aql),
+            patch("app.services.ontology_graphs.delete_ontology_graph", return_value=True),
+        ):
+            registry_repo.get_registry_entry.return_value = {
+                "_key": "test_onto",
+                "name": "Test Ontology",
+                "status": "active",
+            }
+            registry_repo.delete_registry_entry.return_value = True
+            resp = client.delete(
+                "/api/v1/ontology/library/test_onto?confirm=true&hard_delete=true&purge=true"
+            )
+
+        assert resp.status_code == 200
+        expected = set(_CONTENT_COLLECTIONS) | set(_CONTENT_EDGE_COLLECTIONS)
+        assert set(removed_from) == expected, (
+            "purge must cover every ontology-owned collection; missing: "
+            f"{expected - set(removed_from)}"
+        )
+        assert resp.json()["purged_counts"], "purged_counts must report what was removed"
+
     def test_hard_delete_removes_already_deprecated_registry_entry(self, client):
         with (
             patch("app.api.ontology._shared.registry_repo") as registry_repo,

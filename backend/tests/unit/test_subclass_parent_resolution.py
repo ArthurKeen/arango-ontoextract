@@ -148,3 +148,52 @@ def test_proposed_parent_is_persisted_even_when_unresolvable() -> None:
     orphan = next(d for d in written if d["label"] == "Orphan")
     assert orphan["parent_uri"] == "http://x#NeverExtracted"
     assert orphan["parent_label"], "a humanised parent label must be stored as an anchor"
+
+
+def test_curie_parent_resolves_into_an_imported_ontology() -> None:
+    """The model cites `obo:CTO_0000108`; that class lives in CTO, not here.
+
+    Once the Tier 2 context began emitting citable identifiers the model
+    stopped inventing URIs and started correctly naming IMPORTED classes.
+    Measured on the Ixekizumab protocol: 442 parents unresolved, 434 of them
+    (98%) real CTO identifiers — `Ixekizumab -> obo:CTO_0000108`
+    ("investigational molecular entity"), correct and discarded. Resolution
+    must reach into the declared base ontologies.
+    """
+    from unittest.mock import patch
+
+    db, cols = _mock_db()
+    result = MagicMock()
+    result.classes = [_cls("http://x#Ixekizumab", "Ixekizumab", parent_uri="obo:CTO_0000108")]
+    from app.services.extraction import _materialize_to_graph
+
+    with patch(
+        "app.services.extraction._imported_class_uri_index",
+        return_value={"http://purl.obolibrary.org/obo/CTO_0000108": "ontology_classes/cto_108"},
+    ):
+        _materialize_to_graph(
+            db,
+            run_id="run_1",
+            document_id="doc_1",
+            ontology_id="onto_1",
+            result=result,
+            base_ontology_ids=["cto"],
+        )
+
+    edges = [call[0][0] for call in cols["subclass_of"].insert.call_args_list]
+    assert len(edges) == 1, "a CURIE naming an imported class must resolve"
+    assert edges[0]["_to"] == "ontology_classes/cto_108"
+    assert edges[0]["cross_ontology"] is True
+
+
+def test_no_base_ontologies_keeps_the_original_path() -> None:
+    """A single-ontology extraction must behave exactly as before."""
+    db, cols = _mock_db()
+    result = MagicMock()
+    result.classes = [_cls("http://x#Orphan", "Orphan", parent_uri="obo:CTO_0000108")]
+    from app.services.extraction import _materialize_to_graph
+
+    _materialize_to_graph(
+        db, run_id="run_1", document_id="doc_1", ontology_id="onto_1", result=result
+    )
+    assert [c[0][0] for c in cols["subclass_of"].insert.call_args_list] == []

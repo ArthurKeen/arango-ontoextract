@@ -534,6 +534,7 @@ async def execute_run(
                             result=final_state["consistency_result"],
                             faithfulness_scores=final_state.get("faithfulness_scores"),
                             validity_scores=final_state.get("validity_scores"),
+                            base_ontology_ids=base_ontology_ids,
                         )
                 _create_produced_by_edge(db, ontology_id=ontology_id, run_id=run_id)
 
@@ -1233,6 +1234,49 @@ def _infer_property_type(
     return "owl:DatatypeProperty"
 
 
+#: CURIE prefixes the Tier 2 context declares. Kept in step with
+#: ``ontology_context._CURIE_PREFIXES``: that module tells the model it may cite
+#: ``obo:CTO_0000108``, so this module has to be able to expand it back.
+_CURIE_EXPANSIONS: tuple[tuple[str, str], ...] = (
+    ("obo:", "http://purl.obolibrary.org/obo/"),
+    ("skos:", "http://www.w3.org/2004/02/skos/core#"),
+    ("foaf:", "http://xmlns.com/foaf/0.1/"),
+    ("schema:", "https://schema.org/"),
+)
+
+
+def _expand_curie(uri: str) -> str:
+    """Expand a declared CURIE to its full IRI; pass anything else through."""
+    for short, long in _CURIE_EXPANSIONS:
+        if uri.startswith(short):
+            return long + uri[len(short) :]
+    return uri
+
+
+def _imported_class_uri_index(
+    db: StandardDatabase, base_ontology_ids: list[str] | None
+) -> dict[str, str]:
+    """Map ``uri -> _id`` for every current class in the base ontologies.
+
+    Empty when no bases were declared, which keeps a plain single-ontology
+    extraction on exactly the path it took before.
+    """
+    if not base_ontology_ids:
+        return {}
+    try:
+        rows = run_aql(
+            db,
+            "FOR c IN ontology_classes "
+            "FILTER c.ontology_id IN @oids AND c.expired == @never AND c.uri != null "
+            "RETURN {uri: c.uri, id: c._id}",
+            bind_vars={"oids": list(base_ontology_ids), "never": NEVER_EXPIRES},
+        )
+        return {r["uri"]: r["id"] for r in rows}
+    except Exception:
+        log.warning("imported class index unavailable; cross-ontology parents will miss")
+        return {}
+
+
 def _materialize_to_graph(
     db: StandardDatabase,
     *,
@@ -1242,6 +1286,7 @@ def _materialize_to_graph(
     result: Any,
     faithfulness_scores: dict[str, float] | None = None,
     validity_scores: dict[str, float] | None = None,
+    base_ontology_ids: list[str] | None = None,
 ) -> None:
     """Write extracted classes/properties into PGT-aligned graph collections.
 
@@ -1505,6 +1550,16 @@ def _materialize_to_graph(
     # LLM-proposed parents were discarded in silence and the ontology rendered
     # 86% orphaned. ``fragment_to_key`` was already built a few lines above and
     # passed to the relationship resolver; parents simply never consulted it.
+    # Cross-ontology parents. Once the Tier 2 context began emitting citable
+    # identifiers, the model stopped inventing URIs and started correctly
+    # naming classes in the IMPORTED ontologies -- which the resolver, searching
+    # only this run's own classes, could not see. Measured on the Ixekizumab
+    # protocol: 442 parents unresolved, of which 434 (98%) were real CTO
+    # identifiers. `Ixekizumab -> obo:CTO_0000108` ("investigational molecular
+    # entity") is correct and was being discarded. The better the citations
+    # became, the more the resolver dropped.
+    imported_uri_to_id = _imported_class_uri_index(db, base_ontology_ids)
+
     parent_misses: list[tuple[str, str]] = []
     for child_key, parent_uri, parent_evidence, verdict in class_parent_uris:
         resolution = resolve_range_class(
@@ -1514,6 +1569,25 @@ def _materialize_to_graph(
             label_to_key=class_keys,
         )
         parent_key = resolution.class_key
+        imported_parent_id = (
+            None if parent_key else imported_uri_to_id.get(_expand_curie(parent_uri))
+        )
+        if imported_parent_id:
+            # Points at an imported class, so the edge targets its _id directly
+            # rather than a key in this ontology's namespace.
+            with contextlib.suppress(Exception):
+                subclass_col.insert(
+                    {
+                        "_from": f"ontology_classes/{child_key}",
+                        "_to": imported_parent_id,
+                        "ontology_id": ontology_id,
+                        "evidence": parent_evidence,
+                        "cross_ontology": True,
+                        "created": now,
+                        "expired": NEVER_EXPIRES,
+                    }
+                )
+            continue
         if parent_key and parent_key != child_key:
             with contextlib.suppress(Exception):
                 edge_doc: dict[str, Any] = {

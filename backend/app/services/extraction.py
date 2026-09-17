@@ -39,7 +39,7 @@ from app.services.domain_detection import (
     build_multi_domain_warning,
     detected_domains_from_segments,
 )
-from app.services.edge_repair import resolve_range_class
+from app.services.edge_repair import humanize_uri_fragment, resolve_range_class
 from app.services.ontology_uri import class_document_key, normalize_uri
 from app.services.visual_extraction import (
     aggregate_document_visual_diagnostics,
@@ -1319,6 +1319,17 @@ def _materialize_to_graph(
             "semantic_validity_score": cls_data.get("semantic_validity_score"),
             "evidence": cls_data.get("evidence", []),
             "parent_evidence": cls_data.get("parent_evidence", []),
+            # Persist the LLM's stated parent even when it cannot be resolved,
+            # exactly as relationships persist ``target_class_uri`` /
+            # ``target_class_label``. Without this the intent is destroyed at
+            # write time: a dropped hierarchy edge left no trace of what the
+            # model actually proposed, so no repair pass or curator could
+            # recover it -- the 276 lost parents on the ICH M11 ontology had to
+            # be inferred rather than queried.
+            "parent_uri": cls_data.get("parent_uri") or None,
+            "parent_label": humanize_uri_fragment(str(cls_data.get("parent_uri") or ""))
+            if cls_data.get("parent_uri")
+            else None,
             "rdf_type": "owl:Class",
             "created": now,
             "expired": NEVER_EXPIRES,
@@ -1485,11 +1496,24 @@ def _materialize_to_graph(
             deferred_constraints.append((key, raw_constraints, class_prop_uri_map))
 
     # subclass_of edges
+    # Parent resolution uses the SAME four-tier resolver as relationship ranges
+    # (uri / fragment / label / miss). It previously had its own two-tier
+    # version which looked a fragment up in ``class_keys`` -- a dict keyed by
+    # LABEL. Fragments are CamelCase ("TrialIntervention") and labels are not
+    # ("Trial Intervention"), so that tier missed 355 of 363 times on the ICH
+    # M11 ontology. Combined with the absent miss-branch below, 276 of 326
+    # LLM-proposed parents were discarded in silence and the ontology rendered
+    # 86% orphaned. ``fragment_to_key`` was already built a few lines above and
+    # passed to the relationship resolver; parents simply never consulted it.
+    parent_misses: list[tuple[str, str]] = []
     for child_key, parent_uri, parent_evidence, verdict in class_parent_uris:
-        parent_key = uri_to_key.get(parent_uri)
-        if not parent_key:
-            parent_frag = parent_uri.split("#")[-1].split("/")[-1]
-            parent_key = class_keys.get(parent_frag) or class_keys.get(parent_uri)
+        resolution = resolve_range_class(
+            parent_uri,
+            uri_to_key=uri_to_key,
+            fragment_to_key=fragment_to_key,
+            label_to_key=class_keys,
+        )
+        parent_key = resolution.class_key
         if parent_key and parent_key != child_key:
             with contextlib.suppress(Exception):
                 edge_doc: dict[str, Any] = {
@@ -1509,6 +1533,30 @@ def _materialize_to_graph(
                 subclass_col.insert(edge_doc)
         elif parent_key == child_key:
             log.warning("skipping self-referential subclass_of: %s", child_key)
+        else:
+            # The miss branch that did not exist. An unresolvable parent used to
+            # fall off the end of the if/elif: no edge, no log, no counter --
+            # so losing 85% of the proposed hierarchy looked exactly like the
+            # model never proposing one. Mirrors the relationship resolver's
+            # miss handling immediately below.
+            parent_misses.append((child_key, parent_uri))
+            log.warning(
+                "unresolved subclass_of parent; hierarchy edge dropped",
+                extra={
+                    "child_key": child_key,
+                    "parent_uri": parent_uri,
+                    "tier": resolution.tier,
+                    "ontology_id": ontology_id,
+                },
+            )
+
+    if parent_misses:
+        log.warning(
+            "dropped %d of %d proposed subclass_of edges (unresolvable parent)",
+            len(parent_misses),
+            len(class_parent_uris),
+            extra={"ontology_id": ontology_id},
+        )
 
     # Deferred relationships → ontology_object_properties + rdfs_domain + rdfs_range_class
     #

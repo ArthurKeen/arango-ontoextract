@@ -19,6 +19,33 @@ from app.services.temporal import NEVER_EXPIRES
 log = logging.getLogger(__name__)
 
 
+#: Namespaces worth compacting in the prompt context. A full OBO IRI is ~42
+#: characters and this block is re-sent with every chunk of every pass, so
+#: emitting them raw more than doubled the context (11.3KB -> 25.0KB measured
+#: on CTO). CURIEs keep the identifier citable at a fraction of the tokens.
+_CURIE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("obo", "http://purl.obolibrary.org/obo/"),
+    ("skos", "http://www.w3.org/2004/02/skos/core#"),
+    ("foaf", "http://xmlns.com/foaf/0.1/"),
+    ("schema", "https://schema.org/"),
+)
+
+
+def _compact_uri(uri: str, prefixes: list[tuple[str, str]]) -> str:
+    """Render ``uri`` as a CURIE when a known prefix applies, else verbatim."""
+    for short, long in prefixes:
+        if uri.startswith(long):
+            return f"{short}:{uri[len(long) :]}"
+    return uri
+
+
+def _prefixes_used(uris: list[str]) -> list[tuple[str, str]]:
+    """Only the prefixes actually present, so the header stays honest."""
+    return [
+        (short, long) for short, long in _CURIE_PREFIXES if any(u.startswith(long) for u in uris)
+    ]
+
+
 def serialize_domain_context(
     db: StandardDatabase | None = None,
     *,
@@ -88,7 +115,15 @@ def serialize_domain_context(
     root_ids = [cid for cid in class_by_id if cid not in child_ids]
     root_ids.sort(key=lambda cid: class_by_id[cid].get("label", ""))
 
-    lines = [f"Domain: {ontology_name}", "Classes:"]
+    prefixes = _prefixes_used([str(c.get("uri") or "") for c in classes])
+    lines = [f"Domain: {ontology_name}"]
+    if prefixes:
+        # Declare the prefixes so an identifier cited back to us is expandable.
+        lines.append("Prefixes: " + ", ".join(f"{short}= {long}" for short, long in prefixes))
+    lines.append(
+        "Classes (cite the bracketed identifier verbatim when referring to one; "
+        "do NOT invent identifiers):"
+    )
 
     def _render_tree(class_id: str, depth: int) -> None:
         cls = class_by_id[class_id]
@@ -96,7 +131,18 @@ def serialize_domain_context(
         prop_names = props_map.get(class_id, [])
         suffix = f" (props: {', '.join(prop_names)})" if prop_names else ""
         indent = "  " * depth
-        lines.append(f"{indent}- {label}{suffix}")
+        # Emit the class IRI alongside its label. Without it the model is shown
+        # the right vocabulary and denied the means to cite it: the prompt asks
+        # for a `parent_uri`, so it invents one in the correct SHAPE and hangs
+        # the real label off it as a fragment. Observed 2026-09-16 on the ICH
+        # M11 extraction -- 36 parents pointed at `obo/CTO_0000000`, which does
+        # not exist, with values like `CTO_0000000#directive_information_entity`
+        # where "directive information entity" IS a real CTO label taken from
+        # this very context block. The concept was right; only the citation was
+        # fabricated. Supplying the IRI turns those into resolvable references.
+        uri = cls.get("uri")
+        ref = f" [{_compact_uri(uri, prefixes)}]" if uri else ""
+        lines.append(f"{indent}- {label}{ref}{suffix}")
 
         for child_id in sorted(
             children_map.get(class_id, []),

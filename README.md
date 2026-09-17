@@ -1,8 +1,14 @@
 # Arango-OntoExtract (AOE)
 
-LLM-driven ontology extraction and curation platform built on ArangoDB.
+An ontology lifecycle manager built on ArangoDB — where ontologies are acquired, curated, aligned to standards, versioned, and published.
 
-AOE ingests unstructured documents (PDF, DOCX, Markdown), extracts formal domain ontologies via large language models, and provides a visual curation dashboard for domain experts to review, edit, and promote extracted knowledge into a production graph. Ontologies are parsed with `rdflib` and materialised into property-graph-aligned collections in ArangoDB (ADR-006) — preserving OWL metamodel semantics (class hierarchy, property domains/ranges, restrictions) while making them ordinary, queryable graph data alongside the documents, embeddings and search index they came from.
+AOE is the system of record for an ontology across its whole life, not a one-shot extractor. It **acquires** through four paths — unstructured documents (PDF, DOCX, PPTX, Markdown, including embedded visual evidence), live ArangoDB graph schemas, relational schemas, and direct import of published ontologies (OWL/TTL) or CSI v1 interchange documents. It then **curates** them with a human in the loop, **aligns** extracted concepts to reference ontologies with per-correspondence confidence and adjudication, **versions** every entity bitemporally so any past state is queryable, and **publishes** OWL 2 / RDFS / SKOS and SHACL.
+
+The extraction is the front door, not the building. For most customers the valuable work is relating what they already have to vocabularies their industry has already standardised — which is alignment and governance, not authorship.
+
+Ontologies are parsed with `rdflib` and materialised into property-graph-aligned collections in ArangoDB (ADR-006) — preserving OWL metamodel semantics (class hierarchy, property domains/ranges, restrictions) while making them ordinary, queryable graph data alongside the documents, embeddings and search index they came from.
+
+> **Name note.** "OntoExtract" names the original capability, and extraction is now one acquisition path among four — the majority of the system is curation, alignment, quality and versioning. The identifier is kept deliberately: the repo, package, MCP server, and every drift/provenance record across the estate are keyed on it, and an audit trail is a poor thing to break for a rename. The description, not the identifier, is what has been corrected.
 
 ![AOE workspace — the object-centric curation canvas with the Financial Services Domain ontology in Semantic view, a class detail panel open on the Account class, the lens legend bottom-left, and the temporal VCR timeline along the bottom edge.](docs/images/workspace-hero.png)
 
